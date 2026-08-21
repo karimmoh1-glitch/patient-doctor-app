@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CareConnect
 
-## Getting Started
+A patient–doctor app: patients describe what's wrong (by voice or text) and get matched
+with nearby doctors, or pair directly with their existing doctor via an invite code. Paired
+patients and doctors can message each other, and patients can call their doctor directly.
 
-First, run the development server:
+## Getting started
+
+Requires a Postgres database (local or hosted — e.g. the free one this repo's `render.yaml`
+provisions on Render).
 
 ```bash
+npm install
+cp .env.example .env   # fill in DATABASE_URL and JWT_SECRET
+npx prisma db push
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploy on Render
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+This repo includes a `render.yaml` blueprint that provisions a free web service and a free
+Postgres database together.
 
-## Learn More
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy)
 
-To learn more about Next.js, take a look at the following resources:
+1. Click the button above (or go to the Render dashboard → **New +** → **Blueprint** and point
+   it at this GitHub repo).
+2. Sign in to Render (GitHub sign-in is one click if you're already logged into GitHub).
+3. Render reads `render.yaml`, creates the database and web service, and generates a
+   `JWT_SECRET` automatically — no manual config needed.
+4. First deploy takes a few minutes. After that you'll have a public URL you can open on your
+   phone.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## How it works
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Sign up** as a Patient or Doctor.
+- **Doctors** set a specialty, phone number, and location, and get a shareable invite code.
+- **Patients** describe their symptoms (speaking uses the browser's built-in speech-to-text)
+  and either enter a doctor's invite code to pair directly, or search for nearby doctors —
+  results are ranked by a keyword-based specialty match plus distance (browser geolocation).
+- Once paired, patients and doctors can **chat**, and patients get a **Call** button that
+  dials the doctor's real phone number (`tel:` link).
 
-## Deploy on Vercel
+## Notes
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Data lives in a local SQLite file (`prisma/dev.db`) — nothing to configure.
+- Specialty matching is keyword-based (see `src/lib/specialty.ts`), not an LLM call, so it
+  works offline with no API keys.
+- Chat updates via polling (every 3s) rather than websockets, to keep the stack simple.
