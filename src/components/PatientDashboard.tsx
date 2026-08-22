@@ -25,11 +25,17 @@ export default function PatientDashboard({ symptoms }: { symptoms: string }) {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [requesting, setRequesting] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadPairings = useCallback(async () => {
-    const res = await fetch("/api/pairings");
-    const data = await res.json();
-    setPairings(data.pairings ?? []);
+    try {
+      const res = await fetch("/api/pairings");
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setPairings(data.pairings ?? []);
+    } catch {
+      setActionError("Couldn't load your care list. Check your connection and try again.");
+    }
   }, []);
 
   useEffect(() => {
@@ -46,15 +52,20 @@ export default function PatientDashboard({ symptoms }: { symptoms: string }) {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const params = new URLSearchParams({
-          lat: String(pos.coords.latitude),
-          lng: String(pos.coords.longitude),
-          symptoms,
-        });
-        const res = await fetch(`/api/doctors/nearby?${params}`);
-        const data = await res.json();
-        setDoctors(data.doctors ?? []);
-        setSuggestedSpecialty(data.suggestedSpecialty ?? null);
+        try {
+          const params = new URLSearchParams({
+            lat: String(pos.coords.latitude),
+            lng: String(pos.coords.longitude),
+            symptoms,
+          });
+          const res = await fetch(`/api/doctors/nearby?${params}`);
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          setDoctors(data.doctors ?? []);
+          setSuggestedSpecialty(data.suggestedSpecialty ?? null);
+        } catch {
+          setLocationError("Couldn't search for doctors right now. Please try again.");
+        }
         setLocating(false);
       },
       () => {
@@ -67,17 +78,32 @@ export default function PatientDashboard({ symptoms }: { symptoms: string }) {
 
   async function requestDoctor(doctorId: string) {
     setRequesting(doctorId);
-    await fetch("/api/pairings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ doctorId }),
-    });
-    setRequesting(null);
-    await loadPairings();
+    setActionError(null);
+    try {
+      const res = await fetch("/api/pairings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doctorId }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Couldn't send the request. Please try again.");
+      }
+      await loadPairings();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't send the request. Please try again.");
+    } finally {
+      setRequesting(null);
+    }
   }
 
   return (
     <div className="flex flex-col gap-8">
+      {actionError && (
+        <p className="rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 px-4 py-2 text-sm text-red-600">
+          {actionError}
+        </p>
+      )}
       <section>
         <h1 className="text-2xl font-bold mb-4">Your care</h1>
         {pairings === null ? (

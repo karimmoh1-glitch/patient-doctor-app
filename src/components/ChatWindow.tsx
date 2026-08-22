@@ -23,6 +23,7 @@ export default function ChatWindow({
   const [status, setStatus] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -53,15 +54,23 @@ export default function ChatWindow({
     e.preventDefault();
     if (!draft.trim()) return;
     setSending(true);
-    const res = await fetch(`/api/pairings/${pairingId}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: draft.trim() }),
-    });
-    setSending(false);
-    if (res.ok) {
+    setSendError(null);
+    try {
+      const res = await fetch(`/api/pairings/${pairingId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: draft.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Couldn't send that message. Please try again.");
+      }
       setDraft("");
       await load();
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Couldn't send that message. Please try again.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -121,6 +130,9 @@ export default function ChatWindow({
         <div ref={bottomRef} />
       </div>
 
+      {sendError && (
+        <p className="px-4 pt-2 text-sm text-red-600">{sendError}</p>
+      )}
       <form onSubmit={send} className="border-t border-neutral-200 dark:border-neutral-800 p-4 flex gap-2">
         <input
           value={draft}

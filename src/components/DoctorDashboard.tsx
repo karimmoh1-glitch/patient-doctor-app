@@ -13,11 +13,17 @@ export default function DoctorDashboard({ inviteCode }: { inviteCode: string }) 
   const [pairings, setPairings] = useState<Pairing[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [responding, setResponding] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/pairings");
-    const data = await res.json();
-    setPairings(data.pairings ?? []);
+    try {
+      const res = await fetch("/api/pairings");
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setPairings(data.pairings ?? []);
+    } catch {
+      setActionError("Couldn't load your requests. Check your connection and try again.");
+    }
   }, []);
 
   useEffect(() => {
@@ -27,13 +33,20 @@ export default function DoctorDashboard({ inviteCode }: { inviteCode: string }) 
 
   async function respond(id: string, action: "ACCEPT" | "DECLINE") {
     setResponding(id);
-    await fetch(`/api/pairings/${id}/respond`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    setResponding(null);
-    await load();
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/pairings/${id}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) throw new Error("Couldn't update that request. Please try again.");
+      await load();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Couldn't update that request. Please try again.");
+    } finally {
+      setResponding(null);
+    }
   }
 
   function copyCode() {
@@ -47,6 +60,11 @@ export default function DoctorDashboard({ inviteCode }: { inviteCode: string }) 
 
   return (
     <div className="flex flex-col gap-8">
+      {actionError && (
+        <p className="rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 px-4 py-2 text-sm text-red-600">
+          {actionError}
+        </p>
+      )}
       <section className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 p-4">
         <p className="text-sm text-neutral-600 dark:text-neutral-300">
           Share this invite code with your existing patients so they can connect directly:
