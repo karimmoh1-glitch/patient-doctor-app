@@ -137,6 +137,7 @@ export default function ChatWindow({
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          aria-label="Message"
           placeholder={status === "ACCEPTED" ? "Type a message…" : "Waiting for pairing to be accepted…"}
           disabled={status !== "ACCEPTED"}
           className="flex-1 rounded-full border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-2 disabled:opacity-50"

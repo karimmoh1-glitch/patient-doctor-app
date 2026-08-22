@@ -34,9 +34,12 @@ export default function LocationPicker({
 
   return (
     <div>
-      <label className="text-sm font-medium mb-1 block">Location</label>
+      <label htmlFor="location-label" className="text-sm font-medium mb-1 block">
+        Location
+      </label>
       <div className="flex gap-2">
         <input
+          id="location-label"
           placeholder="City or neighborhood (optional)"
           value={label}
           onChange={(e) => onLabel(e.target.value)}

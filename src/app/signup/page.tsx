@@ -104,6 +104,7 @@ export default function SignupPage() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <input
             required
+            aria-label="Full name"
             placeholder="Full name"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -112,6 +113,7 @@ export default function SignupPage() {
           <input
             required
             type="email"
+            aria-label="Email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -120,6 +122,7 @@ export default function SignupPage() {
           <input
             required
             type="password"
+            aria-label="Password, minimum 8 characters"
             placeholder="Password (min 8 characters)"
             minLength={8}
             value={password}
@@ -148,6 +151,7 @@ export default function SignupPage() {
                   Already have a doctor? Enter their invite code (optional)
                 </label>
                 <input
+                  aria-label="Doctor's invite code"
                   placeholder="e.g. AB12CD"
                   value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
@@ -163,6 +167,7 @@ export default function SignupPage() {
           {role === "DOCTOR" && (
             <>
               <select
+                aria-label="Specialty"
                 value={specialty}
                 onChange={(e) => setSpecialty(e.target.value)}
                 className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-4 py-2"
@@ -176,6 +181,7 @@ export default function SignupPage() {
               <input
                 required
                 type="tel"
+                aria-label="Phone number"
                 placeholder="Phone number (e.g. +1 555 123 4567)"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
