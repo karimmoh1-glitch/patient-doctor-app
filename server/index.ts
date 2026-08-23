@@ -105,6 +105,15 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+    // Multer's own upload-limit errors (e.g. LIMIT_FILE_SIZE) bypass any
+    // route-level try/catch entirely — they're raised by its middleware
+    // before the route handler runs — so without this they'd fall through
+    // as a generic 500 instead of a message the client can act on.
+    if (err?.name === "MulterError") {
+      console.error("Upload rejected:", err);
+      return res.status(400).json({ message: "File is too large or invalid" });
+    }
+
     const status = err.status || err.statusCode || 500;
     const message = status < 500 && err.message ? err.message : "Internal Server Error";
 
