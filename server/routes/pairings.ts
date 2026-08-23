@@ -40,7 +40,10 @@ router.post("/", requireAuth, requireRole("patient"), async (req, res) => {
     });
   } catch (err: any) {
     // Unique-index violation — an open request to this doctor already exists.
-    if (err?.code === "23505") {
+    // drizzle-orm wraps the raw pg error as `.cause`, so the code can land
+    // on either the outer error or the wrapped one depending on driver
+    // version — check both rather than assuming a shape.
+    if (err?.code === "23505" || err?.cause?.code === "23505") {
       return res.status(409).json({ message: "You already have an open request with this doctor" });
     }
     throw err;
@@ -162,6 +165,22 @@ async function respondToPairing(req: any, res: any, status: "accepted" | "declin
 
   res.json({ id: updated?.id, status: updated?.status });
 }
+
+router.patch("/:id/cancel", requireAuth, requireRole("patient"), async (req, res) => {
+  const userId = (req as any).userId as string;
+  const pairing = await storage.getPairingRequest(req.params.id);
+  if (!pairing || pairing.patientUserId !== userId) {
+    return res.status(404).json({ message: "Pairing request not found" });
+  }
+  if (pairing.status !== "requested") {
+    return res.status(409).json({ message: "This request has already been responded to" });
+  }
+
+  const updated = await storage.updatePairingRequestStatus(pairing.id, "cancelled");
+  await logAudit({ actorUserId: userId, action: "pairing.cancelled", targetType: "pairing_request", targetId: pairing.id });
+
+  res.json({ id: updated?.id, status: updated?.status });
+});
 
 router.patch("/:id/accept", requireAuth, requireRole("doctor"), (req, res) => respondToPairing(req, res, "accepted"));
 router.patch("/:id/decline", requireAuth, requireRole("doctor"), (req, res) => respondToPairing(req, res, "declined"));

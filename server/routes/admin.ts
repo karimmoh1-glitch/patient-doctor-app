@@ -39,16 +39,27 @@ router.post("/doctor-applications/:id/approve", requireAuth, requireRole("admin"
   }
 
   // Role is hardcoded here, never taken from request input.
-  const user = await storage.createUser({
-    name: application.name,
-    email: application.email,
-    passwordHash: application.passwordHash,
-    role: "doctor",
-    state: application.licensedStates[0] || null,
-    phone: application.phone,
-    deactivatedAt: null,
-    emailVerifiedAt: null,
-  });
+  let user;
+  try {
+    user = await storage.createUser({
+      name: application.name,
+      email: application.email,
+      passwordHash: application.passwordHash,
+      role: "doctor",
+      state: application.licensedStates[0] || null,
+      phone: application.phone,
+      deactivatedAt: null,
+      emailVerifiedAt: null,
+    });
+  } catch (err: any) {
+    // The check above isn't atomic with this insert — e.g. two admins
+    // approving the same application at once — caught here instead by
+    // the DB's unique constraint on email.
+    if (err?.code === "23505" || err?.cause?.code === "23505") {
+      return res.status(409).json({ message: "An account with this email already exists" });
+    }
+    throw err;
+  }
 
   await storage.createDoctorProfile({
     userId: user.id,

@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Phone, MessageCircle } from "lucide-react";
 import PairingStatusBadge from "@/components/pairing-status-badge";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface Pairing {
   id: string;
@@ -13,7 +16,22 @@ interface Pairing {
 }
 
 export default function Pairings() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const { data: pairings, isLoading } = useQuery<Pairing[]>({ queryKey: ["/api/pairings"] });
+
+  async function cancelRequest(id: string) {
+    setCancellingId(id);
+    try {
+      await apiRequest("PATCH", `/api/pairings/${id}/cancel`);
+      queryClient.invalidateQueries({ queryKey: ["/api/pairings"] });
+    } catch (err: any) {
+      toast({ title: "Couldn't cancel request", description: err.message, variant: "destructive" });
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -48,6 +66,18 @@ export default function Pairings() {
                     <MessageCircle /> Message
                   </Button>
                 </Link>
+              </CardContent>
+            )}
+            {p.status === "requested" && (
+              <CardContent>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={cancellingId === p.id}
+                  onClick={() => cancelRequest(p.id)}
+                >
+                  Cancel request
+                </Button>
               </CardContent>
             )}
           </Card>

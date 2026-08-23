@@ -10,6 +10,7 @@ const allowlist = [
   "drizzle-orm",
   "drizzle-zod",
   "express",
+  "express-async-errors",
   "express-rate-limit",
   "helmet",
   "jsonwebtoken",

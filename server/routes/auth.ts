@@ -42,16 +42,27 @@ router.post("/signup", authLimiter, async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await storage.createUser({
-    name,
-    email,
-    passwordHash,
-    role: "patient",
-    state,
-    phone: phone || null,
-    deactivatedAt: null,
-    emailVerifiedAt: null,
-  });
+  let user;
+  try {
+    user = await storage.createUser({
+      name,
+      email,
+      passwordHash,
+      role: "patient",
+      state,
+      phone: phone || null,
+      deactivatedAt: null,
+      emailVerifiedAt: null,
+    });
+  } catch (err: any) {
+    // The check above isn't atomic with this insert — a concurrent signup
+    // for the same email can still race past it, caught here by the DB's
+    // unique constraint instead.
+    if (err?.code === "23505" || err?.cause?.code === "23505") {
+      return res.status(409).json({ message: "An account with this email already exists" });
+    }
+    throw err;
+  }
 
   const deviceId = await createDeviceForLogin(user.id, req);
   const token = signToken(user.id, user.role, deviceId);
@@ -149,6 +160,17 @@ router.post("/reset-password", authLimiter, async (req, res) => {
   await storage.markPasswordResetTokenUsed(resetToken.id);
 
   res.json({ message: "Password reset. You can now log in with your new password." });
+});
+
+// Signing out client-side alone would leave the JWT valid server-side for
+// up to JWT_EXPIRY (24h) — this revokes the device so the token is
+// rejected on the very next request (see requireAuth's revokedAt check).
+router.post("/logout", requireAuth, async (req, res) => {
+  const deviceId = (req as any).deviceId as string | null;
+  if (deviceId) {
+    await storage.revokeUserDevice(deviceId);
+  }
+  res.json({ message: "Signed out" });
 });
 
 router.get("/me", requireAuth, async (req, res) => {

@@ -64,9 +64,18 @@ export function useAuth() {
   }, [persistAuth]);
 
   const signOut = useCallback(() => {
+    // Best-effort: revoke the device server-side so the token can't be
+    // reused after sign-out. Local sign-out proceeds regardless — a
+    // failed revoke shouldn't trap the user in a logged-in UI.
+    if (auth?.token) {
+      fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${auth.token}` },
+      }).catch(() => {});
+    }
     setAuth(null);
     localStorage.removeItem("pdapp_auth");
-  }, []);
+  }, [auth]);
 
   return {
     user: auth?.user ?? null,

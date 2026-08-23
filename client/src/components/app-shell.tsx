@@ -30,11 +30,11 @@ export default function AppShell({
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <Link href="/" className="text-lg font-semibold text-primary">
             MedConnect
           </Link>
-          <nav className="flex items-center gap-1">
+          <nav className="flex flex-wrap items-center gap-1">
             {links.map((link) => (
               <Link key={link.href} href={link.href}>
                 <Button variant={location === link.href ? "secondary" : "ghost"} size="sm">
@@ -49,7 +49,7 @@ export default function AppShell({
                 </Button>
               </Link>
             )}
-            <span className="mx-2 text-sm text-muted-foreground">{user.name}</span>
+            <span className="mx-2 hidden text-sm text-muted-foreground sm:inline">{user.name}</span>
             <Button variant="outline" size="sm" onClick={onSignOut}>
               Sign out
             </Button>

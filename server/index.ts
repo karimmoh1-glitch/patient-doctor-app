@@ -1,4 +1,11 @@
 import "dotenv/config";
+// Must be imported before any router is created: it patches Express's
+// route-registration methods so a rejected promise from an async handler
+// reaches the error-handling middleware below via next(err), instead of
+// becoming an unhandled rejection that crashes the whole process (Express
+// 4 does not do this natively — every async route handler in this app is
+// otherwise a single-request-input crash vector for the entire server).
+import "express-async-errors";
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
