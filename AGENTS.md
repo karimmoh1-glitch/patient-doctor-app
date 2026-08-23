@@ -1,9 +1,6 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# MedConnect
 
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+React 19 + TypeScript + Vite on the frontend (`client/`), Express + Drizzle ORM + PostgreSQL on the
+backend (`server/`, `shared/`). This is not a Next.js project — there is no `next` dependency, no
+`app/` router, no Next-specific conventions. See `README.md` for the full stack, setup, and what's
+implemented.

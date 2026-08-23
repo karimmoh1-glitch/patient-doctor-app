@@ -1,0 +1,49 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* Light, clinical palette — calm and legible, not clinical-sterile.
+     A single teal accent for primary actions/links; everything else is
+     neutral so symptom text and doctor info stay the visual focus. */
+  --color-background: #F7F8FA;
+  --color-foreground: #14181F;
+  --color-card: #FFFFFF;
+  --color-card-foreground: #14181F;
+  --color-popover: #FFFFFF;
+  --color-popover-foreground: #14181F;
+  --color-primary: #0F766E;
+  --color-primary-foreground: #FFFFFF;
+  --color-secondary: #EEF1F4;
+  --color-secondary-foreground: #14181F;
+  --color-muted: #EEF1F4;
+  --color-muted-foreground: #667085;
+  --color-accent: #0F766E;
+  --color-accent-foreground: #FFFFFF;
+  --color-destructive: #DC2626;
+  --color-destructive-foreground: #FFFFFF;
+  --color-border: #E2E5EA;
+  --color-input: #E2E5EA;
+  --color-ring: #0F766E;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --radius: 12px;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight text-foreground;
+  }
+}
