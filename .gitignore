@@ -10,3 +10,4 @@ test-results/
 playwright-report/
 api/index.js
 .vercel
+.env.local
