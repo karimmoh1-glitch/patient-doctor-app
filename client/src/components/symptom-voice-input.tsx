@@ -2,18 +2,24 @@ import { useState } from "react";
 import { Mic, Square, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMediaRecorder } from "@/hooks/use-media-recorder";
-import { apiRequest } from "@/lib/queryClient";
+import { useAppConfig } from "@/hooks/use-app-config";
 
-// Captures audio client-side via MediaRecorder and uploads it to the
-// server for transcription — transcription never happens in the browser,
-// so no speech-provider key ever reaches the client, and every
-// transcription goes through the same audited API surface as everything
-// else. The transcript is always shown back to the patient to review and
-// edit; it never auto-submits.
+// Captures audio in the browser and uploads it to the server for transcription
+// (never transcribed in the browser, so no speech-provider key reaches the
+// client). The transcript always comes back into the text box for the person
+// to read and correct; nothing is submitted automatically.
+//
+// It is only shown when voice is genuinely available. Today that means demo
+// mode, where the "transcript" is a fixed sample sentence — said so plainly,
+// because inserting made-up text into someone's symptom description without
+// saying so would be dangerous.
 export default function SymptomVoiceInput({ onTranscribed }: { onTranscribed: (text: string) => void }) {
+  const config = useAppConfig();
   const { isRecording, error, start, stop } = useMediaRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  if (!config?.features.voiceInput) return null;
 
   async function handleStop() {
     const blob = await stop();
@@ -24,48 +30,53 @@ export default function SymptomVoiceInput({ onTranscribed }: { onTranscribed: (t
       const formData = new FormData();
       formData.append("audio", blob, "symptom.webm");
       const headers: Record<string, string> = {};
-      const stored = localStorage.getItem("pdapp_auth");
-      if (stored) {
-        const auth = JSON.parse(stored);
-        headers.Authorization = `Bearer ${auth.token}`;
+      try {
+        const stored = localStorage.getItem("pdapp_auth");
+        if (stored) headers.Authorization = `Bearer ${JSON.parse(stored).token}`;
+      } catch {
+        // Treated as signed out; the server will say so.
       }
-      const res = await fetch("/api/speech/transcribe", {
-        method: "POST",
-        headers,
-        body: formData,
-      });
+      const res = await fetch("/api/speech/transcribe", { method: "POST", headers, body: formData });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.message || "Transcription failed");
+        throw new Error(body?.message || "We couldn't turn that into text.");
       }
       const data = await res.json();
       onTranscribed(data.text);
     } catch (err: any) {
-      setUploadError(err.message || "Transcription failed. Please try typing instead.");
+      setUploadError(err.message || "We couldn't turn that into text. Please type it instead.");
     } finally {
       setIsTranscribing(false);
     }
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
         {!isRecording ? (
-          <Button type="button" variant="outline" size="sm" onClick={start} disabled={isTranscribing}>
-            <Mic /> Speak instead
+          <Button type="button" variant="outline" onClick={start} disabled={isTranscribing}>
+            <Mic aria-hidden="true" /> Speak instead
           </Button>
         ) : (
-          <Button type="button" variant="destructive" size="sm" onClick={handleStop}>
-            <Square /> Stop recording
+          <Button type="button" variant="destructive" onClick={handleStop}>
+            <Square aria-hidden="true" /> Stop recording
           </Button>
         )}
-        {isTranscribing && (
-          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Transcribing…
-          </span>
-        )}
+        <span role="status" aria-live="polite" className="text-muted-foreground">
+          {isRecording && "Listening… press Stop when you have finished."}
+          {isTranscribing && (
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Turning your voice into text…
+            </span>
+          )}
+        </span>
       </div>
-      {(error || uploadError) && <p className="text-sm text-destructive">{error || uploadError}</p>}
+      {config.features.voiceInputIsDemo && (
+        <p className="text-muted-foreground">
+          <strong>Demonstration only:</strong> speech recognition isn't connected, so this adds a sample sentence instead of what you said. Please type your own words.
+        </p>
+      )}
+      {(error || uploadError) && <p role="alert" className="font-medium text-destructive">{error || uploadError}</p>}
     </div>
   );
 }

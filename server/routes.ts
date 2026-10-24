@@ -6,6 +6,21 @@ import symptomRoutes from "./routes/symptoms";
 import pairingRoutes from "./routes/pairings";
 import adminRoutes from "./routes/admin";
 import speechRoutes from "./routes/speech";
+import appointmentRoutes from "./routes/appointments";
+import prescriptionRoutes from "./routes/prescriptions";
+import medicationRoutes from "./routes/medications";
+import pharmacyRoutes from "./routes/pharmacy";
+import documentRoutes from "./routes/documents";
+import followUpRoutes from "./routes/followups";
+import sharingRoutes from "./routes/sharing";
+import timelineRoutes from "./routes/timeline";
+import dashboardRoutes from "./routes/dashboard";
+import aiRoutes from "./routes/ai";
+import careCircleRoutes from "./routes/careCircle";
+import emergencyRoutes from "./routes/emergency";
+import healthSummaryRoutes from "./routes/healthSummary";
+import auditRoutes from "./routes/audit";
+import configRoutes from "./routes/config";
 
 export async function registerRoutes(_httpServer: Server, app: Express): Promise<void> {
   app.use("/api/auth", authRoutes);
@@ -14,4 +29,19 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
   app.use("/api/pairings", pairingRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/speech", speechRoutes);
+  app.use("/api/appointments", appointmentRoutes);
+  app.use("/api/prescriptions", prescriptionRoutes);
+  app.use("/api/medications", medicationRoutes);
+  app.use("/api/pharmacy", pharmacyRoutes);
+  app.use("/api/documents", documentRoutes);
+  app.use("/api/follow-ups", followUpRoutes);
+  app.use("/api/sharing", sharingRoutes);
+  app.use("/api/timeline", timelineRoutes);
+  app.use("/api/dashboard", dashboardRoutes);
+  app.use("/api/ai", aiRoutes);
+  app.use("/api/care-circle", careCircleRoutes);
+  app.use("/api/emergency-profile", emergencyRoutes);
+  app.use("/api/health-summary", healthSummaryRoutes);
+  app.use("/api/audit-log", auditRoutes);
+  app.use("/api/config", configRoutes);
 }

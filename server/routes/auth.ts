@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import rateLimit from "express-rate-limit";
+import { makeLimiter, emailKey } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { signToken, createDeviceForLogin, requireAuth } from "../middleware/auth";
 import { insertUserSchema } from "@shared/schema";
@@ -8,23 +8,44 @@ import { US_STATES } from "@shared/specialties";
 import { generateSecureToken, hashToken } from "../services/tokenService";
 import { sendPasswordResetEmail } from "../services/emailService";
 import { z } from "zod";
+import { isDemoMode } from "../config";
 
 const router = Router();
 
+// A valid bcrypt hash of a random throwaway value, compared against when the
+// login email doesn't exist (see /login).
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(`dummy-${Math.random()}`, 10);
+
 // Public, unauthenticated endpoints that create accounts or sessions are
 // the highest-value targets for automated abuse.
-const authLimiter = rateLimit({
+const authLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many attempts. Please try again later." },
+  message: "Too many attempts. Please try again later.",
+});
+
+// Login is limited twice: per address (generous, because a clinic, library or
+// care home puts many real people behind one IP) and per account, counting
+// only failures, so one person's password can't be guessed at scale from
+// anywhere. The cost is that someone who knows an email can lock that account
+// out of sign-in for 15 minutes; that is the accepted trade for this app.
+const loginIpLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  message: "Too many sign-in attempts from this connection. Please try again in a few minutes.",
+});
+const loginAccountLimiter = makeLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  failuresOnly: true,
+  keyGenerator: emailKey,
+  message: "Too many incorrect attempts for this account. Please wait 15 minutes, or reset your password.",
 });
 
 const signupBodySchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8),
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().toLowerCase().email().max(254),
+  password: z.string().min(8).max(200),
   state: z.enum(US_STATES),
   phone: z.string().optional(),
 });
@@ -74,11 +95,11 @@ router.post("/signup", authLimiter, async (req, res) => {
 });
 
 const loginBodySchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1),
 });
 
-router.post("/login", authLimiter, async (req, res) => {
+router.post("/login", loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const parsed = loginBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Email and password are required" });
@@ -86,16 +107,17 @@ router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = parsed.data;
 
   const user = await storage.getUserByEmail(email);
-  if (!user) {
-    return res.status(401).json({ message: "Invalid email or password" });
-  }
-  if (user.deactivatedAt) {
-    return res.status(401).json({ message: "This account has been deactivated" });
-  }
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
+  // Always spend the same bcrypt work whether or not the account exists, so
+  // response time can't be used to discover which emails are registered.
+  const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
+  if (!user || !valid) {
     return res.status(401).json({ message: "Invalid email or password" });
+  }
+  // Only someone who proved they know the password is told the account is
+  // deactivated; anyone else gets the same generic answer as a wrong password.
+  if (user.deactivatedAt) {
+    return res.status(401).json({ message: "This account has been deactivated. Please contact support." });
   }
 
   const deviceId = await createDeviceForLogin(user.id, req);
@@ -107,7 +129,27 @@ router.post("/login", authLimiter, async (req, res) => {
   });
 });
 
-const forgotPasswordSchema = z.object({ email: z.string().email() });
+// One-tap sign-in to the seeded demo accounts. It exists only in demo mode
+// (always off for a real deployment), and the demo password never ships in
+// the browser bundle — the server does the sign-in.
+const DEMO_ACCOUNTS: Record<string, string> = {
+  patient: "patient@avela.dev",
+  doctor: "doctor@avela.dev",
+};
+
+router.post("/demo-login", authLimiter, async (req, res) => {
+  if (!isDemoMode()) return res.status(404).json({ message: "Not found" });
+  const email = DEMO_ACCOUNTS[String(req.body?.role)];
+  const user = email ? await storage.getUserByEmail(email) : undefined;
+  if (!user || user.deactivatedAt) {
+    return res.status(404).json({ message: "Demo accounts aren't set up. Run `npm run db:seed` first." });
+  }
+  const deviceId = await createDeviceForLogin(user.id, req);
+  const token = signToken(user.id, user.role, deviceId);
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state } });
+});
+
+const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
 
 router.post("/forgot-password", authLimiter, async (req, res) => {
   const parsed = forgotPasswordSchema.safeParse(req.body);
@@ -158,6 +200,9 @@ router.post("/reset-password", authLimiter, async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
   await storage.updateUserPassword(user.id, passwordHash);
   await storage.markPasswordResetTokenUsed(resetToken.id);
+  // A reset means the old password may be compromised, so every session
+  // issued under it — including a stolen one — is signed out.
+  await storage.revokeAllUserDevices(user.id);
 
   res.json({ message: "Password reset. You can now log in with your new password." });
 });

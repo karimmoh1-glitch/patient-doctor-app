@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { MessageCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import PairingStatusBadge from "@/components/pairing-status-badge";
+import StatusBadge from "@/components/status-badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { formatDate } from "@/lib/format";
 
 interface DoctorPairing {
   id: string;
@@ -16,7 +15,7 @@ interface DoctorPairing {
   symptomReportId: string | null;
 }
 
-export default function DoctorDashboard() {
+export default function DoctorRequests() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -47,6 +46,7 @@ export default function DoctorDashboard() {
     try {
       await apiRequest("PATCH", `/api/pairings/${id}/${action}`);
       queryClient.invalidateQueries({ queryKey: ["/api/pairings/doctor"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/doctor"] });
     } catch (err: any) {
       toast({ title: "Couldn't respond", description: err.message, variant: "destructive" });
     } finally {
@@ -54,20 +54,28 @@ export default function DoctorDashboard() {
     }
   }
 
+  const pending = (requests || []).filter((r) => r.status === "requested");
+  const resolved = (requests || []).filter((r) => r.status !== "requested");
+
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold">Connection requests</h1>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-semibold">Connection requests</h1>
+        <p className="text-sm text-muted-foreground">Patients asking to connect with you.</p>
+      </div>
+
       {isLoading && <p className="text-muted-foreground">Loading…</p>}
-      {!isLoading && requests?.length === 0 && <p className="text-muted-foreground">No requests yet.</p>}
-      <div className="space-y-4">
-        {requests?.map((r) => (
+      {!isLoading && pending.length === 0 && <p className="text-sm text-muted-foreground">No pending requests.</p>}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {pending.map((r) => (
           <Card key={r.id}>
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div>
                 <CardTitle>{r.patientName}</CardTitle>
-                <CardDescription>Requested {new Date(r.requestedAt).toLocaleDateString()}</CardDescription>
+                <CardDescription>Requested {formatDate(r.requestedAt)}</CardDescription>
               </div>
-              <PairingStatusBadge status={r.status} />
+              <StatusBadge kind="pairing" status={r.status} />
             </CardHeader>
             <CardContent className="space-y-3">
               {r.symptomReportId && (
@@ -78,27 +86,30 @@ export default function DoctorDashboard() {
               {expandedId === r.id && (
                 <p className="rounded-md border border-border bg-muted p-3 text-sm">{symptomText[r.id]}</p>
               )}
-              {r.status === "requested" && (
-                <div className="flex gap-2">
-                  <Button size="sm" disabled={respondingId === r.id} onClick={() => respond(r.id, "accept")}>
-                    Accept
-                  </Button>
-                  <Button size="sm" variant="outline" disabled={respondingId === r.id} onClick={() => respond(r.id, "decline")}>
-                    Decline
-                  </Button>
-                </div>
-              )}
-              {r.status === "accepted" && (
-                <Link href={`/chat/${r.id}?with=${encodeURIComponent(r.patientName)}`}>
-                  <Button size="sm" variant="outline">
-                    <MessageCircle /> Message {r.patientName}
-                  </Button>
-                </Link>
-              )}
+              <div className="flex gap-2">
+                <Button size="sm" disabled={respondingId === r.id} onClick={() => respond(r.id, "accept")}>Accept</Button>
+                <Button size="sm" variant="outline" disabled={respondingId === r.id} onClick={() => respond(r.id, "decline")}>Decline</Button>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      {resolved.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">Past requests</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {resolved.map((r) => (
+              <Card key={r.id} className="">
+                <CardHeader className="flex flex-row items-start justify-between space-y-0">
+                  <CardTitle className="text-base">{r.patientName}</CardTitle>
+                  <StatusBadge kind="pairing" status={r.status} />
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

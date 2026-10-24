@@ -1,18 +1,25 @@
 import { Router } from "express";
+import { makeLimiter, userKey } from "../middleware/rateLimit";
+import { isDemoMode } from "../config";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
-import { logAudit } from "../services/auditService";
+import { logAudit, logAuditStrict } from "../services/auditService";
 import { sendPairingRequestedEmail, sendPairingAcceptedEmail } from "../services/emailService";
 
 const router = Router();
+
+// Each connection request can email a doctor, so one account can't fire them
+// off without limit (also stops cancel-and-re-request spam).
+const requestLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 12, keyGenerator: userKey, message: "You've sent a lot of requests. Please wait a while before sending more." });
+const messageLimiter = makeLimiter({ windowMs: 60 * 1000, limit: 30, keyGenerator: userKey, message: "You're sending messages very quickly. Please slow down." });
 
 const createPairingSchema = z.object({
   doctorProfileId: z.string().min(1),
   symptomReportId: z.string().min(1).optional(),
 });
 
-router.post("/", requireAuth, requireRole("patient"), async (req, res) => {
+router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req, res) => {
   const parsed = createPairingSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "doctorProfileId is required" });
@@ -20,7 +27,7 @@ router.post("/", requireAuth, requireRole("patient"), async (req, res) => {
   const patientUserId = (req as any).userId as string;
 
   const doctor = await storage.getDoctorProfile(parsed.data.doctorProfileId);
-  if (!doctor || !doctor.active) {
+  if (!doctor || !doctor.active || (!doctor.userId && !isDemoMode())) {
     return res.status(404).json({ message: "Doctor not found" });
   }
 
@@ -74,11 +81,13 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
         status: r.status,
         requestedAt: r.requestedAt,
         respondedAt: r.respondedAt,
+        relationshipLabel: r.relationshipLabel,
         doctor: doctor && {
           id: doctor.id,
           name: doctor.name,
           specialty: doctor.specialty,
           state: doctor.state,
+          bio: doctor.bio,
           // Only revealed once the doctor has accepted — server-enforced,
           // not just hidden client-side.
           phone: r.status === "accepted" ? doctor.phone : null,
@@ -105,6 +114,7 @@ router.get("/doctor", requireAuth, requireRole("doctor"), async (req, res) => {
         id: r.id,
         status: r.status,
         requestedAt: r.requestedAt,
+        patientUserId: r.patientUserId,
         patientName: patient?.name || "Unknown patient",
         symptomReportId: r.symptomReportId,
       };
@@ -123,6 +133,13 @@ router.get("/:id/symptom-report", requireAuth, requireRole("doctor"), async (req
   if (!doctorProfile || !pairing || pairing.doctorProfileId !== doctorProfile.id) {
     return res.status(404).json({ message: "Pairing request not found" });
   }
+  // The patient attached these symptoms to a request addressed to this
+  // doctor, which is what lets the doctor decide whether to accept — but
+  // that consent ends the moment the request is declined, cancelled, or the
+  // connection is ended.
+  if (pairing.status !== "requested" && pairing.status !== "accepted") {
+    return res.status(403).json({ message: "This patient's information is no longer shared with you" });
+  }
   if (!pairing.symptomReportId) {
     return res.status(404).json({ message: "No symptom report attached to this request" });
   }
@@ -131,7 +148,7 @@ router.get("/:id/symptom-report", requireAuth, requireRole("doctor"), async (req
     return res.status(404).json({ message: "Symptom report not found" });
   }
 
-  await logAudit({
+  await logAuditStrict({
     actorUserId: userId,
     action: "doctor.viewed_paired_patient",
     targetType: "symptom_report",
@@ -141,6 +158,61 @@ router.get("/:id/symptom-report", requireAuth, requireRole("doctor"), async (req
   res.json({ symptomText: report.symptomText, state: report.state, createdAt: report.createdAt });
 });
 
+// What a connected doctor may read about the patient beyond the visits they
+// share: only the categories the patient has granted, only while the
+// connection is live, and every read is recorded in the patient's access log.
+// Visit reasons and notes from OTHER doctors are never included.
+router.get("/:id/shared-records", requireAuth, requireRole("doctor"), async (req, res) => {
+  const userId = (req as any).userId as string;
+  const doctorProfile = await storage.getDoctorProfileByUserId(userId);
+  const pairing = await storage.getPairingRequest(req.params.id);
+  if (!doctorProfile || !pairing || pairing.doctorProfileId !== doctorProfile.id) {
+    return res.status(404).json({ message: "Pairing request not found" });
+  }
+  if (pairing.status !== "accepted") {
+    return res.status(403).json({ message: "This patient's information is no longer shared with you" });
+  }
+
+  const grant = await storage.getActiveSharingGrantFor(pairing.patientUserId, doctorProfile.id);
+  const all = !!grant?.shareFullHistory;
+  const result: Record<string, unknown> = { granted: [] as string[] };
+  const granted = result.granted as string[];
+
+  if (grant && (grant.shareMedications || all)) {
+    const meds = await storage.getMedicationsByPatient(pairing.patientUserId);
+    result.medications = meds.filter((m) => m.active).map((m) => ({ name: m.name, instructions: m.instructions, scheduleTimes: m.scheduleTimes }));
+    granted.push("medications");
+  }
+  if (grant && (grant.shareDocuments || all)) {
+    const docs = await storage.getDocumentsByPatient(pairing.patientUserId);
+    result.documents = docs.map((d) => ({ id: d.id, title: d.title, category: d.category, hasFile: !!d.filePath, createdAt: d.createdAt }));
+    granted.push("documents");
+  }
+  if (grant && (grant.shareAppointments || all)) {
+    const appts = await storage.getAppointmentsByPatient(pairing.patientUserId);
+    result.appointments = await Promise.all(
+      appts
+        .filter((a) => a.doctorProfileId !== doctorProfile.id)
+        .map(async (a) => {
+          const other = await storage.getDoctorProfile(a.doctorProfileId);
+          // Dates, kind and specialty only — never the reason or any notes.
+          return { type: a.type, scheduledAt: a.scheduledAt, status: a.status, specialty: other?.specialty ?? null };
+        }),
+    );
+    granted.push("appointments");
+  }
+  if (grant && all) {
+    const rx = await storage.getPrescriptionsByPatient(pairing.patientUserId);
+    result.prescriptions = rx.filter((p) => p.doctorProfileId !== doctorProfile.id).map((p) => ({ medicationName: p.medicationName, status: p.status }));
+    granted.push("prescriptions");
+  }
+
+  if (granted.length > 0) {
+    await logAuditStrict({ actorUserId: userId, action: "doctor.viewed_shared_records", targetType: "user", targetId: pairing.patientUserId, metadata: { categories: granted } });
+  }
+  res.json(result);
+});
+
 async function respondToPairing(req: any, res: any, status: "accepted" | "declined") {
   const userId = req.userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
@@ -148,11 +220,10 @@ async function respondToPairing(req: any, res: any, status: "accepted" | "declin
   if (!doctorProfile || !pairing || pairing.doctorProfileId !== doctorProfile.id) {
     return res.status(404).json({ message: "Pairing request not found" });
   }
-  if (pairing.status !== "requested") {
+  const updated = await storage.transitionPairingStatus(pairing.id, ["requested"], status);
+  if (!updated) {
     return res.status(409).json({ message: "This request has already been responded to" });
   }
-
-  const updated = await storage.updatePairingRequestStatus(pairing.id, status);
 
   await logAudit({ actorUserId: userId, action: `pairing.${status}`, targetType: "pairing_request", targetId: pairing.id });
 
@@ -172,14 +243,48 @@ router.patch("/:id/cancel", requireAuth, requireRole("patient"), async (req, res
   if (!pairing || pairing.patientUserId !== userId) {
     return res.status(404).json({ message: "Pairing request not found" });
   }
-  if (pairing.status !== "requested") {
+  const updated = await storage.transitionPairingStatus(pairing.id, ["requested"], "cancelled");
+  if (!updated) {
     return res.status(409).json({ message: "This request has already been responded to" });
   }
-
-  const updated = await storage.updatePairingRequestStatus(pairing.id, "cancelled");
   await logAudit({ actorUserId: userId, action: "pairing.cancelled", targetType: "pairing_request", targetId: pairing.id });
 
   res.json({ id: updated?.id, status: updated?.status });
+});
+
+// The patient can always withdraw a doctor's access. Ending the connection
+// stops messaging and symptom-report access straight away; the history stays
+// in the patient's own records.
+router.patch("/:id/end", requireAuth, requireRole("patient"), async (req, res) => {
+  const userId = (req as any).userId as string;
+  const pairing = await storage.getPairingRequest(req.params.id);
+  if (!pairing || pairing.patientUserId !== userId) {
+    return res.status(404).json({ message: "Connection not found" });
+  }
+  const updated = await storage.transitionPairingStatus(pairing.id, ["accepted"], "ended");
+  if (!updated) {
+    return res.status(409).json({ message: "This connection is not active" });
+  }
+  // Stopping sharing means all of it: any extra categories the patient had
+  // granted this doctor end with the connection, not just messaging.
+  const grant = await storage.getActiveSharingGrantFor(userId, pairing.doctorProfileId);
+  if (grant) await storage.revokeSharingGrant(grant.id);
+  await logAudit({ actorUserId: userId, action: "pairing.ended", targetType: "pairing_request", targetId: pairing.id });
+  res.json({ id: updated.id, status: updated.status });
+});
+
+const relationshipLabelSchema = z.object({ relationshipLabel: z.string().trim().max(60).nullable() });
+
+router.patch("/:id/relationship-label", requireAuth, requireRole("patient"), async (req, res) => {
+  const userId = (req as any).userId as string;
+  const parsed = relationshipLabelSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Invalid label" });
+  const pairing = await storage.getPairingRequest(req.params.id);
+  if (!pairing || pairing.patientUserId !== userId) {
+    return res.status(404).json({ message: "Connection not found" });
+  }
+  const updated = await storage.setPairingRelationshipLabel(pairing.id, parsed.data.relationshipLabel || null);
+  res.json(updated);
 });
 
 router.patch("/:id/accept", requireAuth, requireRole("doctor"), (req, res) => respondToPairing(req, res, "accepted"));
@@ -212,7 +317,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   res.json(list.map((m) => ({ id: m.id, senderUserId: m.senderUserId, body: m.body, createdAt: m.createdAt })));
 });
 
-router.post("/:id/messages", requireAuth, async (req, res) => {
+router.post("/:id/messages", requireAuth, messageLimiter, async (req, res) => {
   const pairing = await getAuthorizedPairing(req);
   if (!pairing) return res.status(404).json({ message: "Pairing request not found" });
   if (pairing.status !== "accepted") {

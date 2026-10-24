@@ -8,12 +8,21 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: varchar("email").notNull().unique(),
   passwordHash: varchar("password_hash").notNull(),
-  role: varchar("role").notNull().default("patient"), // patient | doctor | admin
+  role: varchar("role").notNull().default("patient"), // patient | doctor | admin | caregiver
   // Patient's US state at signup — a doctor account also gets a row here
   // once a doctorApplications approval creates it, but a doctor's
   // *practicing* state lives on doctorProfiles, not here.
   state: varchar("state"),
   phone: varchar("phone"),
+  // IANA zone (e.g. "America/Chicago"), learned from the person's browser.
+  timezone: varchar("timezone"),
+  // Optional patient-entered emergency profile, shown on the SOS page.
+  // Nullable — a patient who hasn't filled this in yet just sees the SOS
+  // page without an emergency info card, not an error.
+  emergencyContactName: text("emergency_contact_name"),
+  emergencyContactPhone: varchar("emergency_contact_phone"),
+  allergiesText: text("allergies_text"),
+  emergencyNotes: text("emergency_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   // Null = active. Set = blocked from login and every authenticated
   // request, checked live on every request (not just at next login).
@@ -68,6 +77,8 @@ export const emailVerificationTokens = pgTable("email_verification_tokens", {
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   actorUserId: varchar("actor_user_id").references(() => users.id),
+  // Whose information this event is about (not necessarily who did it).
+  subjectUserId: varchar("subject_user_id").references(() => users.id),
   action: varchar("action").notNull(),
   targetType: varchar("target_type"),
   targetId: varchar("target_id"),
@@ -75,6 +86,7 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_audit_logs_created").on(table.createdAt),
+  index("idx_audit_logs_subject_created").on(table.subjectUserId, table.createdAt),
 ]);
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });

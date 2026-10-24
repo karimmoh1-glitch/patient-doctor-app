@@ -1,11 +1,14 @@
 import { useState, useCallback, useEffect } from "react";
 import { parseErrorMessage } from "@/lib/api-error";
+import { queryClient, SESSION_EXPIRED_EVENT } from "@/lib/queryClient";
+
+export const SESSION_NOTICE_KEY = "pdapp_session_notice";
 
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: "patient" | "doctor" | "admin";
+  role: "patient" | "doctor" | "admin" | "caregiver";
   state: string | null;
 }
 
@@ -16,9 +19,32 @@ interface AuthState {
 
 export function useAuth() {
   const [auth, setAuth] = useState<AuthState | null>(() => {
-    const stored = localStorage.getItem("pdapp_auth");
-    return stored ? JSON.parse(stored) : null;
+    try {
+      const stored = localStorage.getItem("pdapp_auth");
+      const parsed = stored ? JSON.parse(stored) : null;
+      return parsed?.token && parsed?.user ? parsed : null;
+    } catch {
+      // Corrupt or inaccessible storage: start signed out instead of white-screening.
+      return null;
+    }
   });
+
+  // The server said our token is no longer valid (expired, signed out
+  // elsewhere, password reset, account deactivated). Say so — don't leave the
+  // person staring at screens that silently fail to load.
+  useEffect(() => {
+    function onExpired() {
+      try {
+        sessionStorage.setItem(SESSION_NOTICE_KEY, "expired");
+      } catch {
+        // Notice is a courtesy; ignore storage failures.
+      }
+      queryClient.clear();
+      setAuth(null);
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
 
   useEffect(() => {
     if (auth) {
@@ -29,6 +55,8 @@ export function useAuth() {
   }, [auth]);
 
   const persistAuth = useCallback((state: AuthState) => {
+    // Never let the previous person's cached screens show for the next one.
+    queryClient.clear();
     localStorage.setItem("pdapp_auth", JSON.stringify(state));
     setAuth(state);
   }, []);
@@ -48,6 +76,17 @@ export function useAuth() {
     return state.user;
   }, [persistAuth]);
 
+  const demoLogin = useCallback(async (role: "patient" | "doctor") => {
+    const res = await fetch("/api/auth/demo-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "Demo sign-in isn't available"));
+    const data = await res.json();
+    persistAuth({ token: data.token, user: data.user });
+  }, [persistAuth]);
+
   const signup = useCallback(async (name: string, email: string, password: string, state: string, phone?: string) => {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
@@ -63,6 +102,21 @@ export function useAuth() {
     return authState.user;
   }, [persistAuth]);
 
+  const acceptCareCircleInvite = useCallback(async (inviteToken: string, password: string) => {
+    const res = await fetch(`/api/care-circle/invitations/accept/${inviteToken}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, "Couldn't accept invitation"));
+    }
+    const data = await res.json();
+    const state: AuthState = { token: data.token, user: data.user };
+    persistAuth(state);
+    return state.user;
+  }, [persistAuth]);
+
   const signOut = useCallback(() => {
     // Best-effort: revoke the device server-side so the token can't be
     // reused after sign-out. Local sign-out proceeds regardless — a
@@ -73,6 +127,7 @@ export function useAuth() {
         headers: { Authorization: `Bearer ${auth.token}` },
       }).catch(() => {});
     }
+    queryClient.clear();
     setAuth(null);
     localStorage.removeItem("pdapp_auth");
   }, [auth]);
@@ -82,7 +137,9 @@ export function useAuth() {
     token: auth?.token ?? null,
     isAuthenticated: !!auth,
     login,
+    demoLogin,
     signup,
+    acceptCareCircleInvite,
     signOut,
   };
 }

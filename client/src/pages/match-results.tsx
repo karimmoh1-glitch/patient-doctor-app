@@ -5,6 +5,7 @@ import DoctorCard, { type DoctorMatch } from "@/components/doctor-card";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { EmptyBlock, LoadingBlock } from "@/components/query-state";
 
 export default function MatchResults({ reportId }: { reportId: string }) {
   const { toast } = useToast();
@@ -30,19 +31,18 @@ export default function MatchResults({ reportId }: { reportId: string }) {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Doctors near you</h1>
-        <Link href="/pairings">
-          <Button variant="outline" size="sm">
-            My connections
-          </Button>
-        </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-semibold">Doctors in your state</h1>
+        <Button asChild variant="outline"><Link href="/care-team">My doctors</Link></Button>
       </div>
-      {isLoading && <p className="text-muted-foreground">Finding doctors…</p>}
+      <p className="text-lg text-muted-foreground">
+        These doctors are licensed in your state. Those whose speciality fits what you wrote are first. We have not checked your symptoms — this is only a suggestion.
+      </p>
+      {isLoading && <LoadingBlock label="Finding doctors" />}
       {!isLoading && matches?.length === 0 && (
-        <p className="text-muted-foreground">
-          No matching doctors in your state yet. Try again later, or contact support.
-        </p>
+        <EmptyBlock title="No doctors are available in your state yet">
+          We can't promise when one will be. You can <Link href="/help" className="font-medium text-primary underline">ask for help here</Link>.
+        </EmptyBlock>
       )}
       <div className="space-y-4">
         {matches?.map((m) => (

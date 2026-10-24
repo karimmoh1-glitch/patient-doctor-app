@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { defaultTimezoneForState } from "@shared/timezones";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
@@ -7,8 +8,11 @@ import { sendDoctorApplicationApprovedEmail, sendDoctorApplicationRejectedEmail 
 
 const router = Router();
 
-router.get("/doctor-applications", requireAuth, requireRole("admin"), async (_req, res) => {
+router.get("/doctor-applications", requireAuth, requireRole("admin"), async (req, res) => {
   const applications = await storage.getPendingDoctorApplications();
+  // The list carries licence numbers, NPIs and contact details, so who
+  // opened it is recorded.
+  await logAudit({ actorUserId: (req as any).userId as string, action: "doctor_applications.listed" });
   res.json(
     applications.map((a) => ({
       id: a.id,
@@ -33,48 +37,19 @@ router.post("/doctor-applications/:id/approve", requireAuth, requireRole("admin"
     return res.status(404).json({ message: "Application not found or already reviewed" });
   }
 
-  const existingUser = await storage.getUserByEmail(application.email);
-  if (existingUser) {
-    return res.status(409).json({ message: "An account with this email already exists" });
-  }
-
-  // Role is hardcoded here, never taken from request input.
-  let user;
-  try {
-    user = await storage.createUser({
-      name: application.name,
-      email: application.email,
-      passwordHash: application.passwordHash,
-      role: "doctor",
-      state: application.licensedStates[0] || null,
-      phone: application.phone,
-      deactivatedAt: null,
-      emailVerifiedAt: null,
+  const result = await storage.approveDoctorApplication(
+    application.id,
+    reviewerId,
+    defaultTimezoneForState(application.licensedStates[0]),
+  );
+  if (!result.ok) {
+    return res.status(409).json({
+      message:
+        result.reason === "email_taken"
+          ? "An account with this email already exists"
+          : "This application has already been reviewed",
     });
-  } catch (err: any) {
-    // The check above isn't atomic with this insert — e.g. two admins
-    // approving the same application at once — caught here instead by
-    // the DB's unique constraint on email.
-    if (err?.code === "23505" || err?.cause?.code === "23505") {
-      return res.status(409).json({ message: "An account with this email already exists" });
-    }
-    throw err;
   }
-
-  await storage.createDoctorProfile({
-    userId: user.id,
-    name: application.name,
-    specialty: application.specialty,
-    state: application.licensedStates[0],
-    licenseNumber: application.licenseNumber,
-    npiNumber: application.npiNumber,
-    phone: application.phone,
-    bio: application.bio,
-    active: true,
-    source: "application",
-  });
-
-  await storage.updateDoctorApplicationStatus(application.id, "approved", reviewerId);
   await logAudit({ actorUserId: reviewerId, action: "doctor_application.approved", targetType: "doctor_application", targetId: application.id });
 
   sendDoctorApplicationApprovedEmail(application.email, application.name).catch(() => {});

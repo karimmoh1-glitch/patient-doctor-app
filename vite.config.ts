@@ -20,6 +20,20 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Vendor code changes far less often than app code, so splitting it
+        // lets a returning visitor on a slow connection re-download only the
+        // small app chunks after an update.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "react";
+          if (id.includes("@radix-ui")) return "radix";
+          if (id.includes("@tanstack")) return "query";
+          return "vendor";
+        },
+      },
+    },
   },
   server: {
     host: "0.0.0.0",

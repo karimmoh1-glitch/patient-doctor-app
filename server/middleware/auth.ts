@@ -3,9 +3,14 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { storage } from "../storage";
 
-if (process.env.NODE_ENV === "production" && !process.env.JWT_SECRET) {
+// The insecure fallback secret is only ever allowed in an explicit local
+// development or test run. Any other environment — including one where
+// NODE_ENV was simply forgotten — refuses to start without a real secret,
+// because a known secret lets anyone forge a valid login for any user.
+const isLocalDevOrTest = process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test";
+if (!isLocalDevOrTest && !process.env.JWT_SECRET) {
   throw new Error(
-    "JWT_SECRET must be set in production. Refusing to start with a known, insecure default secret — anyone could forge valid auth tokens.",
+    "JWT_SECRET must be set. Refusing to start with a known, insecure default secret — anyone could forge valid auth tokens.",
   );
 }
 
@@ -65,13 +70,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string; deviceId?: string };
 
-    if (decoded.deviceId) {
-      const device = await storage.getUserDeviceByDeviceId(decoded.deviceId);
-      if (device && device.revokedAt) {
-        return res.status(401).json({ message: "This device's access has been revoked" });
-      }
-      storage.touchUserDevice(decoded.deviceId).catch(() => {});
+    // Every token this server issues carries a deviceId, so a token without
+    // one — or whose device record no longer exists — can't be a live session.
+    if (!decoded.deviceId) {
+      return res.status(401).json({ message: "Invalid or expired token" });
     }
+    const device = await storage.getUserDeviceByDeviceId(decoded.deviceId);
+    if (!device || device.userId !== decoded.userId || device.revokedAt) {
+      return res.status(401).json({ message: "Your session has ended. Please sign in again." });
+    }
+    storage.touchUserDevice(decoded.deviceId).catch(() => {});
 
     // Checked on every request, not just at login, so deactivating a user
     // mid-session cuts their access immediately.

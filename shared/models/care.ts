@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, uniqueIndex, jsonb, pgTable, text, timestamp, varchar, boolean } from "drizzle-orm/pg-core";
+import { index, uniqueIndex, jsonb, pgTable, text, timestamp, varchar, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./users";
@@ -51,9 +51,27 @@ export const doctorProfiles = pgTable("doctor_profiles", {
   // deleting it (e.g. a doctor pausing availability).
   active: boolean("active").notNull().default(true),
   source: varchar("source").notNull().default("seed"), // seed | application
+  // IANA zone the doctor's availability windows are written in. Appointment
+  // instants are stored in UTC; this is only how "9:00–12:00 on Tuesdays"
+  // is interpreted (so daylight-saving changes move the UTC time, not the
+  // doctor's working hours).
+  timezone: varchar("timezone").notNull().default("America/New_York"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_doctor_profiles_state_specialty").on(table.state, table.specialty),
+]);
+
+// A doctor's recurring weekly working windows, in the doctor's own time zone.
+// A doctor with NO rows has published no availability: the app offers no
+// bookable times for them and says so — it never invents open slots.
+export const doctorAvailability = pgTable("doctor_availability", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  doctorProfileId: varchar("doctor_profile_id").notNull().references(() => doctorProfiles.id),
+  weekday: integer("weekday").notNull(), // 0 = Sunday … 6 = Saturday
+  startMinute: integer("start_minute").notNull(), // minutes after local midnight
+  endMinute: integer("end_minute").notNull(),
+}, (table) => [
+  index("idx_doctor_availability_doctor").on(table.doctorProfileId),
 ]);
 
 // PHI-bearing: what a patient told the app is wrong, and where they were
@@ -83,7 +101,11 @@ export const pairingRequests = pgTable("pairing_requests", {
   // Ties the request to the reason it was made, for the audit trail —
   // nullable since a request could in principle be made without one.
   symptomReportId: varchar("symptom_report_id").references(() => symptomReports.id),
-  status: varchar("status").notNull().default("requested"), // requested | accepted | declined | cancelled
+  status: varchar("status").notNull().default("requested"), // requested | accepted | declined | cancelled | ended
+  // Patient-set label for the Care Team view (e.g. "Primary Care",
+  // "Specialist", "Dentist") — falls back to the doctor's specialty in the
+  // UI when null, so setting one is optional.
+  relationshipLabel: varchar("relationship_label"),
   requestedAt: timestamp("requested_at").defaultNow(),
   respondedAt: timestamp("responded_at"),
 }, (table) => [
@@ -95,7 +117,7 @@ export const pairingRequests = pgTable("pairing_requests", {
   // work-session unique index.
   uniqueIndex("idx_pairing_requests_one_open_per_pair")
     .on(table.patientUserId, table.doctorProfileId)
-    .where(sql`${table.status} = 'requested'`),
+    .where(sql`${table.status} IN ('requested', 'accepted')`),
 ]);
 
 // A chat message between a patient and doctor — only ever exchanged once
@@ -126,6 +148,7 @@ export const insertPairingRequestSchema = createInsertSchema(pairingRequests).om
 
 export type DoctorApplication = typeof doctorApplications.$inferSelect;
 export type InsertDoctorApplication = z.infer<typeof insertDoctorApplicationSchema>;
+export type DoctorAvailability = typeof doctorAvailability.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
 export type InsertDoctorProfile = z.infer<typeof insertDoctorProfileSchema>;
 export type SymptomReport = typeof symptomReports.$inferSelect;

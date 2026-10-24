@@ -19,7 +19,6 @@ const allowlist = [
   "pg",
   "resend",
   "zod",
-  "zod-validation-error",
 ];
 
 async function buildAll() {
@@ -35,6 +34,22 @@ async function buildAll() {
     ...Object.keys(pkg.devDependencies || {}),
   ];
   const externals = allDeps.filter((dep) => !allowlist.includes(dep));
+
+  // Vercel function: one self-contained ESM bundle (package.json is
+  // "type": "module"); the banner restores require/__dirname for the
+  // CommonJS dependencies bundled inside it.
+  await esbuild({
+    entryPoints: ["server/vercel.ts"],
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outfile: "api/index.js",
+    define: { "process.env.NODE_ENV": '"production"' },
+    minify: true,
+    external: ["pg-native"],
+    banner: { js: "import { createRequire as __createRequire } from 'module'; import { fileURLToPath as __fileURLToPath } from 'url'; import { dirname as __dirnameOf } from 'path'; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __dirnameOf(__filename);" },
+    logLevel: "info",
+  });
 
   await esbuild({
     entryPoints: ["server/index.ts"],

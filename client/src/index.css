@@ -13,35 +13,70 @@
   --color-card-foreground: #14181F;
   --color-popover: #FFFFFF;
   --color-popover-foreground: #14181F;
-  --color-primary: #0F766E;
+  --color-primary: #0B5F58;
   --color-primary-foreground: #FFFFFF;
   --color-secondary: #EEF1F4;
   --color-secondary-foreground: #14181F;
   --color-muted: #EEF1F4;
-  --color-muted-foreground: #667085;
-  --color-accent: #0F766E;
+  --color-muted-foreground: #4B5565;
+  --color-accent: #0B5F58;
   --color-accent-foreground: #FFFFFF;
-  --color-destructive: #DC2626;
+  --color-destructive: #C21E1E;
   --color-destructive-foreground: #FFFFFF;
   --color-border: #E2E5EA;
-  --color-input: #E2E5EA;
-  --color-ring: #0F766E;
+  /* Form-control boundaries must be identifiable (WCAG 1.4.11, 3:1);
+     --color-border stays light because it only draws decorative card edges. */
+  --color-input: #7D8799;
+  --color-ring: #0B5F58;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* System fonts: no download on slow connections, familiar to the person's
+     own device, and no third-party request that reveals they opened this app. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --radius: 12px;
+
+  /* The smallest text anywhere is ~16px (at the standard text size), not
+     12px. Components were written with text-xs / text-sm for secondary text;
+     raising these two steps lifts every such label at once. */
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.4;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.5;
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+  /* Base text is 18px (rem-scaled, so every Tailwind size grows with it) and
+     a person can raise it further with the Text size setting, which sets
+     data-text-size on <html>. Pinch-zoom is never blocked. */
   html {
+    font-size: 112.5%;
+    -webkit-text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
+  html[data-text-size="large"] { font-size: 125%; }
+  html[data-text-size="xlarge"] { font-size: 143.75%; }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    line-height: 1.6;
+  }
+  /* One consistent, unmissable keyboard focus indicator for everything
+     interactive (WCAG 2.4.7 / 2.4.11 / 2.4.13): 3px, offset, high contrast. */
+  :focus-visible {
+    outline: 3px solid var(--color-ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold tracking-tight text-foreground;

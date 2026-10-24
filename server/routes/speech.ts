@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import rateLimit from "express-rate-limit";
+import { makeLimiter } from "../middleware/rateLimit";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { transcribe } from "../services/speechService";
 
@@ -13,12 +13,10 @@ const upload = multer({
   limits: { fileSize: 15 * 1024 * 1024 },
 });
 
-const speechLimiter = rateLimit({
+const speechLimiter = makeLimiter({
   windowMs: 15 * 60 * 1000,
   limit: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many transcription requests. Please try again later." },
+  message: "Too many transcription requests. Please try again later.",
 });
 
 router.post("/transcribe", requireAuth, requireRole("patient"), speechLimiter, upload.single("audio"), async (req, res) => {

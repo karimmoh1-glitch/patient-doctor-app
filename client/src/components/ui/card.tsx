@@ -29,11 +29,14 @@ const CardHeader = React.forwardRef<
 ))
 CardHeader.displayName = "CardHeader"
 
+// A card's title is a real heading, so people using a screen reader can jump
+// between sections. Defaults to h2; pass `as="h3"` when the card sits under
+// an h2 section heading, to keep the outline in order.
 const CardTitle = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
+  HTMLHeadingElement,
+  React.HTMLAttributes<HTMLHeadingElement> & { as?: "h2" | "h3" | "h4" }
+>(({ className, as: Tag = "h2", ...props }, ref) => (
+  <Tag
     ref={ref}
     className={cn("font-semibold leading-none tracking-tight", className)}
     {...props}

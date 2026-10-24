@@ -5,3 +5,8 @@ dist/
 .next/
 *.tsbuildinfo
 *.db
+uploads/
+test-results/
+playwright-report/
+api/index.js
+.vercel
