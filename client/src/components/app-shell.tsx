@@ -28,6 +28,8 @@ interface NavItem {
   owns?: string[];
   /** Highlight only on this exact path (a Home item whose path is a prefix of its siblings'). */
   exact?: boolean;
+  /** Not in the phone tab bar (which holds at most five), reachable from the screens that link to it. */
+  sidebarOnly?: boolean;
 }
 
 // A patient gets exactly four places to go. Everything else lives one tap
@@ -50,9 +52,9 @@ const DOCTOR_NAV: NavItem[] = [
   { href: "/doctor", labelKey: "nav.d.home", icon: Home, exact: true },
   { href: "/doctor/requests", labelKey: "nav.d.requests", icon: Inbox },
   { href: "/doctor/patients", labelKey: "nav.d.patients", icon: Users, owns: ["/chat"] },
-  { href: "/doctor/appointments", labelKey: "nav.d.appointments", icon: CalendarDays },
-  { href: "/doctor/availability", labelKey: "nav.d.hours", icon: Clock },
-  { href: "/doctor/profile", labelKey: "nav.d.profile", icon: UserRound, owns: ["/notifications"] },
+  { href: "/doctor/appointments", labelKey: "nav.d.appointments", shortKey: "nav.d.appointments.short", icon: CalendarDays },
+  { href: "/doctor/availability", labelKey: "nav.d.hours", shortKey: "nav.d.hours.short", icon: Clock },
+  { href: "/doctor/profile", labelKey: "nav.d.profile", icon: UserRound, owns: ["/notifications"], sidebarOnly: true },
 ];
 
 // Until an administrator approves them, a doctor has exactly one place to be:
@@ -173,7 +175,7 @@ function NotificationsLink() {
   const { data } = useQuery<{ unread: number }>({ queryKey: ["/api/notifications/unread-count"], refetchInterval: 60_000 });
   const unread = data?.unread ?? 0;
   return (
-    <Button asChild variant="outline" size="sm" className="relative px-3">
+    <Button asChild variant="outline" size="sm" className="relative px-2.5">
       <Link href="/notifications" aria-label={t("top.notifications.unread", { count: unread } as never)}>
         <Bell aria-hidden="true" />
         {unread > 0 && (
@@ -191,21 +193,22 @@ function TopBar({ user, onOpenSettings, large }: { user: AuthUser; onOpenSetting
   const clinical = user.role === "patient" || (user.role === "doctor" && user.doctorStatus === "approved");
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-sm">
-      <div className={cn("mx-auto flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-5", large ? "max-w-xl" : "max-w-6xl")}>
-        <Logo hideTextOnPhone />
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {user.role === "patient" && (
-            <>
-              <Button asChild variant="destructive" size="sm">
-                <Link href="/sos"><Siren aria-hidden="true" /> {t("top.emergency")}</Link>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <Link href="/help"><LifeBuoy aria-hidden="true" /> {t("top.help")}</Link>
-              </Button>
-            </>
-          )}
+      <div className={cn("mx-auto flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 sm:px-5", large ? "max-w-xl" : "max-w-6xl")}>
+        <Logo hideTextOnPhone className="me-auto" />
+        {/* Emergency and Help are always one tap away. On a phone they get a full-width row of two big buttons. */}
+        {user.role === "patient" && (
+          <div className="order-last grid w-full grid-cols-2 gap-2 sm:order-none sm:flex sm:w-auto">
+            <Button asChild variant="destructive" size="sm" className="min-h-12 sm:min-h-11">
+              <Link href="/sos"><Siren aria-hidden="true" /> {t("top.emergency")}</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="min-h-12 sm:min-h-11">
+              <Link href="/help"><LifeBuoy aria-hidden="true" /> {t("top.help")}</Link>
+            </Button>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {clinical && <NotificationsLink />}
-          <Button variant="outline" size="sm" onClick={onOpenSettings} aria-label={t("top.settings")} className="px-3 md:px-4">
+          <Button variant="outline" size="sm" onClick={onOpenSettings} aria-label={t("top.settings")} className="px-2.5 md:px-4">
             <SettingsIcon aria-hidden="true" /> <span className="hidden md:inline">{t("top.settings")}</span>
           </Button>
         </div>
@@ -243,8 +246,9 @@ function SideNav({ items, location }: { items: NavItem[]; location: string }) {
   );
 }
 
-function BottomNav({ items, location }: { items: NavItem[]; location: string }) {
+function BottomNav({ items: all, location }: { items: NavItem[]; location: string }) {
   const { t } = useI18n();
+  const items = all.filter((i) => !i.sidebarOnly);
   return (
     <nav aria-label={t("nav.main")} className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card md:hidden">
       <ul className="mx-auto grid max-w-xl" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>

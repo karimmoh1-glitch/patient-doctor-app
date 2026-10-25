@@ -44,4 +44,5 @@ export default {
   "dir.requestSent": "Request sent",
   "dir.requestSent.body": "The doctor decides whether to accept. It can take a day or more.",
   "dir.requestFailed": "We couldn't send that",
+  "dir.more": "More filters",
 } as const;

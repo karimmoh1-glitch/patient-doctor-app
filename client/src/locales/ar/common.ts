@@ -143,5 +143,7 @@ const t: Partial<Record<Key, string>> = {
   "home.getReady": "استعد لهذه الزيارة",
   "home.noVisit": "ليس لديك زيارة محجوزة.",
   "home.startFinding": "ابدأ بالبحث عن طبيب. أخبرنا بما تحتاج إلى المساعدة فيه.",
+  "nav.d.appointments.short": "الزيارات",
+  "nav.d.hours.short": "الساعات",
 };
 export default t;

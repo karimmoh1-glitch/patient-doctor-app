@@ -83,11 +83,12 @@ test.describe("becoming a doctor on Avela", () => {
 
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/Dr\. /);
-    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).getByRole("link")).toHaveCount(6);
+    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).getByRole("link")).toHaveCount(5);
 
     // And patients can now find them, in their own language, with Avela's honest wording.
     await page.goto("/find-doctors");
-    await page.getByLabel("State").selectOption("TX");
+    await page.getByText("More filters").click();
+    await page.getByLabel("State", { exact: true }).selectOption("TX");
     await page.getByLabel("Language spoken").selectOption("ar");
     const listing = page.locator("li", { has: page.getByRole("heading", { level: 2, name: "Amira Haddad" }) });
     await expect(listing).toContainText("Reviewed by the Avela team");

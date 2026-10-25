@@ -46,5 +46,6 @@ const t: Partial<Record<Key, string>> = {
   "dir.requestSent": "تم إرسال الطلب",
   "dir.requestSent.body": "يقرر الطبيب قبول الطلب أو عدمه. وقد يستغرق ذلك يومًا أو أكثر.",
   "dir.requestFailed": "تعذّر إرسال الطلب",
+  "dir.more": "مزيد من عوامل التصفية",
 };
 export default t;

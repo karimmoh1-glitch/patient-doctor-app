@@ -141,4 +141,6 @@ export default {
   "home.getReady": "Get ready for this visit",
   "home.noVisit": "You don't have a visit booked.",
   "home.startFinding": "Start by finding a doctor. Tell us what you need help with.",
+  "nav.d.appointments.short": "Visits",
+  "nav.d.hours.short": "Hours",
 } as const;

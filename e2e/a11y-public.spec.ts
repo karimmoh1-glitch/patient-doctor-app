@@ -2,6 +2,13 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { signInAs } from "./helpers";
 
+// Scanning the demo patient in Arabic saves Arabic to that shared account; put it back.
+test.afterEach(async ({ request }) => {
+  const login = await request.post("/api/auth/login", { data: { email: "patient@avela.dev", password: "DemoPass123!" } });
+  const { token } = await login.json();
+  await request.patch("/api/auth/me/preferences", { headers: { Authorization: `Bearer ${token}` }, data: { language: "en" } });
+});
+
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function scan(page: import("@playwright/test").Page, label: string) {

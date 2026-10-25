@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { BadgeCheck, CalendarClock, Languages, MapPin, MessageCircle, Phone, Search, UserRound, X } from "lucide-react";
+import { BadgeCheck, CalendarClock, ChevronDown, Languages, MapPin, MessageCircle, Phone, Search, UserRound, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,8 @@ export default function DoctorFinder({ mode, defaultState }: { mode: "public" | 
   const [state, setState] = useState(defaultState ?? "");
   const [available, setAvailable] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  // The first three filters are always shown; the rest start collapsed on a phone, to keep the page short.
+  const [moreOpen, setMoreOpen] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches);
 
   const url = useMemo(() => {
     const p = new URLSearchParams();
@@ -117,6 +119,13 @@ export default function DoctorFinder({ mode, defaultState }: { mode: "public" | 
               {CLINICIAN_LANGUAGES.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.native}</option>)}
             </NativeSelect>
           </div>
+        </div>
+        <details open={moreOpen} onToggle={(e) => setMoreOpen((e.currentTarget as HTMLDetailsElement).open)} className="group rounded-xl border border-border">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 text-base font-semibold hover:bg-secondary">
+            {t("dir.more")}
+            <ChevronDown className="h-5 w-5 transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="doc-modality" className="text-base">{t("dir.modality")}</Label>
             <NativeSelect id="doc-modality" value={modality} onChange={(e) => setModality(e.target.value)}>
@@ -137,7 +146,8 @@ export default function DoctorFinder({ mode, defaultState }: { mode: "public" | 
               {t("dir.availableOnly")}
             </label>
           </div>
-        </div>
+          </div>
+        </details>
         {filtered && (
           <Button type="button" variant="outline" size="sm" onClick={clearFilters}><X aria-hidden="true" /> {t("dir.clear")}</Button>
         )}

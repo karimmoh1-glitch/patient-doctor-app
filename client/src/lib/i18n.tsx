@@ -91,7 +91,9 @@ interface I18n {
   t: (key: MessageKey, vars?: Vars) => string;
 }
 
-const Ctx = createContext<I18n | null>(null);
+// Kept on globalThis so that, in the dev server, a hot-reloaded copy of this module
+// still shares one React context with the copy the rest of the app imported.
+const Ctx: React.Context<I18n | null> = ((globalThis as any).__avelaI18nContext ??= createContext<I18n | null>(null));
 
 function applyToDocument(locale: Locale) {
   const meta = LOCALES.find((l) => l.code === locale)!;
