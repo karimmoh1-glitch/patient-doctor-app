@@ -1,0 +1,22 @@
+// labels
+export default {
+  "specialty.family_medicine": "Family Medicine",
+  "specialty.internal_medicine": "Internal Medicine",
+  "specialty.pediatrics": "Pediatrics",
+  "specialty.dermatology": "Dermatology",
+  "specialty.cardiology": "Cardiology",
+  "specialty.psychiatry": "Psychiatry",
+  "specialty.orthopedics": "Orthopedics",
+  "specialty.ent": "ENT (Ear, Nose & Throat)",
+  "specialty.gastroenterology": "Gastroenterology",
+  "specialty.obgyn": "OB/GYN",
+  "specialty.urgent_care": "Urgent Care",
+  "specialty.endocrinology": "Endocrinology",
+  "modality.phone": "Phone call",
+  "modality.messaging": "Secure messages",
+  "modality.in_person": "In person",
+  "role.physician": "Physician",
+  "role.nurse_practitioner": "Nurse practitioner",
+  "role.physician_assistant": "Physician assistant",
+  "role.other_clinician": "Other clinician",
+} as const;

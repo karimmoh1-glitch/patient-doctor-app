@@ -159,3 +159,18 @@ describe("health check", () => {
     expect(res.body).toEqual({ ok: true });
   });
 });
+
+describe("booking a video visit", () => {
+  it("is refused while no video provider exists, so nobody books a call that can't happen", async () => {
+    const patient = await signupPatient();
+    const doctor = await createDoctor();
+    const { connect: _unused } = await import("./helpers");
+    const { pairingId } = await _unused(patient, doctor);
+    const res = await request(app)
+      .post("/api/appointments")
+      .set(auth(patient.token))
+      .send({ pairingRequestId: pairingId, type: "Video Visit", reason: "Check-in", scheduledAt: new Date(Date.now() + 3 * 86400000).toISOString() });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/aren't available/);
+  });
+});

@@ -3,11 +3,14 @@ import { AlertTriangle, RefreshCw, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NetworkError } from "@/lib/queryClient";
 import { useAppConfig } from "@/hooks/use-app-config";
+import { useI18n } from "@/lib/i18n";
+import { Ltr } from "@/components/ltr";
 
-export function LoadingBlock({ label = "Loading" }: { label?: string }) {
+export function LoadingBlock({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div role="status" aria-live="polite" aria-busy="true" className="space-y-3">
-      <span className="sr-only">{label}…</span>
+      <span className="sr-only">{label ? `${label}…` : t("common.loading")}</span>
       <div className="h-6 w-1/3 animate-pulse rounded bg-secondary" />
       <div className="h-24 animate-pulse rounded-xl bg-secondary" />
       <div className="h-24 animate-pulse rounded-xl bg-secondary" />
@@ -16,27 +19,28 @@ export function LoadingBlock({ label = "Loading" }: { label?: string }) {
 }
 
 export function ErrorBlock({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const { t } = useI18n();
   const config = useAppConfig();
   const offline = error instanceof NetworkError;
   const Icon = offline ? WifiOff : AlertTriangle;
-  const message = error instanceof Error && error.message ? error.message : "Something went wrong.";
+  const message = error instanceof Error && error.message ? error.message : t("qstate.generic");
   return (
     <div role="alert" className="flex items-start gap-4 rounded-xl border-2 border-input bg-card p-5">
       <Icon className="mt-1 h-6 w-6 shrink-0 text-destructive" aria-hidden="true" />
       <div className="space-y-3">
         <div>
-          <p className="font-semibold">{offline ? "No connection" : "We couldn't load this"}</p>
+          <p className="font-semibold">{offline ? t("qstate.noConnection") : t("qstate.couldntLoad")}</p>
           <p className="text-muted-foreground">{message}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {onRetry && (
             <Button onClick={onRetry}>
-              <RefreshCw aria-hidden="true" /> Try again
+              <RefreshCw aria-hidden="true" /> {t("common.retry")}
             </Button>
           )}
           {config?.support.phone && (
             <Button asChild variant="outline">
-              <a href={`tel:${config.support.phone.replace(/[^\d+]/g, "")}`}>Call support: {config.support.phone}</a>
+              <a href={`tel:${config.support.phone.replace(/[^\d+]/g, "")}`}>{t("qstate.callSupport")} <Ltr>{config.support.phone}</Ltr></a>
             </Button>
           )}
         </div>

@@ -12,6 +12,7 @@ import { apiRequest, SESSION_EXPIRED_EVENT } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
 import { useAppConfig } from "@/hooks/use-app-config";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 interface Document {
   id: string;
@@ -22,7 +23,14 @@ interface Document {
   createdAt: string;
 }
 
-const CATEGORIES = ["Lab Result", "Imaging", "Visit Summary", "Insurance", "Other"];
+// The stored value is what the server keeps; only the label is translated.
+const CATEGORIES: { value: string; labelKey: MessageKey }[] = [
+  { value: "Lab Result", labelKey: "docs.category.lab_result" },
+  { value: "Imaging", labelKey: "docs.category.imaging" },
+  { value: "Visit Summary", labelKey: "docs.category.visit_summary" },
+  { value: "Insurance", labelKey: "docs.category.insurance" },
+  { value: "Other", labelKey: "docs.category.other" },
+];
 
 function authHeaders(): Record<string, string> {
   try {
@@ -36,6 +44,11 @@ function authHeaders(): Record<string, string> {
 
 export default function Documents() {
   const { toast } = useToast();
+  const { t } = useI18n();
+  const categoryLabel = (value: string) => {
+    const known = CATEGORIES.find((c) => c.value === value);
+    return known ? t(known.labelKey) : value;
+  };
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const config = useAppConfig();
@@ -52,18 +65,18 @@ export default function Documents() {
     try {
       const res = await fetch(`/api/documents/${id}/file`, { headers: authHeaders() });
       if (res.status === 401) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-      if (!res.ok) throw new Error("The file couldn't be opened.");
+      if (!res.ok) throw new Error(t("docs.error.fileOpen"));
       const blob = await res.blob();
       window.open(URL.createObjectURL(blob), "_blank");
     } catch (err: any) {
-      toast({ title: "We couldn't open the file", description: err.message, variant: "destructive" });
+      toast({ title: t("docs.toast.openFailed"), description: err.message, variant: "destructive" });
     }
   }
 
   async function upload(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!title.trim()) return setError("Please give this document a name so you can find it later.");
+    if (!title.trim()) return setError(t("docs.error.noName"));
     setUploading(true);
     try {
       const form = new FormData();
@@ -75,12 +88,12 @@ export default function Documents() {
       if (res.status === 401) window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "The document couldn't be saved.");
+        throw new Error(data.message || t("docs.error.saveFailed"));
       }
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
       setTitle("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      toast({ title: "Document saved" });
+      toast({ title: t("docs.toast.saved") });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -92,9 +105,9 @@ export default function Documents() {
     try {
       await apiRequest("DELETE", `/api/documents/${id}`);
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
-      toast({ title: "Document deleted" });
+      toast({ title: t("docs.toast.deleted") });
     } catch (err: any) {
-      toast({ title: "We couldn't delete it", description: err.message, variant: "destructive" });
+      toast({ title: t("docs.toast.deleteFailed"), description: err.message, variant: "destructive" });
       throw err;
     }
   }
@@ -102,49 +115,49 @@ export default function Documents() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
-        <h1 className="text-3xl font-semibold">Documents</h1>
-        <p className="text-lg text-muted-foreground">Test results, letters and other papers you want to keep in one place. Only you can see them unless you choose to share.</p>
+        <h1 className="text-3xl font-semibold">{t("docs.title")}</h1>
+        <p className="text-lg text-muted-foreground">{t("docs.intro")}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Add a document</CardTitle>
+          <CardTitle className="text-2xl">{t("docs.add.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={upload} className="space-y-4" noValidate>
             <div className="space-y-2">
-              <Label htmlFor="doc-title" className="text-base">What is it called?</Label>
-              <Input id="doc-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="For example: Blood test results" aria-describedby={error ? "doc-error" : undefined} />
+              <Label htmlFor="doc-title" className="text-base">{t("docs.add.nameLabel")}</Label>
+              <Input id="doc-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("docs.add.namePlaceholder")} aria-describedby={error ? "doc-error" : undefined} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="doc-category" className="text-base">What kind of paper is it?</Label>
+              <Label htmlFor="doc-category" className="text-base">{t("docs.add.categoryLabel")}</Label>
               <NativeSelect id="doc-category" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{t(c.labelKey)}</option>)}
               </NativeSelect>
             </div>
             {canUploadFiles ? (
               <div className="space-y-2">
-                <Label htmlFor="doc-file" className="text-base">The file (optional)</Label>
+                <Label htmlFor="doc-file" className="text-base">{t("docs.add.fileLabel")}</Label>
                 <Input id="doc-file" ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt" className="h-auto py-3" aria-describedby="doc-file-help" />
-                <p id="doc-file-help" className="text-muted-foreground">A PDF, photo, or text file, up to 10 MB.</p>
+                <p id="doc-file-help" className="text-muted-foreground">{t("docs.add.fileHelp")}</p>
               </div>
             ) : (
-              <p className="rounded-lg border-2 border-input p-3 text-muted-foreground">Saving the file itself isn't available on this service yet. You can keep a note of what the paper is and where it is.</p>
+              <p className="rounded-lg border-2 border-input p-3 text-muted-foreground">{t("docs.add.noUpload")}</p>
             )}
             {error && <p id="doc-error" role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
             <Button type="submit" size="lg" disabled={uploading}>
-              <Upload aria-hidden="true" /> {uploading ? "Saving…" : "Save this document"}
+              <Upload aria-hidden="true" /> {uploading ? t("common.saving") : t("docs.add.submit")}
             </Button>
           </form>
         </CardContent>
       </Card>
 
       <section aria-labelledby="saved-heading" className="space-y-4">
-        <h2 id="saved-heading" className="text-2xl font-semibold">Saved documents</h2>
+        <h2 id="saved-heading" className="text-2xl font-semibold">{t("docs.saved.heading")}</h2>
         <QueryState
           query={query}
           isEmpty={(d) => d.length === 0}
-          empty={<EmptyBlock title="You haven't saved any documents yet" />}
+          empty={<EmptyBlock title={t("docs.saved.empty")} />}
         >
           {(docs) => (
             <ul className="space-y-4">
@@ -153,19 +166,19 @@ export default function Documents() {
                   <Card>
                     <CardHeader className="flex flex-row items-start gap-3 space-y-0">
                       <FileText className="mt-1 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
-                      <div>
+                      <div className="min-w-0">
                         <CardTitle as="h3" className="text-xl leading-snug">{d.title}</CardTitle>
-                        <CardDescription className="text-base">{d.category} · saved {formatDate(d.createdAt)}</CardDescription>
+                        <CardDescription className="text-base">{t("docs.saved.meta", { category: categoryLabel(d.category), date: formatDate(d.createdAt) })}</CardDescription>
                       </div>
                     </CardHeader>
                     <CardContent className="flex flex-wrap gap-3">
-                      {d.hasFile && <Button variant="outline" onClick={() => viewFile(d.id)}>Open the file<span className="sr-only">: {d.title}</span></Button>}
+                      {d.hasFile && <Button variant="outline" onClick={() => viewFile(d.id)}>{t("docs.open")}<span className="sr-only">{t("health.srTitle", { title: d.title })}</span></Button>}
                       <ConfirmAction
-                        trigger={<Button variant="outline"><Trash2 aria-hidden="true" /> Delete<span className="sr-only">: {d.title}</span></Button>}
-                        title={`Delete "${d.title}"?`}
-                        description="This removes it from Avela for good. Any doctor you had shared it with will no longer be able to see it. This can't be undone."
-                        confirmLabel="Yes, delete it"
-                        cancelLabel="No, keep it"
+                        trigger={<Button variant="outline"><Trash2 aria-hidden="true" /> {t("common.delete")}<span className="sr-only">{t("health.srTitle", { title: d.title })}</span></Button>}
+                        title={t("docs.delete.title", { title: d.title })}
+                        description={t("docs.delete.body")}
+                        confirmLabel={t("docs.delete.confirm")}
+                        cancelLabel={t("docs.delete.keep")}
                         destructive
                         onConfirm={() => remove(d.id)}
                       />

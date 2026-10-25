@@ -14,7 +14,13 @@ import StatusBadge from "@/components/status-badge";
 import QueryState from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { formatRelativeDay } from "@/lib/format";
+import { formatRelativeDay, timeAgo } from "@/lib/format";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { specialtyLabel } from "@/lib/labels";
+import ConfirmAction from "@/components/confirm-action";
+import PrescriptionDialog, { type PrescriptionRecord } from "@/components/prescription-form";
+import { Ltr } from "@/components/ltr";
+import { appointmentTypeLabel } from "@/lib/labels";
 
 interface DoctorPairing {
   id: string;
@@ -33,15 +39,8 @@ interface Appointment {
   status: string;
 }
 
-interface Prescription {
-  id: string;
-  pairingRequestId: string;
-  medicationName: string;
-  instructions: string;
-  status: string;
-}
-
 function CompleteAppointmentDialog({ appointment, onDone }: { appointment: Appointment; onDone: () => void }) {
+  const { t } = useI18n();
   const { toast } = useToast();
   const [notes, setNotes] = useState("");
   const [followUp, setFollowUp] = useState("");
@@ -51,7 +50,7 @@ function CompleteAppointmentDialog({ appointment, onDone }: { appointment: Appoi
 
   async function submit() {
     if (!notes.trim()) {
-      toast({ title: "Add a visit note", variant: "destructive" });
+      toast({ title: t("dws.complete.needNote"), variant: "destructive" });
       return;
     }
     setSubmitting(true);
@@ -61,11 +60,11 @@ function CompleteAppointmentDialog({ appointment, onDone }: { appointment: Appoi
         followUpInstructions: followUp.trim() || undefined,
         followUpDate: followUpDate ? new Date(followUpDate).toISOString() : undefined,
       });
-      toast({ title: "Visit completed" });
+      toast({ title: t("dws.complete.done") });
       setOpen(false);
       onDone();
     } catch (err: any) {
-      toast({ title: "Couldn't complete visit", description: err.message, variant: "destructive" });
+      toast({ title: t("dws.complete.failed"), description: err.message, variant: "destructive" });
     } finally {
       setSubmitting(false);
     }
@@ -74,118 +73,115 @@ function CompleteAppointmentDialog({ appointment, onDone }: { appointment: Appoi
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline">Complete visit</Button>
+        <Button size="sm" variant="outline">{t("dws.complete.button")}</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Complete visit</DialogTitle>
-          <DialogDescription>This becomes the patient's visit summary and drives their follow-up tasks. Demo clinical documentation.</DialogDescription>
+          <DialogTitle>{t("dws.complete.button")}</DialogTitle>
+          <DialogDescription>{t("dws.complete.intro")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label>Visit notes</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Summary of the visit…" />
+            <Label>{t("dws.complete.notes")}</Label>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={t("dws.complete.notesPlaceholder")} />
           </div>
           <div className="space-y-1.5">
-            <Label>Follow-up instructions (optional)</Label>
-            <Textarea value={followUp} onChange={(e) => setFollowUp(e.target.value)} rows={2} placeholder="e.g. Continue current medication and follow up in 2 weeks" />
+            <Label>{t("dws.complete.followUp")}</Label>
+            <Textarea value={followUp} onChange={(e) => setFollowUp(e.target.value)} rows={2} placeholder={t("dws.complete.followUpPlaceholder")} />
           </div>
           <div className="space-y-1.5">
-            <Label>Follow-up date (optional)</Label>
+            <Label>{t("dws.complete.followUpDate")}</Label>
             <Input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
           </div>
         </div>
         <DialogFooter>
-          <Button disabled={submitting} onClick={submit}>Complete visit</Button>
+          <Button disabled={submitting} onClick={submit}>{t("dws.complete.button")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function NewPrescriptionDialog({ pairingId, onDone }: { pairingId: string; onDone: () => void }) {
+function PrescriptionCard({ p, pairingId, onChanged }: { p: PrescriptionRecord; pairingId: string; onChanged: () => void }) {
+  const { t } = useI18n();
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [medicationName, setMedicationName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [frequencyPerDay, setFrequencyPerDay] = useState("1");
-  const [durationDays, setDurationDays] = useState("");
-  const [refillsAllowed, setRefillsAllowed] = useState("0");
-  const [submitting, setSubmitting] = useState(false);
+  const [history, setHistory] = useState<{ id: string; event: string; createdAt: string }[] | null>(null);
 
-  async function submit() {
-    if (!medicationName.trim() || !instructions.trim()) {
-      toast({ title: "Fill in medication name and instructions", variant: "destructive" });
-      return;
-    }
-    setSubmitting(true);
+  async function authorize() {
     try {
-      await apiRequest("POST", "/api/prescriptions", {
-        pairingRequestId: pairingId,
-        medicationName: medicationName.trim(),
-        instructions: instructions.trim(),
-        frequencyPerDay: Number(frequencyPerDay),
-        durationDays: durationDays ? Number(durationDays) : undefined,
-        refillsAllowed: Number(refillsAllowed),
-      });
-      toast({ title: "Prescription saved in Avela", description: "It has not been sent to a pharmacy." });
-      setOpen(false);
-      setMedicationName(""); setInstructions(""); setDurationDays("");
-      onDone();
+      await apiRequest("POST", `/api/prescriptions/${p.id}/authorize`, { confirm: true });
+      toast({ title: t("dws.rx.authorized"), description: t("dws.rx.authorizedBody") });
+      onChanged();
     } catch (err: any) {
-      toast({ title: "Couldn't create prescription", description: err.message, variant: "destructive" });
-    } finally {
-      setSubmitting(false);
+      toast({ title: t("dws.rx.authorizeFailed"), description: err.message, variant: "destructive" });
+      throw err;
     }
   }
+  async function cancel() {
+    try {
+      await apiRequest("PATCH", `/api/prescriptions/${p.id}/cancel`);
+      onChanged();
+    } catch (err: any) {
+      toast({ title: t("dws.rx.cancelFailed"), description: err.message, variant: "destructive" });
+      throw err;
+    }
+  }
+  async function loadHistory() {
+    const res = await apiRequest("GET", `/api/prescriptions/${p.id}/history`);
+    setHistory(await res.json());
+  }
 
+  const isDraft = p.status === "draft";
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" className="gap-1"><Plus className="h-3.5 w-3.5" /> New prescription</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Record a prescription</DialogTitle>
-          <DialogDescription>This records the prescription for the patient in Avela. It is not sent to any pharmacy, and Avela does not check doses or interactions. Prescribe through your usual system as well.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Medication name</Label>
-            <Input value={medicationName} onChange={(e) => setMedicationName(e.target.value)} placeholder="e.g. Demo Med A" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Instructions</Label>
-            <Textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} placeholder="e.g. Take one tablet by mouth, as directed" />
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label>Times per day</Label>
-              <Select value={frequencyPerDay} onValueChange={setFrequencyPerDay}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Duration (days)</Label>
-              <Input type="number" min={1} value={durationDays} onChange={(e) => setDurationDays(e.target.value)} placeholder="30" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Refills</Label>
-              <Input type="number" min={0} value={refillsAllowed} onChange={(e) => setRefillsAllowed(e.target.value)} />
-            </div>
-          </div>
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div className="min-w-0">
+          <CardTitle className="text-base">{p.medicationName}</CardTitle>
+          <CardDescription>
+            <Ltr>{[p.strength, p.dose].filter(Boolean).join(" · ")}</Ltr>
+          </CardDescription>
         </div>
-        <DialogFooter>
-          <Button disabled={submitting} onClick={submit}>Create prescription</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <StatusBadge kind="prescription" status={p.status} />
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">{p.instructions}</p>
+        {isDraft && <p className="rounded-lg bg-sand p-3 text-sm text-sand-foreground">{t("dws.rx.draftNote")}</p>}
+        {!isDraft && p.status === "active" && <p className="text-sm text-muted-foreground">{t("rx.notSentShort")}</p>}
+        <div className="flex flex-wrap gap-2">
+          {isDraft && (
+            <>
+              <PrescriptionDialog pairingId={pairingId} existing={p} onDone={onChanged} trigger={<Button size="sm" variant="outline">{t("dws.rx.editDraft")}</Button>} />
+              <ConfirmAction
+                trigger={<Button size="sm">{t("dws.rx.authorize")}</Button>}
+                title={t("dws.rx.authorize.title", { name: p.medicationName })}
+                description={t("dws.rx.authorize.body")}
+                confirmLabel={t("dws.rx.authorize.yes")}
+                cancelLabel={t("dws.rx.authorize.no")}
+                onConfirm={authorize}
+              />
+            </>
+          )}
+          {(isDraft || p.status === "active") && (
+            <ConfirmAction
+              trigger={<Button size="sm" variant="outline">{isDraft ? t("dws.rx.discard") : t("dws.rx.cancel")}</Button>}
+              title={isDraft ? t("dws.rx.discard.title") : t("dws.rx.cancel.title", { name: p.medicationName })}
+              description={isDraft ? t("dws.rx.discard.body") : t("dws.rx.cancel.body")}
+              confirmLabel={isDraft ? t("dws.rx.discard.yes") : t("dws.rx.cancel.yes")}
+              cancelLabel={t("dws.rx.keep")}
+              onConfirm={cancel}
+            />
+          )}
+          <Button size="sm" variant="ghost" onClick={loadHistory}>{t("dws.rx.history")}</Button>
+        </div>
+        {history && (
+          <ul className="space-y-1 text-sm text-muted-foreground" aria-label={t("dws.rx.history")}>
+            {history.map((h) => <li key={h.id}>{t(`rx.event.${h.event}` as MessageKey)} · {timeAgo(h.createdAt)}</li>)}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
-
 
 interface SharedRecords {
   granted: string[];
@@ -199,41 +195,42 @@ interface SharedRecords {
 // connection lasts. Each time this loads it is recorded in the patient's
 // access log — so it is fetched when the tab is opened, not in the background.
 function SharedByPatient({ pairingId }: { pairingId: string }) {
+  const { t } = useI18n();
   const query = useQuery<SharedRecords>({ queryKey: [`/api/pairings/${pairingId}/shared-records`], staleTime: 0 });
   return (
     <QueryState query={query}>
       {(d) =>
         d.granted.length === 0 ? (
-          <p className="rounded-xl border-2 border-input p-4 text-lg">This patient hasn't shared anything beyond your messages and what they wrote when they asked for help.</p>
+          <p className="rounded-xl border-2 border-input p-4 text-lg">{t("dws.shared.nothing")}</p>
         ) : (
           <div className="space-y-4">
-            <p className="text-muted-foreground">Shared with you: {d.granted.join(", ")}. Opening this is recorded in the patient's access log.</p>
+            <p className="text-muted-foreground">{t("dws.shared.with", { list: d.granted.join(", ") })}</p>
             {d.medications && (
-              <Card><CardHeader><CardTitle as="h3" className="text-lg">Current medicines</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle as="h3" className="text-lg">{t("dws.shared.meds")}</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  {d.medications.length === 0 && <p className="text-muted-foreground">None being tracked.</p>}
+                  {d.medications.length === 0 && <p className="text-muted-foreground">{t("dws.shared.noneTracked")}</p>}
                   {d.medications.map((m, i) => <p key={i}><strong>{m.name}</strong> — {m.instructions} <span className="text-muted-foreground">({m.scheduleTimes.join(", ")})</span></p>)}
                 </CardContent></Card>
             )}
             {d.documents && (
-              <Card><CardHeader><CardTitle as="h3" className="text-lg">Documents</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle as="h3" className="text-lg">{t("dws.shared.docs")}</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  {d.documents.length === 0 && <p className="text-muted-foreground">None saved.</p>}
+                  {d.documents.length === 0 && <p className="text-muted-foreground">{t("dws.shared.noneSaved")}</p>}
                   {d.documents.map((x) => <p key={x.id}>{x.title} <span className="text-muted-foreground">· {x.category}</span></p>)}
                 </CardContent></Card>
             )}
             {d.appointments && (
-              <Card><CardHeader><CardTitle as="h3" className="text-lg">Visits with other doctors</CardTitle><CardDescription>Dates and kind only. No reasons or notes.</CardDescription></CardHeader>
+              <Card><CardHeader><CardTitle as="h3" className="text-lg">{t("dws.shared.visits")}</CardTitle><CardDescription>{t("dws.shared.visitsNote")}</CardDescription></CardHeader>
                 <CardContent className="space-y-2">
-                  {d.appointments.length === 0 && <p className="text-muted-foreground">None.</p>}
-                  {d.appointments.map((a, i) => <p key={i}>{formatRelativeDay(a.scheduledAt)} · {a.type}{a.specialty ? ` · ${a.specialty}` : ""} <span className="text-muted-foreground">({a.status})</span></p>)}
+                  {d.appointments.length === 0 && <p className="text-muted-foreground">{t("common.none")}</p>}
+                  {d.appointments.map((a, i) => <p key={i}>{formatRelativeDay(a.scheduledAt)} · {appointmentTypeLabel(t, a.type)}{a.specialty ? ` · ${specialtyLabel(t, a.specialty)}` : ""} <span className="text-muted-foreground">({t(`status.appointment.${a.status}` as MessageKey)})</span></p>)}
                 </CardContent></Card>
             )}
             {d.prescriptions && (
-              <Card><CardHeader><CardTitle as="h3" className="text-lg">Prescribed by other doctors</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle as="h3" className="text-lg">{t("dws.shared.otherRx")}</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  {d.prescriptions.length === 0 && <p className="text-muted-foreground">None.</p>}
-                  {d.prescriptions.map((p, i) => <p key={i}>{p.medicationName} <span className="text-muted-foreground">({p.status})</span></p>)}
+                  {d.prescriptions.length === 0 && <p className="text-muted-foreground">{t("common.none")}</p>}
+                  {d.prescriptions.map((p, i) => <p key={i}>{p.medicationName} <span className="text-muted-foreground">({t(`status.prescription.${p.status}` as MessageKey)})</span></p>)}
                 </CardContent></Card>
             )}
           </div>
@@ -246,6 +243,7 @@ function SharedByPatient({ pairingId }: { pairingId: string }) {
 // What the patient wrote when they asked for help. Fetched only on request,
 // because each read is recorded in the patient's access log.
 function WhatThePatientWrote({ pairingId }: { pairingId: string }) {
+  const { t } = useI18n();
   const [text, setText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -264,9 +262,9 @@ function WhatThePatientWrote({ pairingId }: { pairingId: string }) {
   return (
     <div className="space-y-2">
       {text === null ? (
-        <Button variant="outline" onClick={load} disabled={loading}>{loading ? "Opening…" : "Show what they wrote when they asked for help"}</Button>
+        <Button variant="outline" onClick={load} disabled={loading}>{loading ? t("dws.wrote.opening") : t("dws.wrote.show")}</Button>
       ) : (
-        <p className="rounded-xl border-2 border-input bg-card p-4 text-lg"><strong>They wrote:</strong> {text}</p>
+        <p className="rounded-xl border-2 border-input bg-card p-4 text-lg"><strong>{t("dws.wrote.label")}</strong> {text}</p>
       )}
       {error && <p role="alert" className="font-medium text-destructive">{error}</p>}
     </div>
@@ -274,10 +272,11 @@ function WhatThePatientWrote({ pairingId }: { pairingId: string }) {
 }
 
 export default function DoctorPatientWorkspace({ pairingId }: { pairingId: string }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { data: pairings } = useQuery<DoctorPairing[]>({ queryKey: ["/api/pairings/doctor"] });
   const { data: appointments } = useQuery<Appointment[]>({ queryKey: ["/api/appointments/doctor"] });
-  const { data: prescriptions } = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions/doctor"] });
+  const { data: prescriptions } = useQuery<PrescriptionRecord[]>({ queryKey: ["/api/prescriptions/doctor"] });
 
   const pairing = pairings?.find((p) => p.id === pairingId);
   const myAppointments = (appointments || []).filter((a) => a.pairingRequestId === pairingId);
@@ -293,18 +292,18 @@ export default function DoctorPatientWorkspace({ pairingId }: { pairingId: strin
     refresh();
   }
 
-  if (!pairing) return <p className="text-muted-foreground">Loading…</p>;
+  if (!pairing) return <p className="text-muted-foreground">{t("common.loading")}</p>;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <Link href="/doctor/patients">
-        <Button variant="ghost" size="sm" className="-ml-3 gap-1"><ArrowLeft className="h-4 w-4" /> Back to patients</Button>
+        <Button variant="ghost" size="sm" className="-ms-3 gap-1"><ArrowLeft className="h-4 w-4 flip-rtl" /> {t("dws.back")}</Button>
       </Link>
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">{pairing.patientName}</h1>
         <Link href={`/chat/${pairing.id}?with=${encodeURIComponent(pairing.patientName)}`}>
-          <Button size="sm" variant="outline" className="gap-1"><MessageCircle className="h-3.5 w-3.5" /> Message</Button>
+          <Button size="sm" variant="outline" className="gap-1"><MessageCircle className="h-3.5 w-3.5" /> {t("dws.message")}</Button>
         </Link>
       </div>
 
@@ -312,9 +311,9 @@ export default function DoctorPatientWorkspace({ pairingId }: { pairingId: strin
 
       <Tabs defaultValue="appointments">
         <TabsList>
-          <TabsTrigger value="appointments">Appointments</TabsTrigger>
-          <TabsTrigger value="prescriptions">Prescriptions</TabsTrigger>
-          <TabsTrigger value="shared">Shared by patient</TabsTrigger>
+          <TabsTrigger value="appointments">{t("nav.d.appointments")}</TabsTrigger>
+          <TabsTrigger value="prescriptions">{t("rx.page.title")}</TabsTrigger>
+          <TabsTrigger value="shared">{t("dws.tab.shared")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="shared" className="space-y-3 pt-4">
@@ -322,12 +321,12 @@ export default function DoctorPatientWorkspace({ pairingId }: { pairingId: strin
         </TabsContent>
 
         <TabsContent value="appointments" className="space-y-3 pt-4">
-          {myAppointments.length === 0 && <p className="text-sm text-muted-foreground">No appointments with this patient yet.</p>}
+          {myAppointments.length === 0 && <p className="text-sm text-muted-foreground">{t("dws.noAppointments")}</p>}
           {myAppointments.map((a) => (
             <Card key={a.id}>
               <CardHeader className="flex flex-row items-start justify-between space-y-0">
                 <div>
-                  <CardTitle className="text-base">{a.type}</CardTitle>
+                  <CardTitle className="text-base">{appointmentTypeLabel(t, a.type)}</CardTitle>
                   <CardDescription>{formatRelativeDay(a.scheduledAt)}</CardDescription>
                 </div>
                 <StatusBadge kind="appointment" status={a.status} />
@@ -335,7 +334,7 @@ export default function DoctorPatientWorkspace({ pairingId }: { pairingId: strin
               <CardContent className="flex items-center justify-between gap-2">
                 <p className="line-clamp-1 text-sm text-muted-foreground">{a.reason}</p>
                 <div className="flex shrink-0 gap-2">
-                  {a.status === "requested" && <Button size="sm" variant="outline" onClick={() => confirmAppointment(a.id)}>Confirm</Button>}
+                  {a.status === "requested" && <Button size="sm" variant="outline" onClick={() => confirmAppointment(a.id)}>{t("dws.confirm")}</Button>}
                   {(a.status === "requested" || a.status === "confirmed") && <CompleteAppointmentDialog appointment={a} onDone={refresh} />}
                 </div>
               </CardContent>
@@ -344,19 +343,9 @@ export default function DoctorPatientWorkspace({ pairingId }: { pairingId: strin
         </TabsContent>
 
         <TabsContent value="prescriptions" className="space-y-3 pt-4">
-          <NewPrescriptionDialog pairingId={pairing.id} onDone={refresh} />
-          {myPrescriptions.length === 0 && <p className="text-sm text-muted-foreground">No prescriptions written for this patient yet.</p>}
-          {myPrescriptions.map((p) => (
-            <Card key={p.id}>
-              <CardHeader className="flex flex-row items-start justify-between space-y-0">
-                <CardTitle className="text-base">{p.medicationName}</CardTitle>
-                <StatusBadge kind="prescription" status={p.status} />
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{p.instructions}</p>
-              </CardContent>
-            </Card>
-          ))}
+          <PrescriptionDialog pairingId={pairing.id} onDone={refresh} />
+          {myPrescriptions.length === 0 && <p className="text-sm text-muted-foreground">{t("dws.noPrescriptions")}</p>}
+          {myPrescriptions.map((p) => <PrescriptionCard key={p.id} p={p} pairingId={pairing.id} onChanged={refresh} />)}
         </TabsContent>
       </Tabs>
     </div>

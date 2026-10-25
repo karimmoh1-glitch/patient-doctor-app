@@ -6,8 +6,10 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { EmptyBlock, LoadingBlock } from "@/components/query-state";
+import { useI18n } from "@/lib/i18n";
 
 export default function MatchResults({ reportId }: { reportId: string }) {
+  const { t } = useI18n();
   const { toast } = useToast();
   const [requestingId, setRequestingId] = useState<string | null>(null);
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
@@ -21,27 +23,30 @@ export default function MatchResults({ reportId }: { reportId: string }) {
     try {
       await apiRequest("POST", "/api/pairings", { doctorProfileId, symptomReportId: reportId });
       setRequestedIds((prev) => new Set(prev).add(doctorProfileId));
-      toast({ title: "Request sent", description: "We'll notify you when the doctor responds." });
+      toast({ title: t("pt.requestSent"), description: t("pt.match.sentBody") });
     } catch (err: any) {
-      toast({ title: "Couldn't send request", description: err.message, variant: "destructive" });
+      toast({ title: t("pt.match.sendFail"), description: err.message, variant: "destructive" });
     } finally {
       setRequestingId(null);
     }
   }
 
+  // The link sits inside the sentence, so its position comes from the translation.
+  const [emptyBefore, emptyAfter] = t("pt.match.emptyBody").split("{link}");
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-3xl font-semibold">Doctors in your state</h1>
-        <Button asChild variant="outline"><Link href="/care-team">My doctors</Link></Button>
+        <h1 className="text-3xl font-semibold">{t("pt.match.title")}</h1>
+        <Button asChild variant="outline"><Link href="/care-team">{t("pt.myDoctors")}</Link></Button>
       </div>
       <p className="text-lg text-muted-foreground">
-        These doctors are licensed in your state. Those whose speciality fits what you wrote are first. We have not checked your symptoms — this is only a suggestion.
+        {t("pt.match.intro")}
       </p>
-      {isLoading && <LoadingBlock label="Finding doctors" />}
+      {isLoading && <LoadingBlock label={t("pt.match.finding")} />}
       {!isLoading && matches?.length === 0 && (
-        <EmptyBlock title="No doctors are available in your state yet">
-          We can't promise when one will be. You can <Link href="/help" className="font-medium text-primary underline">ask for help here</Link>.
+        <EmptyBlock title={t("pt.match.emptyTitle")}>
+          {emptyBefore}<Link href="/help" className="font-medium text-primary underline">{t("pt.match.emptyLink")}</Link>{emptyAfter}
         </EmptyBlock>
       )}
       <div className="space-y-4">

@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Pill, Stethoscope, CalendarDays, Truck, Siren, ChevronRight } from "lucide-react";
-import { formatRelativeDay } from "@/lib/format";
+import { formatClock, formatRelativeDay } from "@/lib/format";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { specialtyLabel } from "@/lib/labels";
+import { appointmentTypeLabel } from "@/lib/labels";
 import type { AuthUser } from "@/hooks/use-auth";
 
 interface DashboardData {
@@ -18,18 +21,16 @@ interface Pairing {
   doctor: { name: string; specialty: string } | null;
 }
 
-function PHARMACY_STATUS_LABEL(status: string): string {
-  const labels: Record<string, string> = {
-    received: "Order received",
-    processing: "Being processed",
-    preparing: "Being prepared",
-    ready_for_pickup: "Ready for pickup",
-    out_for_delivery: "Out for delivery",
-    delivered: "Delivered",
-    picked_up: "Picked up",
-  };
-  return labels[status] || status;
-}
+// Order status wording for this screen. The four plain ones reuse the shared status labels.
+const PHARMACY_STATUS_KEYS: Record<string, MessageKey> = {
+  received: "pt.simple.pharm.received",
+  processing: "pt.simple.pharm.processing",
+  preparing: "pt.simple.pharm.preparing",
+  ready_for_pickup: "status.pharmacyOrder.ready_for_pickup",
+  out_for_delivery: "status.pharmacyOrder.out_for_delivery",
+  delivered: "status.pharmacyOrder.delivered",
+  picked_up: "status.pharmacyOrder.picked_up",
+};
 
 // A dramatically simplified home screen: five huge, unmistakable tiles,
 // each carrying just the one fact that matters most right now. This is
@@ -68,15 +69,18 @@ function BigTile({
           <p className="text-2xl font-semibold leading-tight">{label}</p>
           <p className={`mt-1 line-clamp-2 text-lg leading-snug ${tone === "urgent" ? "text-destructive-foreground/90" : "text-muted-foreground"}`}>{detail}</p>
         </div>
-        <ChevronRight className={`h-7 w-7 shrink-0 ${tone === "urgent" ? "text-white/80" : "text-muted-foreground"}`} />
+        <ChevronRight className={`h-7 w-7 shrink-0 ${tone === "urgent" ? "text-white/80" : "text-muted-foreground"} flip-rtl`} />
       </div>
     </Link>
   );
 }
 
 export default function SimpleHome({ user }: { user: AuthUser }) {
+  const { t } = useI18n();
   const { data: dashboard } = useQuery<DashboardData>({ queryKey: ["/api/dashboard"] });
   const { data: pairings } = useQuery<Pairing[]>({ queryKey: ["/api/pairings"] });
+
+  const pharmacyStatusLabel = (status: string) => (PHARMACY_STATUS_KEYS[status] ? t(PHARMACY_STATUS_KEYS[status]) : status);
 
   const primaryDoctor = (pairings || []).find(
     (p) => p.status === "accepted" && (p.relationshipLabel === "Primary Care" || !p.relationshipLabel),
@@ -85,7 +89,7 @@ export default function SimpleHome({ user }: { user: AuthUser }) {
   return (
     <div className="mx-auto max-w-xl space-y-8 py-4">
       <div>
-        <p className="text-lg text-muted-foreground">Hello,</p>
+        <p className="text-lg text-muted-foreground">{t("pt.simple.hello")}</p>
         <h1 className="text-4xl font-semibold tracking-tight">{user.name.split(" ")[0]}</h1>
       </div>
 
@@ -93,36 +97,46 @@ export default function SimpleHome({ user }: { user: AuthUser }) {
         <BigTile
           href="/medications"
           icon={Pill}
-          label="Medications"
+          label={t("pt.simple.medications")}
           detail={
             dashboard?.nextMedicationReminder
-              ? `Next: ${dashboard.nextMedicationReminder.medicationName} at ${dashboard.nextMedicationReminder.time}`
-              : "Nothing due right now"
+              ? t("pt.simple.medNext", { name: dashboard.nextMedicationReminder.medicationName, time: formatClock(dashboard.nextMedicationReminder.time) })
+              : t("pt.simple.medNone")
           }
         />
         <BigTile
-          href={primaryDoctor ? `/chat/${primaryDoctor.id}?with=${encodeURIComponent(primaryDoctor.doctor?.name ?? "your doctor")}` : "/care-team"}
+          href={primaryDoctor ? `/chat/${primaryDoctor.id}?with=${encodeURIComponent(primaryDoctor.doctor?.name ?? t("pt.yourDoctor"))}` : "/care-team"}
           icon={Stethoscope}
-          label="My Doctor"
-          detail={primaryDoctor?.doctor ? `${primaryDoctor.doctor.name} · ${primaryDoctor.doctor.specialty}` : "No doctor connected yet"}
+          label={t("pt.simple.doctor")}
+          detail={primaryDoctor?.doctor ? t("pt.nameSpecialtyDot", { name: primaryDoctor.doctor.name, specialty: specialtyLabel(t, primaryDoctor.doctor.specialty) }) : t("pt.simple.doctorNone")}
         />
         <BigTile
           href="/appointments"
           icon={CalendarDays}
-          label="Appointment"
+          label={t("pt.simple.appt")}
           detail={
             dashboard?.upcomingAppointment
-              ? `${dashboard.upcomingAppointment.type} · ${formatRelativeDay(dashboard.upcomingAppointment.scheduledAt)}`
-              : "Nothing scheduled"
+              ? t("pt.simple.apptDetail", {
+                  type: appointmentTypeLabel(t, dashboard.upcomingAppointment.type),
+                  when: formatRelativeDay(dashboard.upcomingAppointment.scheduledAt),
+                })
+              : t("pt.simple.apptNone")
           }
         />
         <BigTile
           href="/pharmacy"
           icon={Truck}
-          label="Pharmacy"
-          detail={dashboard?.pharmacyStatus ? `${dashboard.pharmacyStatus.medicationName} — ${PHARMACY_STATUS_LABEL(dashboard.pharmacyStatus.status)}` : "No active orders"}
+          label={t("pt.simple.pharmacy")}
+          detail={
+            dashboard?.pharmacyStatus
+              ? t("pt.simple.pharmDetail", {
+                  name: dashboard.pharmacyStatus.medicationName,
+                  status: pharmacyStatusLabel(dashboard.pharmacyStatus.status),
+                })
+              : t("pt.simple.pharmNone")
+          }
         />
-        <BigTile href="/sos" icon={Siren} label="SOS" detail="Get help fast" tone="urgent" />
+        <BigTile href="/sos" icon={Siren} label={t("pt.simple.sos")} detail={t("pt.simple.sosDetail")} tone="urgent" />
       </div>
     </div>
   );

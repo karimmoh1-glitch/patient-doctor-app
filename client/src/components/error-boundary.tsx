@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   children: ReactNode;
@@ -8,6 +9,18 @@ interface Props {
 }
 interface State {
   failed: boolean;
+}
+
+function FailedView() {
+  const { t } = useI18n();
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  return (
+    <div role="alert" className="mx-auto flex min-h-[60vh] max-w-md flex-col items-start justify-center gap-4 px-6">
+      <h1 className="text-3xl font-semibold">{offline ? t("qstate.noConnection") : t("errpage.title")}</h1>
+      <p className="text-lg text-muted-foreground">{offline ? t("errpage.offline") : t("errpage.generic")}</p>
+      <Button size="lg" onClick={() => window.location.reload()}>{t("common.retry")}</Button>
+    </div>
+  );
 }
 
 /**
@@ -28,17 +41,6 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.failed) return this.props.children;
-    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-    return (
-      <div role="alert" className="mx-auto flex min-h-[60vh] max-w-md flex-col items-start justify-center gap-4 px-6">
-        <h1 className="text-3xl font-semibold">{offline ? "No connection" : "We couldn't load this page"}</h1>
-        <p className="text-lg text-muted-foreground">
-          {offline
-            ? "You're offline right now. Check your internet connection, then try again. Nothing you've already saved has been lost."
-            : "Something went wrong on our side while opening this page. Please try again. If it keeps happening, ask for help."}
-        </p>
-        <Button size="lg" onClick={() => window.location.reload()}>Try again</Button>
-      </div>
-    );
+    return <FailedView />;
   }
 }

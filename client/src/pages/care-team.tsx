@@ -11,6 +11,8 @@ import ConfirmAction from "@/components/confirm-action";
 import QueryState, { EmptyBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useI18n } from "@/lib/i18n";
+import { specialtyLabel } from "@/lib/labels";
 
 interface Pairing {
   id: string;
@@ -21,6 +23,7 @@ interface Pairing {
 }
 
 export default function CareTeam() {
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,20 +48,23 @@ export default function CareTeam() {
       queryClient.invalidateQueries({ queryKey: ["/api/pairings"] });
       setEditingId(null);
     } catch (err: any) {
-      toast({ title: "We couldn't save that", description: err.message, variant: "destructive" });
+      toast({ title: t("pt.saveFail"), description: err.message, variant: "destructive" });
     }
   }
+
+  // The link sits inside the sentence, so its position comes from the translation.
+  const [privacyBefore, privacyAfter] = t("pt.team.privacy").split("{link}");
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">My doctors</h1>
-          <p className="text-muted-foreground">The doctors who are looking after you.</p>
+          <h1 className="text-3xl font-semibold">{t("pt.myDoctors")}</h1>
+          <p className="text-muted-foreground">{t("pt.team.subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button asChild variant="outline"><Link href="/messages"><MessageCircle aria-hidden="true" /> Messages</Link></Button>
-          <Button asChild><Link href="/symptoms"><Search aria-hidden="true" /> Find a doctor</Link></Button>
+          <Button asChild variant="outline"><Link href="/messages"><MessageCircle aria-hidden="true" /> {t("pt.messages")}</Link></Button>
+          <Button asChild><Link href="/symptoms"><Search aria-hidden="true" /> {t("home.findDoctor")}</Link></Button>
         </div>
       </div>
 
@@ -67,10 +73,10 @@ export default function CareTeam() {
         isEmpty={(all) => !all.some((p) => p.status === "accepted" || p.status === "requested")}
         empty={
           <EmptyBlock
-            title="You don't have a doctor yet"
-            action={<Button asChild size="lg"><Link href="/symptoms">Find a doctor</Link></Button>}
+            title={t("pt.team.noDoctor")}
+            action={<Button asChild size="lg"><Link href="/symptoms">{t("home.findDoctor")}</Link></Button>}
           >
-            Tell us what you need help with and we'll show you doctors in your state.
+            {t("pt.team.noDoctorBody")}
           </EmptyBlock>
         }
       >
@@ -81,32 +87,32 @@ export default function CareTeam() {
             <>
               {accepted.length > 0 && (
                 <section aria-labelledby="connected-heading" className="space-y-4">
-                  <h2 id="connected-heading" className="text-xl font-semibold">Your doctors</h2>
+                  <h2 id="connected-heading" className="text-xl font-semibold">{t("pt.team.yours")}</h2>
                   <div className="grid gap-4 md:grid-cols-2">
                     {accepted.map((p) => (
                       <Card key={p.id}>
                         <CardHeader className="space-y-2">
                           <div className="flex items-start justify-between gap-3">
-                            <CardTitle as="h3" className="text-xl">{p.doctor?.name ?? "Doctor"}</CardTitle>
+                            <CardTitle as="h3" className="text-xl">{p.doctor?.name ?? t("pt.doctor")}</CardTitle>
                             <StatusBadge kind="pairing" status={p.status} />
                           </div>
                           {editingId === p.id ? (
                             <div className="flex flex-wrap items-end gap-2">
                               <div className="space-y-1">
-                                <Label htmlFor={`label-${p.id}`}>How would you describe this doctor?</Label>
-                                <Input id={`label-${p.id}`} autoFocus value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} placeholder="For example: my family doctor" onKeyDown={(e) => e.key === "Enter" && saveLabel(p.id)} />
+                                <Label htmlFor={`label-${p.id}`}>{t("pt.team.labelQ")}</Label>
+                                <Input id={`label-${p.id}`} autoFocus value={labelDraft} onChange={(e) => setLabelDraft(e.target.value)} placeholder={t("pt.team.labelPh")} onKeyDown={(e) => e.key === "Enter" && saveLabel(p.id)} />
                               </div>
-                              <Button onClick={() => saveLabel(p.id)}>Save</Button>
-                              <Button variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                              <Button onClick={() => saveLabel(p.id)}>{t("common.save")}</Button>
+                              <Button variant="outline" onClick={() => setEditingId(null)}>{t("common.cancel")}</Button>
                             </div>
                           ) : (
                             <button
-                              className="flex min-h-11 items-center gap-2 text-left text-base text-muted-foreground hover:text-foreground"
+                              className="flex min-h-11 items-center gap-2 text-start text-base text-muted-foreground hover:text-foreground"
                               onClick={() => { setEditingId(p.id); setLabelDraft(p.relationshipLabel || ""); }}
                             >
-                              {p.relationshipLabel || p.doctor?.specialty}
+                              {p.relationshipLabel || (p.doctor ? specialtyLabel(t, p.doctor.specialty) : "")}
                               <Pencil className="h-4 w-4" aria-hidden="true" />
-                              <span className="sr-only">Change how this doctor is described</span>
+                              <span className="sr-only">{t("pt.team.changeLabel")}</span>
                             </button>
                           )}
                         </CardHeader>
@@ -114,24 +120,24 @@ export default function CareTeam() {
                           <div className="flex flex-wrap gap-3">
                             {p.doctor?.phone && (
                               <Button asChild variant="outline">
-                                <a href={`tel:${p.doctor.phone}`}><Phone aria-hidden="true" /> Call</a>
+                                <a href={`tel:${p.doctor.phone}`}><Phone aria-hidden="true" /> {t("pt.team.call")}</a>
                               </Button>
                             )}
                             <Button asChild variant="outline">
-                              <Link href={`/chat/${p.id}?with=${encodeURIComponent(p.doctor?.name ?? "your doctor")}`}><MessageCircle aria-hidden="true" /> Message</Link>
+                              <Link href={`/chat/${p.id}?with=${encodeURIComponent(p.doctor?.name ?? t("pt.yourDoctor"))}`}><MessageCircle aria-hidden="true" /> {t("pt.team.message")}</Link>
                             </Button>
                             <Button asChild>
-                              <Link href={`/appointments?book=${p.id}`}><CalendarPlus aria-hidden="true" /> Book a visit</Link>
+                              <Link href={`/appointments?book=${p.id}`}><CalendarPlus aria-hidden="true" /> {t("home.book")}</Link>
                             </Button>
                           </div>
                           <ConfirmAction
-                            trigger={<Button variant="ghost" className="-ml-4 text-destructive hover:text-destructive">Stop sharing with this doctor</Button>}
-                            title={`Stop sharing with ${p.doctor?.name}?`}
-                            description={`${p.doctor?.name} will no longer be able to message you or see the symptoms you shared with them. Any visits you have booked with them will stay on your list until you cancel them. Your own records are not deleted. You can ask to connect again later.`}
-                            confirmLabel="Yes, stop sharing"
-                            cancelLabel="No, keep them"
+                            trigger={<Button variant="ghost" className="-ms-4 text-destructive hover:text-destructive">{t("pt.team.stop")}</Button>}
+                            title={t("pt.team.stopTitle", { name: p.doctor?.name ?? "" })}
+                            description={t("pt.team.stopBody", { name: p.doctor?.name ?? "" })}
+                            confirmLabel={t("pt.team.stopYes")}
+                            cancelLabel={t("pt.team.stopNo")}
                             destructive
-                            onConfirm={() => act(`/api/pairings/${p.id}/end`, { title: "Sharing stopped", description: `${p.doctor?.name} can no longer see your information through Avela.` }, "We couldn't stop sharing")}
+                            onConfirm={() => act(`/api/pairings/${p.id}/end`, { title: t("status.pairing.ended"), description: t("pt.team.stoppedBody", { name: p.doctor?.name ?? "" }) }, t("pt.team.stopFail"))}
                           />
                         </CardContent>
                       </Card>
@@ -142,27 +148,27 @@ export default function CareTeam() {
 
               {pending.length > 0 && (
                 <section aria-labelledby="pending-heading" className="space-y-4">
-                  <h2 id="pending-heading" className="text-xl font-semibold">Waiting for a reply</h2>
+                  <h2 id="pending-heading" className="text-xl font-semibold">{t("pt.team.waiting")}</h2>
                   <div className="grid gap-4 md:grid-cols-2">
                     {pending.map((p) => (
                       <Card key={p.id}>
                         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                           <div>
-                            <CardTitle as="h3" className="text-xl">{p.doctor?.name ?? "Doctor"}</CardTitle>
-                            <CardDescription className="text-base">{p.doctor?.specialty} · {p.doctor?.state}</CardDescription>
+                            <CardTitle as="h3" className="text-xl">{p.doctor?.name ?? t("pt.doctor")}</CardTitle>
+                            <CardDescription className="text-base">{p.doctor ? `${specialtyLabel(t, p.doctor.specialty)} · ${p.doctor.state}` : ""}</CardDescription>
                           </div>
                           <StatusBadge kind="pairing" status={p.status} />
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          <p className="text-muted-foreground">This doctor hasn't answered yet. We don't know when they will.</p>
+                          <p className="text-muted-foreground">{t("pt.team.noAnswer")}</p>
                           <ConfirmAction
-                            trigger={<Button variant="outline">Cancel this request</Button>}
-                            title="Cancel your request?"
-                            description={`${p.doctor?.name} will no longer be able to see the symptoms you sent with it.`}
-                            confirmLabel="Yes, cancel it"
-                            cancelLabel="No, keep waiting"
+                            trigger={<Button variant="outline">{t("pt.team.cancelReq")}</Button>}
+                            title={t("pt.team.cancelTitle")}
+                            description={t("pt.team.cancelBody", { name: p.doctor?.name ?? "" })}
+                            confirmLabel={t("pt.yesCancel")}
+                            cancelLabel={t("pt.team.cancelNo")}
                             destructive
-                            onConfirm={() => act(`/api/pairings/${p.id}/cancel`, { title: "Request cancelled" }, "We couldn't cancel it")}
+                            onConfirm={() => act(`/api/pairings/${p.id}/cancel`, { title: t("pt.team.cancelledTitle") }, t("pt.cancelFail"))}
                           />
                         </CardContent>
                       </Card>
@@ -176,8 +182,7 @@ export default function CareTeam() {
       </QueryState>
 
       <p className="text-muted-foreground">
-        You decide what each doctor can see. Change it any time in{" "}
-        <Link href="/profile" className="font-medium text-primary underline underline-offset-4">Profile &amp; Privacy</Link>.
+        {privacyBefore}<Link href="/profile" className="font-medium text-primary underline underline-offset-4">{t("pt.team.privacyLink")}</Link>{privacyAfter}
       </p>
     </div>
   );

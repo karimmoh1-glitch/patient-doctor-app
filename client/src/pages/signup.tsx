@@ -2,36 +2,44 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import PublicLayout from "@/components/public-layout";
 import PasswordField from "@/components/password-field";
+import PageHeader from "@/components/page-header";
+import StepProgress from "@/components/step-progress";
+import { Field } from "@/components/form-field";
 import { US_STATES } from "@shared/specialties";
+import { LOCALES, useI18n, type Locale } from "@/lib/i18n";
+
+export const WELCOME_KEY = "pdapp_show_welcome";
 
 export default function Signup({
   onSignup,
 }: {
-  onSignup: (name: string, email: string, password: string, state: string) => Promise<unknown>;
+  onSignup: (fields: { name: string; email: string; password: string; state: string; language: string }) => Promise<unknown>;
 }) {
+  const { t, locale, setLocale } = useI18n();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [state, setState] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<{ state?: string; form?: string }>({});
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
     if (!state) {
-      setError("Please choose the state where you live. We use it to show you doctors who can treat you there.");
+      setErrors({ state: t("auth.signup.stateRequired") });
       return;
     }
+    setErrors({});
     setLoading(true);
     try {
-      await onSignup(name, email, password, state);
+      try { sessionStorage.setItem(WELCOME_KEY, "1"); } catch { /* the welcome is a courtesy */ }
+      await onSignup({ name, email, password, state, language: locale });
     } catch (err: any) {
-      setError(err.message || "We couldn't create your account. Please try again.");
+      try { sessionStorage.removeItem(WELCOME_KEY); } catch { /* ignore */ }
+      setErrors({ form: err.message || t("auth.signup.failed") });
     } finally {
       setLoading(false);
     }
@@ -39,37 +47,42 @@ export default function Signup({
 
   return (
     <PublicLayout narrow>
-      <h1 className="mb-2 text-3xl font-semibold">Create your account</h1>
-      <p className="mb-6 text-lg text-muted-foreground">It takes about a minute. You can add more later.</p>
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="name" className="text-base">Your name</Label>
-          <Input id="name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="email" className="text-base">Email address</Label>
-          <Input id="email" type="email" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="state" className="text-base">State where you live</Label>
-          <NativeSelect id="state" value={state} onChange={(e) => setState(e.target.value)} required aria-describedby="state-help">
-            <option value="">Choose your state</option>
-            {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </NativeSelect>
-          <p id="state-help" className="text-muted-foreground">Doctors can usually only treat people who are in the state where they are licensed.</p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="password" className="text-base">Choose a password</Label>
-          <PasswordField id="password" value={password} onChange={setPassword} autoComplete="new-password" minLength={8} describedBy="password-help" />
-          <p id="password-help" className="text-muted-foreground">At least 8 characters. A few words you will remember works well.</p>
-        </div>
-        {error && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
-        <Button type="submit" size="lg" className="w-full" disabled={loading}>{loading ? "Creating your account…" : "Create my account"}</Button>
-      </form>
-      <p className="mt-5 text-lg">
-        Already have an account?{" "}
-        <Link href="/login" className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4">Sign in</Link>
-      </p>
+      <div className="space-y-6">
+        <StepProgress steps={[t("auth.signup.step.account"), t("auth.signup.step.welcome")]} current={0} />
+        <PageHeader title={t("auth.signup.title")} description={t("auth.signup.intro")} />
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <Field id="name" label={t("auth.name")}>
+            {(a) => <Input {...a} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required />}
+          </Field>
+          <Field id="email" label={t("auth.email")}>
+            {(a) => <Input {...a} type="email" inputMode="email" dir="ltr" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />}
+          </Field>
+          <Field id="state" label={t("auth.signup.state")} hint={t("auth.signup.stateWhy")} error={errors.state}>
+            {(a) => (
+              <NativeSelect {...a} value={state} onChange={(e) => setState(e.target.value)} required>
+                <option value="">{t("auth.signup.stateChoose")}</option>
+                {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </NativeSelect>
+            )}
+          </Field>
+          <Field id="language" label={t("auth.signup.language")} hint={t("auth.signup.languageWhy")}>
+            {(a) => (
+              <NativeSelect {...a} value={locale} onChange={(e) => setLocale(e.target.value as Locale)}>
+                {LOCALES.map((l) => <option key={l.code} value={l.code} lang={l.code}>{l.label}</option>)}
+              </NativeSelect>
+            )}
+          </Field>
+          <Field id="password" label={t("auth.signup.password")} hint={t("auth.signup.passwordHelp")}>
+            {(a) => <PasswordField id={a.id} value={password} onChange={setPassword} autoComplete="new-password" minLength={8} describedBy={a["aria-describedby"]} />}
+          </Field>
+          {errors.form && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{errors.form}</p>}
+          <Button type="submit" size="lg" className="w-full" disabled={loading}>{loading ? t("auth.signup.submitting") : t("auth.signup.submit")}</Button>
+        </form>
+        <p className="text-lg">
+          {t("auth.signup.have")}{" "}
+          <Link href="/login" className="inline-flex min-h-11 items-center font-medium text-primary underline underline-offset-4">{t("public.signIn")}</Link>
+        </p>
+      </div>
     </PublicLayout>
   );
 }

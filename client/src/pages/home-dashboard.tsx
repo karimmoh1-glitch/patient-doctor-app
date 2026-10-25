@@ -37,7 +37,7 @@ function ToDoRow({ href, icon: Icon, title, detail }: { href: string; icon: Reac
           <span className="block text-lg font-semibold">{title}</span>
           {detail && <span className="block text-muted-foreground">{detail}</span>}
         </span>
-        <ChevronRight className="h-6 w-6 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <ChevronRight className="h-6 w-6 shrink-0 text-muted-foreground flip-rtl" aria-hidden="true" />
       </Link>
     </li>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, Pill, Truck, FileText, CheckCircle2, AlertCircle, Circle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import StatusBadge from "@/components/status-badge";
 import QueryState, { EmptyBlock, LoadingBlock, ErrorBlock } from "@/components/query-state";
 import { formatRelativeDay, formatClock } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import type { AuthUser } from "@/hooks/use-auth";
 
 interface CarePatient {
@@ -25,12 +26,34 @@ interface Overview {
 }
 
 // The app only ever knows what the patient told it. These words say so.
-const DOSE_LABEL: Record<string, string> = {
-  taken: "Marked as taken",
-  skipped: "Skipped",
-  not_confirmed: "Not marked yet, and the time has passed",
-  upcoming: "Not due yet",
+const DOSE_LABEL: Record<string, MessageKey> = {
+  taken: "caregiver.dose.taken",
+  skipped: "caregiver.dose.skipped",
+  not_confirmed: "caregiver.dose.not_confirmed",
+  upcoming: "caregiver.dose.upcoming",
 };
+
+// Stored values stay as the server keeps them; only what the reader sees is translated.
+const DOC_CATEGORY: Record<string, MessageKey> = {
+  "Lab Result": "docs.category.lab_result",
+  Imaging: "docs.category.imaging",
+  "Visit Summary": "docs.category.visit_summary",
+  Insurance: "docs.category.insurance",
+  Other: "docs.category.other",
+};
+const APPT_TYPE: Record<string, MessageKey> = {
+  "Video Visit": "health.apptType.video",
+  "Phone Call": "health.apptType.phone",
+  "In-Person": "health.apptType.inPerson",
+};
+
+/** Fills {name}-style markers in a translation with elements (for bold text inside a sentence). */
+function rich(template: string, parts: Record<string, React.ReactNode>) {
+  return template.split(/(\{\w+\})/g).map((chunk, i) => {
+    const key = chunk.match(/^\{(\w+)\}$/)?.[1];
+    return key && key in parts ? <Fragment key={i}>{parts[key]}</Fragment> : chunk;
+  });
+}
 
 function DoseIcon({ status }: { status: string }) {
   if (status === "taken") return <CheckCircle2 className="h-6 w-6 text-primary" aria-hidden="true" />;
@@ -51,6 +74,7 @@ function Section({ icon: Icon, title, description, children }: { icon: React.Com
 }
 
 export default function CaregiverDashboard({ user }: { user: AuthUser }) {
+  const { t } = useI18n();
   const patientsQuery = useQuery<CarePatient[]>({ queryKey: ["/api/care-circle/caregiver/patients"] });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const patients = patientsQuery.data || [];
@@ -64,19 +88,19 @@ export default function CaregiverDashboard({ user }: { user: AuthUser }) {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold">Hello, {user.name.split(" ")[0]}</h1>
-        <p className="text-lg text-muted-foreground">You can see only what each person has chosen to share with you. You can look, but you can't change anything.</p>
+        <h1 className="text-3xl font-semibold">{t("caregiver.hello", { name: user.name.split(" ")[0] })}</h1>
+        <p className="text-lg text-muted-foreground">{t("caregiver.intro")}</p>
       </div>
 
       <QueryState
         query={patientsQuery}
         isEmpty={(p) => p.length === 0}
-        empty={<EmptyBlock title="Nobody has shared anything with you yet">When someone adds you to their Care Circle, they will appear here.</EmptyBlock>}
+        empty={<EmptyBlock title={t("caregiver.empty")}>{t("caregiver.emptyBody")}</EmptyBlock>}
       >
         {(list) => (
           <>
             {list.length > 1 && (
-              <div role="radiogroup" aria-label="Whose information to show" className="flex flex-wrap gap-3">
+              <div role="radiogroup" aria-label={t("caregiver.whose")} className="flex flex-wrap gap-3">
                 {list.map((p) => (
                   <button
                     key={p.patientUserId}
@@ -98,23 +122,23 @@ export default function CaregiverDashboard({ user }: { user: AuthUser }) {
             {selected && (
               <div className="space-y-5">
                 <p className="rounded-xl border-2 border-input bg-card p-4 text-lg">
-                  You are looking at <strong>{selected.patientName}</strong>'s information, as their <strong>{selected.relationshipLabel}</strong>.
+                  {rich(t("caregiver.looking"), { name: <strong>{selected.patientName}</strong>, relationship: <strong>{selected.relationshipLabel}</strong> })}
                 </p>
 
-                {overviewQuery.isLoading && <LoadingBlock label={`Loading ${selected.patientName}'s information`} />}
+                {overviewQuery.isLoading && <LoadingBlock label={t("caregiver.loading", { name: selected.patientName })} />}
                 {overviewQuery.isError && <ErrorBlock error={overviewQuery.error} onRetry={() => overviewQuery.refetch()} />}
 
                 {overviewQuery.data && (
                   <>
                     {selected.permissions.medicationStatus && overviewQuery.data.todaysMedicationStatus && (
-                      <Section icon={Pill} title="Today's medicines" description="What they have marked on their phone. It does not prove anything was or wasn't taken.">
-                        {overviewQuery.data.todaysMedicationStatus.length === 0 && <p className="text-lg text-muted-foreground">Nothing is scheduled today.</p>}
+                      <Section icon={Pill} title={t("health.todaysMedicines")} description={t("caregiver.meds.desc")}>
+                        {overviewQuery.data.todaysMedicationStatus.length === 0 && <p className="text-lg text-muted-foreground">{t("caregiver.meds.none")}</p>}
                         {overviewQuery.data.todaysMedicationStatus.map((d, i) => (
                           <div key={i} className="flex items-center gap-3 border-b border-border py-2 last:border-0">
                             <DoseIcon status={d.status} />
                             <div>
-                              <p className="text-lg font-semibold">{d.medicationName} at {formatClock(d.time)}</p>
-                              <p className="text-muted-foreground">{DOSE_LABEL[d.status] ?? d.status}</p>
+                              <p className="text-lg font-semibold">{t("caregiver.dose.line", { name: d.medicationName, time: formatClock(d.time) })}</p>
+                              <p className="text-muted-foreground">{DOSE_LABEL[d.status] ? t(DOSE_LABEL[d.status]) : d.status}</p>
                             </div>
                           </div>
                         ))}
@@ -122,13 +146,13 @@ export default function CaregiverDashboard({ user }: { user: AuthUser }) {
                     )}
 
                     {selected.permissions.appointments && overviewQuery.data.upcomingAppointments && (
-                      <Section icon={CalendarDays} title="Coming up">
-                        {overviewQuery.data.upcomingAppointments.length === 0 && <p className="text-lg text-muted-foreground">No visits are booked.</p>}
+                      <Section icon={CalendarDays} title={t("caregiver.comingUp")}>
+                        {overviewQuery.data.upcomingAppointments.length === 0 && <p className="text-lg text-muted-foreground">{t("caregiver.noVisits")}</p>}
                         {overviewQuery.data.upcomingAppointments.map((a, i) => (
                           <div key={i} className="flex flex-wrap items-center justify-between gap-2 border-b border-border py-2 last:border-0">
                             <div>
                               <p className="text-lg font-semibold">{formatRelativeDay(a.scheduledAt)}</p>
-                              <p className="text-muted-foreground">{a.type} with {a.doctorName}</p>
+                              <p className="text-muted-foreground">{t("health.apptWith", { type: APPT_TYPE[a.type] ? t(APPT_TYPE[a.type]) : a.type, doctor: a.doctorName })}</p>
                             </div>
                             <StatusBadge kind="appointment" status={a.status} />
                           </div>
@@ -137,7 +161,7 @@ export default function CaregiverDashboard({ user }: { user: AuthUser }) {
                     )}
 
                     {selected.permissions.deliveryStatus && overviewQuery.data.pharmacyOrders && overviewQuery.data.pharmacyOrders.length > 0 && (
-                      <Section icon={Truck} title="Pharmacy orders" description="Example orders only, if this is a demonstration.">
+                      <Section icon={Truck} title={t("circle.perm.delivery.label")} description={t("caregiver.pharmacy.desc")}>
                         {overviewQuery.data.pharmacyOrders.map((o, i) => (
                           <div key={i} className="flex flex-wrap items-center justify-between gap-2 py-1">
                             <p className="text-lg font-semibold">{o.medicationName}</p>
@@ -148,16 +172,16 @@ export default function CaregiverDashboard({ user }: { user: AuthUser }) {
                     )}
 
                     {selected.permissions.documents && overviewQuery.data.documents && (
-                      <Section icon={FileText} title="Documents">
-                        {overviewQuery.data.documents.length === 0 && <p className="text-lg text-muted-foreground">No documents are shared.</p>}
+                      <Section icon={FileText} title={t("docs.title")}>
+                        {overviewQuery.data.documents.length === 0 && <p className="text-lg text-muted-foreground">{t("caregiver.noDocs")}</p>}
                         {overviewQuery.data.documents.map((d, i) => (
-                          <p key={i} className="text-lg">{d.title} <span className="text-muted-foreground">· {d.category}</span></p>
+                          <p key={i} className="text-lg">{d.title} <span className="text-muted-foreground">· {DOC_CATEGORY[d.category] ? t(DOC_CATEGORY[d.category]) : d.category}</span></p>
                         ))}
                       </Section>
                     )}
 
                     {!selected.permissions.medicationStatus && !selected.permissions.appointments && !selected.permissions.deliveryStatus && !selected.permissions.documents && (
-                      <EmptyBlock title={`${selected.patientName} hasn't shared anything with you yet`} />
+                      <EmptyBlock title={t("caregiver.noneShared", { name: selected.patientName })} />
                     )}
                   </>
                 )}

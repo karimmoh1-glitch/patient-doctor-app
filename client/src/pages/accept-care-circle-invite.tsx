@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import PublicLayout from "@/components/public-layout";
 import PasswordField from "@/components/password-field";
+import { useI18n } from "@/lib/i18n";
 
 interface InviteDetails {
   name: string;
@@ -14,6 +15,7 @@ interface InviteDetails {
 
 export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token: string, password: string) => Promise<unknown> }) {
   const [, setLocation] = useLocation();
+  const { t } = useI18n();
   const token = new URLSearchParams(window.location.search).get("token") || "";
   const [details, setDetails] = useState<InviteDetails | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token:
     if (!token) return;
     fetch(`/api/care-circle/invitations/validate/${token}`)
       .then(async (res) => {
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "This invitation link isn't valid any more.");
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || t("invite.invalid.default"));
         return res.json();
       })
       .then(setDetails)
@@ -40,7 +42,7 @@ export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token:
       await onAccept(token, password);
       setLocation("/caregiver");
     } catch (err: any) {
-      setError(err.message || "We couldn't accept the invitation. Please try again.");
+      setError(err.message || t("invite.error.accept"));
     } finally {
       setLoading(false);
     }
@@ -49,9 +51,9 @@ export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token:
   if (!token || loadError) {
     return (
       <PublicLayout narrow>
-        <h1 className="mb-3 text-3xl font-semibold">This invitation can't be used</h1>
+        <h1 className="mb-3 text-3xl font-semibold">{t("invite.invalid.title")}</h1>
         <p className="text-lg text-muted-foreground">
-          {loadError || "This link is missing part of its address."} Invitations work for 7 days and only once. Please ask the person who invited you to send a new one.
+          {loadError || t("invite.invalid.missing")} {t("invite.invalid.rest")}
         </p>
       </PublicLayout>
     );
@@ -59,15 +61,15 @@ export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token:
 
   return (
     <PublicLayout narrow>
-      <h1 className="mb-3 text-3xl font-semibold">Join {details?.patientName ?? "their"}'s Care Circle</h1>
+      <h1 className="mb-3 text-3xl font-semibold">{details ? t("invite.join", { name: details.patientName }) : t("invite.join.generic")}</h1>
       {details ? (
         <>
           <p className="mb-6 text-lg text-muted-foreground">
-            {details.patientName} has invited you as their "{details.relationshipLabel}". You will only see what they choose to share, and they can stop sharing at any time.
+            {t("invite.body", { name: details.patientName, relationship: details.relationshipLabel })}
           </p>
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-base">{details.hasAccount ? "Your Avela password" : "Choose a password"}</Label>
+              <Label htmlFor="password" className="text-base">{details.hasAccount ? t("invite.password.existing") : t("invite.password.new")}</Label>
               <PasswordField
                 id="password"
                 value={password}
@@ -78,15 +80,15 @@ export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token:
                 invalid={!!error}
               />
               {details.hasAccount && (
-                <p className="text-muted-foreground">You already have a helper account with this email, so we need its password to add this person to it.</p>
+                <p className="text-muted-foreground">{t("invite.hasAccountNote")}</p>
               )}
             </div>
             {error && <p id="invite-error" role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
-            <Button type="submit" size="lg" className="w-full" disabled={loading}>{loading ? "Joining…" : "Accept the invitation"}</Button>
+            <Button type="submit" size="lg" className="w-full" disabled={loading}>{loading ? t("invite.joining") : t("invite.accept")}</Button>
           </form>
         </>
       ) : (
-        <p role="status" className="text-lg text-muted-foreground">Checking your invitation…</p>
+        <p role="status" className="text-lg text-muted-foreground">{t("invite.checking")}</p>
       )}
     </PublicLayout>
   );

@@ -12,6 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAppConfig } from "@/hooks/use-app-config";
 import { cn } from "@/lib/utils";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 interface Prescription { id: string; medicationName: string; status: string }
 
@@ -43,25 +44,33 @@ const OPTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 
 const PICKUP_STEPS = ["received", "processing", "preparing", "ready_for_pickup", "picked_up"];
 const DELIVERY_STEPS = ["received", "processing", "preparing", "out_for_delivery", "delivered"];
-const STEP_LABELS: Record<string, string> = {
-  received: "Order received",
-  processing: "Confirmed",
-  preparing: "Being prepared",
-  ready_for_pickup: "Ready to collect",
-  out_for_delivery: "Out for delivery",
-  delivered: "Delivered",
-  picked_up: "Collected",
+const STEP_LABELS: Record<string, MessageKey> = {
+  received: "pharmacy.step.received",
+  processing: "pharmacy.step.processing",
+  preparing: "pharmacy.step.preparing",
+  ready_for_pickup: "pharmacy.step.ready_for_pickup",
+  out_for_delivery: "status.pharmacyOrder.out_for_delivery",
+  delivered: "status.pharmacyOrder.delivered",
+  picked_up: "pharmacy.step.picked_up",
+};
+// The choices come from the server in English; known ones are shown in the reader's language.
+const OPTION_LABELS: Record<string, MessageKey> = {
+  "Home Delivery": "pharmacy.opt.home",
+  "Mail-Order Delivery": "pharmacy.opt.mail",
+  Pickup: "pharmacy.opt.pickup",
 };
 
 function DemoBanner() {
+  const { t } = useI18n();
   return (
     <p role="note" className="rounded-xl border-2 border-dashed border-input p-4 text-lg">
-      <strong>Demonstration only.</strong> Nothing here is ordered, filled or delivered. The times and prices are examples.
+      <strong>{t("pharmacy.demo.strong")}</strong> {t("pharmacy.demo.rest")}
     </p>
   );
 }
 
 function OrderTracker({ order }: { order: Order }) {
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [advancing, setAdvancing] = useState(false);
@@ -75,7 +84,7 @@ function OrderTracker({ order }: { order: Order }) {
       await apiRequest("POST", `/api/pharmacy/orders/${order.id}/advance`);
       queryClient.invalidateQueries({ queryKey: ["/api/pharmacy/orders"] });
     } catch (err: any) {
-      toast({ title: "We couldn't update the order", description: err.message, variant: "destructive" });
+      toast({ title: t("pharmacy.toast.updateFailed"), description: err.message, variant: "destructive" });
     } finally {
       setAdvancing(false);
     }
@@ -85,10 +94,10 @@ function OrderTracker({ order }: { order: Order }) {
     <li>
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-          <div>
+          <div className="min-w-0">
             <CardTitle as="h3" className="text-xl">{order.medicationName}</CardTitle>
             <CardDescription className="text-base">
-              {order.pharmacy?.name} · {order.fulfillmentType === "delivery" ? "Home delivery" : "Collect in person"} (example)
+              {t(order.fulfillmentType === "delivery" ? "pharmacy.order.metaDelivery" : "pharmacy.order.metaPickup", { pharmacy: order.pharmacy?.name ?? "" })}
             </CardDescription>
           </div>
           <StatusBadge kind="pharmacyOrder" status={order.status} />
@@ -107,15 +116,15 @@ function OrderTracker({ order }: { order: Order }) {
                   {i <= current ? <Check className="h-5 w-5" /> : i + 1}
                 </span>
                 <span className={i === current ? "font-semibold" : "text-muted-foreground"}>
-                  {STEP_LABELS[step]}
-                  <span className="sr-only">{i < current ? " (done)" : i === current ? " (current)" : " (not yet)"}</span>
+                  {STEP_LABELS[step] ? t(STEP_LABELS[step]) : step}
+                  <span className="sr-only"> {i < current ? t("pharmacy.step.done") : i === current ? t("pharmacy.step.current") : t("pharmacy.step.notYet")}</span>
                 </span>
               </li>
             ))}
           </ol>
           {!isFinal && (
             <Button variant="outline" disabled={advancing} onClick={advance}>
-              Move this example order to the next step
+              {t("pharmacy.advance")}
             </Button>
           )}
         </CardContent>
@@ -125,11 +134,12 @@ function OrderTracker({ order }: { order: Order }) {
 }
 
 function NotAvailable() {
+  const { t } = useI18n();
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <h1 className="text-3xl font-semibold">Pharmacy</h1>
-      <EmptyBlock title="Ordering from a pharmacy isn't available yet">
-        Please take your prescription to the pharmacy you usually use, or ask your doctor's office how to get it filled.
+      <h1 className="text-3xl font-semibold">{t("pharmacy.title")}</h1>
+      <EmptyBlock title={t("pharmacy.unavailable.title")}>
+        {t("pharmacy.unavailable.body")}
       </EmptyBlock>
     </div>
   );
@@ -137,6 +147,7 @@ function NotAvailable() {
 
 export default function Pharmacy() {
   const config = useAppConfig();
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const params = new URLSearchParams(window.location.search);
@@ -156,9 +167,9 @@ export default function Pharmacy() {
 
   async function submit() {
     setError(null);
-    if (!prescriptionId) return setError("Choose which medicine you want.");
-    if (!chosen) return setError("Choose how you would like to get it.");
-    if (chosen.fulfillmentType === "delivery" && !address.trim()) return setError("Please enter the address to deliver to.");
+    if (!prescriptionId) return setError(t("pharmacy.error.medicine"));
+    if (!chosen) return setError(t("pharmacy.error.method"));
+    if (chosen.fulfillmentType === "delivery" && !address.trim()) return setError(t("pharmacy.error.address"));
     setSubmitting(true);
     try {
       await apiRequest("POST", "/api/pharmacy/orders", {
@@ -166,7 +177,7 @@ export default function Pharmacy() {
         deliveryAddress: chosen.fulfillmentType === "delivery" ? address.trim() : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/pharmacy/orders"] });
-      toast({ title: "Example order created", description: "Nothing has really been ordered." });
+      toast({ title: t("pharmacy.toast.created"), description: t("pharmacy.toast.createdBody") });
       setPrescriptionId(""); setChosen(null); setAddress("");
     } catch (err: any) {
       setError(err.message);
@@ -178,28 +189,28 @@ export default function Pharmacy() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div className="space-y-3">
-        <h1 className="text-3xl font-semibold">Pharmacy</h1>
+        <h1 className="text-3xl font-semibold">{t("pharmacy.title")}</h1>
         <DemoBanner />
       </div>
 
       {orderable.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">Try ordering a medicine</CardTitle>
-            <CardDescription className="text-base">We show a few practical choices, not every pharmacy.</CardDescription>
+            <CardTitle className="text-2xl">{t("pharmacy.try.title")}</CardTitle>
+            <CardDescription className="text-base">{t("pharmacy.try.intro")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="rx" className="text-base">Which medicine?</Label>
+              <Label htmlFor="rx" className="text-base">{t("pharmacy.try.which")}</Label>
               <NativeSelect id="rx" value={prescriptionId} onChange={(e) => { setPrescriptionId(e.target.value); setChosen(null); }}>
-                <option value="">Choose a medicine</option>
+                <option value="">{t("pharmacy.try.choose")}</option>
                 {orderable.map((p) => <option key={p.id} value={p.id}>{p.medicationName}</option>)}
               </NativeSelect>
             </div>
 
             {prescriptionId && (
               <fieldset className="space-y-3">
-                <legend className="mb-2 text-base font-semibold">How would you like to get it?</legend>
+                <legend className="mb-2 text-base font-semibold">{t("pharmacy.try.how")}</legend>
                 {options.data?.map((opt) => {
                   const Icon = OPTION_ICONS[opt.label] || Truck;
                   const active = chosen?.pharmacyId === opt.pharmacyId && chosen?.fulfillmentType === opt.fulfillmentType;
@@ -210,10 +221,10 @@ export default function Pharmacy() {
                     >
                       <input type="radio" name="option" className="mt-1 h-6 w-6" checked={active} onChange={() => setChosen(opt)} />
                       <Icon className="mt-1 h-6 w-6 shrink-0 text-primary" aria-hidden="true" />
-                      <span>
-                        <span className="block text-lg font-semibold">{opt.label}</span>
-                        <span className="block text-muted-foreground">{opt.pharmacyName}{opt.distanceMiles !== null ? ` · ${opt.distanceMiles} miles away` : ""}</span>
-                        <span className="block">{opt.etaText} · {opt.feeText} <em>(example)</em></span>
+                      <span className="min-w-0">
+                        <span className="block text-lg font-semibold">{OPTION_LABELS[opt.label] ? t(OPTION_LABELS[opt.label]) : opt.label}</span>
+                        <span className="block text-muted-foreground">{opt.distanceMiles !== null ? t("pharmacy.opt.distance", { pharmacy: opt.pharmacyName, distance: opt.distanceMiles }) : opt.pharmacyName}</span>
+                        <span className="block">{opt.etaText} · {opt.feeText} <em>{t("pharmacy.example")}</em></span>
                       </span>
                     </label>
                   );
@@ -223,23 +234,23 @@ export default function Pharmacy() {
 
             {chosen?.fulfillmentType === "delivery" && (
               <div className="space-y-2">
-                <Label htmlFor="addr" className="text-base">Address to deliver to</Label>
+                <Label htmlFor="addr" className="text-base">{t("pharmacy.try.address")}</Label>
                 <Textarea id="addr" value={address} onChange={(e) => setAddress(e.target.value)} rows={3} autoComplete="street-address" />
               </div>
             )}
 
             {error && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
-            {chosen && <Button size="lg" disabled={submitting} onClick={submit}>Create example order</Button>}
+            {chosen && <Button size="lg" disabled={submitting} onClick={submit}>{t("pharmacy.try.create")}</Button>}
           </CardContent>
         </Card>
       )}
 
       <section aria-labelledby="orders-heading" className="space-y-3">
-        <h2 id="orders-heading" className="text-2xl font-semibold">Example orders</h2>
+        <h2 id="orders-heading" className="text-2xl font-semibold">{t("pharmacy.orders.heading")}</h2>
         <QueryState
           query={orders}
           isEmpty={(o) => o.length === 0}
-          empty={<EmptyBlock title="No example orders yet" />}
+          empty={<EmptyBlock title={t("pharmacy.orders.empty")} />}
         >
           {(list) => <ul className="space-y-4">{list.map((o) => <OrderTracker key={o.id} order={o} />)}</ul>}
         </QueryState>

@@ -13,6 +13,7 @@ import QueryState, { EmptyBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 interface CareCircleMember {
   id: string;
@@ -31,18 +32,23 @@ interface CareCircleMember {
 // Only the permissions a helper can actually use today. (A broader "entire
 // health history" switch existed before; the server never honoured it, so it
 // is not offered rather than promised.)
-const PERMISSION_FIELDS = [
-  ["permissionMedicationStatus", "Whether my medicines have been marked as taken", "They see today's medicines and what I have marked. Never the doctor's notes."],
-  ["permissionAppointments", "My upcoming visits", "The date, kind of visit and doctor's name."],
-  ["permissionDeliveryStatus", "Pharmacy orders", "The status of any pharmacy order (example orders only in a demonstration)."],
-  ["permissionDocuments", "The names of my saved documents", "The title and kind of each document, not the file."],
-] as const;
+const PERMISSION_FIELDS: readonly (readonly [
+  "permissionMedicationStatus" | "permissionAppointments" | "permissionDeliveryStatus" | "permissionDocuments",
+  MessageKey,
+  MessageKey,
+])[] = [
+  ["permissionMedicationStatus", "circle.perm.meds.label", "circle.perm.meds.detail"],
+  ["permissionAppointments", "circle.perm.appts.label", "circle.perm.appts.detail"],
+  ["permissionDeliveryStatus", "circle.perm.delivery.label", "circle.perm.delivery.detail"],
+  ["permissionDocuments", "circle.perm.docs.label", "circle.perm.docs.detail"],
+];
 
 type PermissionField = (typeof PERMISSION_FIELDS)[number][0];
 
 interface InviteResult { emailSent: boolean; inviteLink: string; name: string }
 
 function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (v: boolean) => void; onDone: () => void }) {
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [relationship, setRelationship] = useState("");
@@ -68,7 +74,7 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim() || !email.trim() || !relationship.trim()) return setError("Please fill in all three boxes.");
+    if (!name.trim() || !email.trim() || !relationship.trim()) return setError(t("circle.invite.fillAll"));
     setSubmitting(true);
     try {
       const res = await apiRequest("POST", "/api/care-circle", {
@@ -90,7 +96,7 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
       await navigator.clipboard.writeText(result.inviteLink);
       setCopied(true);
     } catch {
-      setError("Your device wouldn't copy it. Please select the link and copy it yourself.");
+      setError(t("circle.invite.copyFailed"));
     }
   }
 
@@ -100,20 +106,17 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
         {result ? (
           <>
             <DialogHeader>
-              <DialogTitle className="text-2xl">Invitation ready</DialogTitle>
+              <DialogTitle className="text-2xl">{t("circle.invite.ready")}</DialogTitle>
               <DialogDescription className="text-base">
-                {result.emailSent
-                  ? `We emailed ${result.name}. You can also send them this link yourself.`
-                  : `We could not send an email, so please give ${result.name} this link yourself, by text message or in person.`}{" "}
-                It works for 7 days and only once.
+                {result.emailSent ? t("circle.invite.emailed", { name: result.name }) : t("circle.invite.notEmailed", { name: result.name })}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3">
-              <Label htmlFor="invite-link" className="text-base">Invitation link</Label>
-              <Input id="invite-link" readOnly value={result.inviteLink} onFocus={(e) => e.currentTarget.select()} />
+              <Label htmlFor="invite-link" className="text-base">{t("circle.invite.linkLabel")}</Label>
+              <Input id="invite-link" readOnly dir="ltr" className="rtl:text-end" value={result.inviteLink} onFocus={(e) => e.currentTarget.select()} />
               <div className="flex flex-wrap gap-3">
-                <Button size="lg" onClick={copy}>{copied ? <><Check aria-hidden="true" /> Copied</> : <><Copy aria-hidden="true" /> Copy the link</>}</Button>
-                <Button size="lg" variant="outline" onClick={() => close(false)}>Done</Button>
+                <Button size="lg" onClick={copy}>{copied ? <><Check aria-hidden="true" /> {t("circle.invite.copied")}</> : <><Copy aria-hidden="true" /> {t("circle.invite.copy")}</>}</Button>
+                <Button size="lg" variant="outline" onClick={() => close(false)}>{t("circle.invite.done")}</Button>
               </div>
               {error && <p role="alert" className="font-medium text-destructive">{error}</p>}
             </div>
@@ -121,25 +124,25 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle className="text-2xl">Invite someone to help</DialogTitle>
-              <DialogDescription className="text-base">They will only see what you tick below, and they can't change anything. You can remove them at any time.</DialogDescription>
+              <DialogTitle className="text-2xl">{t("circle.invite.title")}</DialogTitle>
+              <DialogDescription className="text-base">{t("circle.invite.intro")}</DialogDescription>
             </DialogHeader>
             <form onSubmit={submit} className="space-y-4" noValidate>
               <div className="space-y-2">
-                <Label htmlFor="inv-name" className="text-base">Their name</Label>
+                <Label htmlFor="inv-name" className="text-base">{t("circle.invite.nameLabel")}</Label>
                 <Input id="inv-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="inv-rel" className="text-base">Who are they to you?</Label>
-                <Input id="inv-rel" value={relationship} onChange={(e) => setRelationship(e.target.value)} placeholder="For example: my daughter" autoComplete="off" />
+                <Label htmlFor="inv-rel" className="text-base">{t("circle.invite.relLabel")}</Label>
+                <Input id="inv-rel" value={relationship} onChange={(e) => setRelationship(e.target.value)} placeholder={t("circle.invite.relPlaceholder")} autoComplete="off" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="inv-email" className="text-base">Their email address</Label>
-                <Input id="inv-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+                <Label htmlFor="inv-email" className="text-base">{t("circle.invite.emailLabel")}</Label>
+                <Input id="inv-email" type="email" dir="ltr" className="rtl:text-end" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
               </div>
               <fieldset className="space-y-3">
-                <legend className="mb-1 text-base font-semibold">What can they see?</legend>
-                {PERMISSION_FIELDS.map(([field, label, detail]) => (
+                <legend className="mb-1 text-base font-semibold">{t("circle.invite.seeLegend")}</legend>
+                {PERMISSION_FIELDS.map(([field, labelKey, detailKey]) => (
                   <label key={field} className="flex min-h-14 cursor-pointer items-start gap-3 rounded-xl border-2 border-input p-3">
                     <input
                       type="checkbox"
@@ -147,12 +150,12 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
                       checked={permissions[field]}
                       onChange={(e) => setPermissions((p) => ({ ...p, [field]: e.target.checked }))}
                     />
-                    <span><span className="block text-lg font-semibold">{label}</span><span className="block text-muted-foreground">{detail}</span></span>
+                    <span><span className="block text-lg font-semibold">{t(labelKey)}</span><span className="block text-muted-foreground">{t(detailKey)}</span></span>
                   </label>
                 ))}
               </fieldset>
               {error && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
-              <Button type="submit" size="lg" className="w-full" disabled={submitting}>{submitting ? "Creating…" : "Create the invitation"}</Button>
+              <Button type="submit" size="lg" className="w-full" disabled={submitting}>{submitting ? t("circle.invite.creating") : t("circle.invite.create")}</Button>
             </form>
           </>
         )}
@@ -163,6 +166,7 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
 
 export default function CareCircle() {
   const { toast } = useToast();
+  const { t } = useI18n();
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -186,7 +190,7 @@ export default function CareCircle() {
       });
       refresh();
     } catch (err: any) {
-      toast({ title: "We couldn't change that", description: err.message, variant: "destructive" });
+      toast({ title: t("privacy.toast.failed"), description: err.message, variant: "destructive" });
     } finally {
       setBusyId(null);
     }
@@ -195,10 +199,10 @@ export default function CareCircle() {
   async function remove(member: CareCircleMember) {
     try {
       await apiRequest("DELETE", `/api/care-circle/${member.id}`);
-      toast({ title: `${member.name} can no longer see your information` });
+      toast({ title: t("circle.toast.removed", { name: member.name }) });
       refresh();
     } catch (err: any) {
-      toast({ title: "We couldn't remove them", description: err.message, variant: "destructive" });
+      toast({ title: t("circle.toast.removeFailed"), description: err.message, variant: "destructive" });
       throw err;
     }
   }
@@ -207,10 +211,10 @@ export default function CareCircle() {
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">Family and helpers</h1>
-          <p className="text-lg text-muted-foreground">Trusted people who can look at the parts of your care you choose. They cannot change anything or speak for you.</p>
+          <h1 className="text-3xl font-semibold">{t("circle.title")}</h1>
+          <p className="text-lg text-muted-foreground">{t("circle.intro")}</p>
         </div>
-        <Button size="lg" onClick={() => setInviteOpen(true)}><UserPlus aria-hidden="true" /> Invite someone</Button>
+        <Button size="lg" onClick={() => setInviteOpen(true)}><UserPlus aria-hidden="true" /> {t("circle.invite.button")}</Button>
       </div>
 
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} onDone={refresh} />
@@ -218,7 +222,7 @@ export default function CareCircle() {
       <QueryState
         query={query}
         isEmpty={(all) => all.filter((m) => m.status !== "revoked").length === 0}
-        empty={<EmptyBlock title="No one can see your information yet">When you invite someone, they will appear here.</EmptyBlock>}
+        empty={<EmptyBlock title={t("circle.empty")}>{t("circle.emptyBody")}</EmptyBlock>}
       >
         {(all) => (
           <ul className="space-y-4">
@@ -226,32 +230,34 @@ export default function CareCircle() {
               <li key={m.id}>
                 <Card>
                   <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-                    <div>
+                    <div className="min-w-0">
                       <CardTitle as="h2" className="text-2xl">{m.name}</CardTitle>
                       <CardDescription className="text-base">
-                        {m.relationshipLabel} · {m.status === "active" && m.respondedAt ? `joined ${formatDate(m.respondedAt)}` : `invited ${formatDate(m.invitedAt)}, hasn't joined yet`}
+                        {m.status === "active" && m.respondedAt
+                          ? t("circle.member.joined", { relationship: m.relationshipLabel, date: formatDate(m.respondedAt) })
+                          : t("circle.member.invited", { relationship: m.relationshipLabel, date: formatDate(m.invitedAt) })}
                       </CardDescription>
                     </div>
-                    <Badge variant={m.status === "active" ? "default" : "secondary"}>{m.status === "active" ? "Can see" : "Waiting"}</Badge>
+                    <Badge variant={m.status === "active" ? "default" : "secondary"}>{m.status === "active" ? t("circle.badge.active") : t("circle.badge.waiting")}</Badge>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <ul className="space-y-3">
-                      {PERMISSION_FIELDS.map(([field, label]) => {
+                      {PERMISSION_FIELDS.map(([field, labelKey]) => {
                         const id = `${m.id}-${field}`;
                         return (
                           <li key={field} className="flex items-center justify-between gap-4">
-                            <Label htmlFor={id} className="text-lg">{label}</Label>
+                            <Label htmlFor={id} className="text-lg">{t(labelKey)}</Label>
                             <Switch id={id} checked={m[field]} disabled={busyId === m.id} onCheckedChange={(v) => toggle(m, field, v)} />
                           </li>
                         );
                       })}
                     </ul>
                     <ConfirmAction
-                      trigger={<Button variant="outline">Remove {m.name}<span className="sr-only"> from my helpers</span></Button>}
-                      title={`Remove ${m.name}?`}
-                      description={`${m.name} will immediately lose all access and will not be told what you shared. If you change your mind later, you can invite them again.`}
-                      confirmLabel="Yes, remove them"
-                      cancelLabel="No, keep them"
+                      trigger={<Button variant="outline" aria-label={t("circle.removeAria", { name: m.name })}>{t("circle.remove", { name: m.name })}</Button>}
+                      title={t("circle.remove.title", { name: m.name })}
+                      description={t("circle.remove.body", { name: m.name })}
+                      confirmLabel={t("circle.remove.yes")}
+                      cancelLabel={t("circle.remove.no")}
                       destructive
                       onConfirm={() => remove(m)}
                     />

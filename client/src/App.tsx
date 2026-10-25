@@ -12,11 +12,22 @@ import Signup from "@/pages/signup";
 import AppShell from "@/components/app-shell";
 import ErrorBoundary from "@/components/error-boundary";
 import { lazy, Suspense, useEffect, useRef } from "react";
-import { titleForPath } from "@/lib/route-titles";
-import { I18nProvider } from "@/lib/i18n";
+import { useDocumentTitle } from "@/lib/route-titles";
+import { I18nProvider, hasChosenLocale, useI18n } from "@/lib/i18n";
+import { apiRequest } from "@/lib/queryClient";
+import { WELCOME_KEY } from "@/pages/signup";
+import PublicLayout from "@/components/public-layout";
 import HomeDashboard from "@/pages/home-dashboard";
 
 const DoctorApplication = lazy(() => import("@/pages/doctor-application"));
+const GetStarted = lazy(() => import("@/pages/get-started"));
+const JoinDoctor = lazy(() => import("@/pages/join-doctor"));
+const FindDoctors = lazy(() => import("@/pages/find-doctors"));
+const LegalPage = lazy(() => import("@/pages/legal"));
+const Welcome = lazy(() => import("@/pages/welcome"));
+const Notifications = lazy(() => import("@/pages/notifications"));
+const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
+const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminDashboard = lazy(() => import("@/pages/admin-dashboard"));
 const DoctorHome = lazy(() => import("@/pages/doctor-home"));
 const DoctorRequests = lazy(() => import("@/pages/doctor-requests"));
@@ -55,15 +66,42 @@ const Help = lazy(() => import("@/pages/help"));
 // primary path) never pulls this code into its bundle at all.
 
 function RouteLoading() {
+  const { t } = useI18n();
   return (
     <div role="status" aria-live="polite" className="flex min-h-screen items-center justify-center text-lg text-muted-foreground">
-      Loading…
+      {t("common.loading")}
     </div>
   );
 }
 
+// Keeps the person's language choice and their account in step: an explicit
+// choice on this device wins and is saved to the account; on a new device the
+// account's saved language is applied.
+function LocaleSync({ user }: { user: AuthUser | null }) {
+  const { locale, setLocale } = useI18n();
+  useEffect(() => {
+    if (!user?.language) return;
+    if (hasChosenLocale()) {
+      if (user.language !== locale) apiRequest("PATCH", "/api/auth/me/preferences", { language: locale }).catch(() => {});
+    } else if (user.language !== locale) {
+      setLocale(user.language as typeof locale);
+    }
+    // Only when the signed-in person changes; later changes are handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+  useEffect(() => {
+    function onChange(e: Event) {
+      if (user) apiRequest("PATCH", "/api/auth/me/preferences", { language: (e as CustomEvent).detail }).catch(() => {});
+    }
+    window.addEventListener("avela:locale", onChange);
+    return () => window.removeEventListener("avela:locale", onChange);
+  }, [user]);
+  return null;
+}
+
 interface ShellProps {
   user: AuthUser;
+  refreshUser: () => Promise<void>;
   signOut: () => void;
   simpleMode: boolean;
   setSimpleMode: (value: boolean) => void;
@@ -83,6 +121,14 @@ function Authenticated({ user, signOut, simpleMode, setSimpleMode, children }: S
 function Gate({ user, role, ...shellProps }: { user: AuthUser | null; role: string | string[] } & Omit<ShellProps, "user"> & { children: React.ReactNode }) {
   const roles = Array.isArray(role) ? role : [role];
   if (!user || !roles.includes(user.role)) return <Blocked user={user} />;
+  return <Authenticated user={user} {...shellProps} />;
+}
+
+// Clinical screens for doctors. A doctor who isn't approved yet is sent to
+// their application: nothing clinical is reachable, even by typing the address.
+function DoctorGate({ user, ...shellProps }: { user: AuthUser | null } & Omit<ShellProps, "user"> & { children: React.ReactNode }) {
+  if (!user || user.role !== "doctor") return <Blocked user={user} />;
+  if (user.doctorStatus !== "approved") return <Redirect to="/doctor/application" />;
   return <Authenticated user={user} {...shellProps} />;
 }
 
@@ -112,7 +158,11 @@ function Blocked({ user }: { user: AuthUser | null }) {
 
 function HomeForRole({ user, simpleMode, ...rest }: ShellProps) {
   if (user.role === "doctor") {
-    return <Authenticated user={user} simpleMode={simpleMode} {...rest}><DoctorHome user={user} /></Authenticated>;
+    return (
+      <Authenticated user={user} simpleMode={simpleMode} {...rest}>
+        {user.doctorStatus === "approved" ? <DoctorHome user={user} /> : <DoctorApplication user={user} onApproved={rest.refreshUser} />}
+      </Authenticated>
+    );
   }
   if (user.role === "admin") {
     return <Authenticated user={user} simpleMode={simpleMode} {...rest}><AdminDashboard /></Authenticated>;
@@ -128,18 +178,23 @@ function HomeForRole({ user, simpleMode, ...rest }: ShellProps) {
 }
 
 function AppContent() {
-  const { user, login, demoLogin, signup, acceptCareCircleInvite, signOut } = useAuth();
+  const { user, login, demoLogin, signup, registerDoctor, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
   const { simpleMode, setSimpleMode } = useSimpleMode();
   const [location, setLocation] = useLocation();
 
   useEffect(() => {
-    if (user && (location === "/login" || location === "/signup")) {
+    if (user && ["/login", "/signup", "/join/doctor", "/get-started"].includes(location)) {
       let target = "/";
       try {
         const saved = sessionStorage.getItem(RETURN_TO_KEY);
         sessionStorage.removeItem(RETURN_TO_KEY);
         // Only ever an in-app path — never an address someone else could plant.
         if (saved && saved.startsWith("/") && !saved.startsWith("//")) target = saved;
+        // Someone who just created a patient account gets the short welcome first.
+        if (user.role === "patient" && sessionStorage.getItem(WELCOME_KEY)) {
+          sessionStorage.removeItem(WELCOME_KEY);
+          target = "/welcome";
+        }
       } catch {
         // fall back to home
       }
@@ -147,12 +202,26 @@ function AppContent() {
     }
   }, [user, location, setLocation]);
 
+  // A doctor waiting for review learns the outcome without signing out and in.
+  useEffect(() => {
+    if (user?.role !== "doctor" || user.doctorStatus === "approved") return;
+    refreshUser();
+    const onStatus = () => refreshUser();
+    window.addEventListener("avela:doctor-status", onStatus);
+    const timer = setInterval(refreshUser, 60_000);
+    return () => {
+      window.removeEventListener("avela:doctor-status", onStatus);
+      clearInterval(timer);
+    };
+  }, [user?.id, user?.doctorStatus, refreshUser]);
+
+  useDocumentTitle(location);
+
   // On every navigation: update the page title, and move keyboard/screen
   // reader focus to the new page's main area, so people who can't see the
   // screen change are told it did. (Skipped for the very first load.)
   const firstRender = useRef(true);
   useEffect(() => {
-    document.title = `${titleForPath(location)} · Avela`;
     if (firstRender.current) {
       firstRender.current = false;
       return;
@@ -160,16 +229,23 @@ function AppContent() {
     requestAnimationFrame(() => document.getElementById("main")?.focus({ preventScroll: false }));
   }, [location]);
 
-  const shellProps = { signOut, simpleMode, setSimpleMode };
+  const shellProps = { signOut, simpleMode, setSimpleMode, refreshUser };
 
   return (
     <ErrorBoundary resetKey={location}>
+    <LocaleSync user={user} />
     <Suspense fallback={<RouteLoading />}>
     <Switch>
       <Route path="/">{user ? <HomeForRole user={user} {...shellProps} /> : <Landing />}</Route>
       <Route path="/login">{user ? <HomeForRole user={user} {...shellProps} /> : <Login onLogin={login} onDemoLogin={demoLogin} />}</Route>
       <Route path="/signup">{user ? <HomeForRole user={user} {...shellProps} /> : <Signup onSignup={signup} />}</Route>
-      <Route path="/apply-as-doctor" component={DoctorApplication} />
+      <Route path="/get-started">{user ? <HomeForRole user={user} {...shellProps} /> : <GetStarted />}</Route>
+      <Route path="/join/doctor">{user ? <HomeForRole user={user} {...shellProps} /> : <JoinDoctor onRegister={registerDoctor} />}</Route>
+      <Route path="/apply-as-doctor"><Redirect to="/join/doctor" /></Route>
+      <Route path="/find-doctors">{user?.role === "patient" ? <Redirect to="/doctors" /> : <FindDoctors />}</Route>
+      <Route path="/about"><LegalPage page="about" /></Route>
+      <Route path="/privacy"><LegalPage page="privacy" /></Route>
+      <Route path="/terms"><LegalPage page="terms" /></Route>
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/care-circle/accept">
@@ -228,7 +304,17 @@ function AppContent() {
         <Gate user={user} role="patient" {...shellProps}><MyHealth /></Gate>
       </Route>
       <Route path="/help">
-        <Gate user={user} role={["patient", "doctor", "caregiver"]} {...shellProps}><Help /></Gate>
+        {user && ["patient", "doctor", "caregiver"].includes(user.role)
+          ? <Authenticated user={user} {...shellProps}><Help /></Authenticated>
+          : <PublicLayout><Help signedIn={false} /></PublicLayout>}
+      </Route>
+      <Route path="/welcome">
+        <Gate user={user} role="patient" {...shellProps}>{user && <Welcome name={user.name} />}</Gate>
+      </Route>
+      <Route path="/notifications">
+        {user?.role === "patient" || (user?.role === "doctor" && user.doctorStatus === "approved")
+          ? <Authenticated user={user} {...shellProps}><Notifications /></Authenticated>
+          : <Blocked user={user} />}
       </Route>
       <Route path="/sos">
         <Gate user={user} role="patient" {...shellProps}><Sos /></Gate>
@@ -251,24 +337,33 @@ function AppContent() {
       </Route>
 
       <Route path="/doctor/requests">
-        <Gate user={user} role="doctor" {...shellProps}><DoctorRequests /></Gate>
+        <DoctorGate user={user} {...shellProps}><DoctorRequests /></DoctorGate>
       </Route>
       <Route path="/doctor/patients/:pairingId">
-        {(params) => <Gate user={user} role="doctor" {...shellProps}><DoctorPatientWorkspace pairingId={params.pairingId} /></Gate>}
+        {(params) => <DoctorGate user={user} {...shellProps}><DoctorPatientWorkspace pairingId={params.pairingId} /></DoctorGate>}
       </Route>
       <Route path="/doctor/patients">
-        <Gate user={user} role="doctor" {...shellProps}><DoctorPatients /></Gate>
+        <DoctorGate user={user} {...shellProps}><DoctorPatients /></DoctorGate>
       </Route>
       <Route path="/doctor/availability">
-        <Gate user={user} role="doctor" {...shellProps}><DoctorAvailability /></Gate>
+        <DoctorGate user={user} {...shellProps}><DoctorAvailability /></DoctorGate>
       </Route>
       <Route path="/doctor/appointments">
-        <Gate user={user} role="doctor" {...shellProps}><DoctorAppointments /></Gate>
+        <DoctorGate user={user} {...shellProps}><DoctorAppointments /></DoctorGate>
+      </Route>
+      <Route path="/doctor/profile">
+        <DoctorGate user={user} {...shellProps}><DoctorProfile /></DoctorGate>
+      </Route>
+      <Route path="/doctor/application">
+        {user?.role === "doctor" ? <Authenticated user={user} {...shellProps}><DoctorApplication user={user} onApproved={refreshUser} /></Authenticated> : <Blocked user={user} />}
       </Route>
       <Route path="/doctor">
-        {user?.role === "doctor" ? <Authenticated user={user} {...shellProps}><DoctorHome user={user} /></Authenticated> : <Blocked user={user} />}
+        {user?.role === "doctor" ? <HomeForRole user={user} {...shellProps} /> : <Blocked user={user} />}
       </Route>
 
+      <Route path="/admin/activity">
+        <Gate user={user} role="admin" {...shellProps}><AdminActivity /></Gate>
+      </Route>
       <Route path="/admin">
         <Gate user={user} role="admin" {...shellProps}><AdminDashboard /></Gate>
       </Route>

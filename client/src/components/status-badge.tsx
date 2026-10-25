@@ -1,42 +1,41 @@
+import { CheckCircle2, Circle, Clock, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 
 type Variant = "default" | "secondary" | "destructive" | "outline";
 
-const CONFIGS: Record<string, Record<string, { label: string; variant: Variant }>> = {
-  pairing: {
-    requested: { label: "Pending", variant: "secondary" },
-    accepted: { label: "Connected", variant: "default" },
-    declined: { label: "Declined", variant: "destructive" },
-    cancelled: { label: "Cancelled", variant: "outline" },
-    ended: { label: "Sharing stopped", variant: "outline" },
-  },
-  appointment: {
-    requested: { label: "Requested", variant: "secondary" },
-    confirmed: { label: "Confirmed", variant: "default" },
-    completed: { label: "Completed", variant: "outline" },
-    cancelled: { label: "Cancelled", variant: "destructive" },
-  },
-  prescription: {
-    active: { label: "Active", variant: "default" },
-    completed: { label: "Completed", variant: "outline" },
-    cancelled: { label: "Cancelled", variant: "destructive" },
-  },
+// Which statuses read as "good / in effect", "waiting", "stopped" or "finished".
+// Each badge shows an icon AND text, so colour is never the only signal.
+const VARIANTS: Record<string, Record<string, Variant>> = {
+  pairing: { requested: "secondary", accepted: "default", declined: "destructive", cancelled: "outline", ended: "outline" },
+  appointment: { requested: "secondary", confirmed: "default", completed: "outline", cancelled: "destructive" },
+  prescription: { draft: "secondary", active: "default", completed: "outline", expired: "outline", cancelled: "destructive" },
   pharmacyOrder: {
-    received: { label: "Received", variant: "secondary" },
-    processing: { label: "Processing", variant: "secondary" },
-    preparing: { label: "Preparing", variant: "secondary" },
-    ready_for_pickup: { label: "Ready for pickup", variant: "default" },
-    out_for_delivery: { label: "Out for delivery", variant: "default" },
-    delivered: { label: "Delivered", variant: "outline" },
-    picked_up: { label: "Picked up", variant: "outline" },
+    received: "secondary", processing: "secondary", preparing: "secondary", ready_for_pickup: "default",
+    out_for_delivery: "default", delivered: "outline", picked_up: "outline",
   },
-  followUp: {
-    open: { label: "Open", variant: "secondary" },
-    done: { label: "Done", variant: "outline" },
-  },
+  followUp: { open: "secondary", done: "outline" },
 };
 
-export default function StatusBadge({ kind, status }: { kind: keyof typeof CONFIGS; status: string }) {
-  const config = CONFIGS[kind]?.[status] || { label: status.replace(/_/g, " "), variant: "outline" as Variant };
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+const ICONS: Record<Variant, typeof Circle> = {
+  default: CheckCircle2,
+  secondary: Clock,
+  destructive: XCircle,
+  outline: Circle,
+};
+
+export default function StatusBadge({ kind, status }: { kind: keyof typeof VARIANTS; status: string }) {
+  const { t } = useI18n();
+  const variant = VARIANTS[kind]?.[status] ?? "outline";
+  const Icon = ICONS[variant];
+  const key = `status.${kind}.${status}` as MessageKey;
+  const label = t(key);
+  // An unknown status still shows something readable rather than a raw key.
+  const text = label === key ? status.replace(/_/g, " ") : label;
+  return (
+    <Badge variant={variant} className="gap-1.5">
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      {text}
+    </Badge>
+  );
 }

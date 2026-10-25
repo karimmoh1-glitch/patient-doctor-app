@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { CalendarDays, Pill, ClipboardList, Truck, FileText, MessageCircle, ListChecks } from "lucide-react";
 import { formatDate, formatTime } from "@/lib/format";
+import { useI18n } from "@/lib/i18n";
 
 interface TimelineEvent {
   date: string;
@@ -35,6 +36,7 @@ const MARKER_STYLES: Record<TimelineEvent["kind"], string> = {
 };
 
 export default function Timeline() {
+  const { t } = useI18n();
   const { data: events, isLoading } = useQuery<TimelineEvent[]>({ queryKey: ["/api/timeline"] });
 
   const grouped = new Map<string, TimelineEvent[]>();
@@ -47,27 +49,27 @@ export default function Timeline() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Health timeline</h1>
-        <p className="text-sm text-muted-foreground">Your care, all in one continuous story.</p>
+        <h1 className="text-2xl font-semibold">{t("timeline.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("timeline.intro")}</p>
       </div>
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
+      {isLoading && <p className="text-muted-foreground">{t("common.loading")}</p>}
       {!isLoading && (events?.length ?? 0) === 0 && (
         <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <p className="text-sm text-muted-foreground">Nothing here yet. As you connect with doctors, get prescriptions, and track medications, your story will appear here.</p>
+          <p className="text-sm text-muted-foreground">{t("timeline.empty")}</p>
         </div>
       )}
 
       <div className="space-y-8">
         {Array.from(grouped.entries()).map(([day, dayEvents], groupIndex) => (
-          <div key={day} className="relative border-l-2 border-border pl-6">
+          <div key={day} className="relative border-s-2 border-border ps-6">
             <p className="mb-3 text-base font-semibold text-muted-foreground">{day}</p>
             <div className="space-y-5">
               {dayEvents.map((e, i) => {
                 const Icon = ICONS[e.kind];
                 const content = (
                   <div className="relative flex gap-3">
-                    <span className={`absolute -left-[29px] flex h-5 w-5 items-center justify-center rounded-full ring-4 ring-background ${MARKER_STYLES[e.kind]}`}>
+                    <span className={`absolute -start-[29px] flex h-5 w-5 items-center justify-center rounded-full ring-4 ring-background ${MARKER_STYLES[e.kind]}`}>
                       <Icon className="h-3 w-3 text-white" />
                     </span>
                     <div className="min-w-0">

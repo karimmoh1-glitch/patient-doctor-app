@@ -1,3 +1,4 @@
+import { appointmentTypeLabel } from "@/lib/labels";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -15,6 +16,8 @@ import QueryState, { EmptyBlock, LoadingBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatRelativeDay } from "@/lib/format";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { specialtyLabel } from "@/lib/labels";
 
 interface Pairing {
   id: string;
@@ -38,11 +41,15 @@ interface SlotsResponse {
   slots: string[];
 }
 
-const TYPES = ["Video Visit", "Phone Call", "In-Person"];
+// The stored values stay as they are (the server and doctors use them); each
+// one maps to a label key for display.
+// Video visits are not offered: Avela has no video calling, so a patient can't
+// book one. Older records of that type still display (see labels.ts).
+const TYPES = ["Phone Call", "In-Person"];
 
-const STATUS_EXPLANATION: Record<string, string> = {
-  requested: "Waiting for the doctor to confirm this time.",
-  confirmed: "The doctor has confirmed this time.",
+const STATUS_EXPLANATION: Record<string, MessageKey> = {
+  requested: "pt.appt.status.requested",
+  confirmed: "pt.appt.status.confirmed",
 };
 
 function useSlots(pairingId: string, enabled: boolean) {
@@ -54,13 +61,14 @@ function useSlots(pairingId: string, enabled: boolean) {
 }
 
 function NoTimesPublished({ doctorName, pairingId }: { doctorName: string; pairingId: string }) {
+  const { t } = useI18n();
   return (
     <div className="rounded-xl border-2 border-input p-5">
-      <p className="font-semibold">{doctorName} hasn't published any appointment times yet.</p>
-      <p className="mt-1 text-muted-foreground">You can send a message to ask when they are free.</p>
+      <p className="font-semibold">{t("pt.appt.noTimes", { name: doctorName })}</p>
+      <p className="mt-1 text-muted-foreground">{t("pt.appt.noTimesHelp")}</p>
       <Button asChild className="mt-4">
         <Link href={`/chat/${pairingId}`}>
-          <MessageCircle aria-hidden="true" /> Message {doctorName}
+          <MessageCircle aria-hidden="true" /> {t("pt.messageName", { name: doctorName })}
         </Link>
       </Button>
     </div>
@@ -70,6 +78,7 @@ function NoTimesPublished({ doctorName, pairingId }: { doctorName: string; pairi
 function BookDialog({
   open, onOpenChange, connected, initialPairingId,
 }: { open: boolean; onOpenChange: (v: boolean) => void; connected: Pairing[]; initialPairingId: string }) {
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [pairingId, setPairingId] = useState(initialPairingId || (connected.length === 1 ? connected[0].id : ""));
@@ -80,6 +89,9 @@ function BookDialog({
   const [error, setError] = useState<string | null>(null);
   const slotsQuery = useSlots(pairingId, open);
   const doctor = connected.find((p) => p.id === pairingId)?.doctor;
+  // Names and links sit inside sentences, so their position comes from the translation.
+  const [withBefore, withAfter] = t("pt.appt.with").split("{doctor}");
+  const [noOpenBefore, noOpenAfter] = t("pt.appt.noOpenBody").split("{link}");
 
   useEffect(() => {
     if (!pairingId && connected.length === 1) setPairingId(connected[0].id);
@@ -87,15 +99,15 @@ function BookDialog({
 
   async function book() {
     setError(null);
-    if (!pairingId) return setError("Choose which doctor you want to see.");
-    if (!slot) return setError("Choose a day and a time.");
-    if (reason.trim().length < 3) return setError("Tell the doctor briefly what the visit is about.");
+    if (!pairingId) return setError(t("pt.appt.errDoctor"));
+    if (!slot) return setError(t("pt.appt.errSlot"));
+    if (reason.trim().length < 3) return setError(t("pt.appt.errReason"));
     setSubmitting(true);
     try {
       await apiRequest("POST", "/api/appointments", { pairingRequestId: pairingId, type, reason: reason.trim(), scheduledAt: slot });
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      toast({ title: "Request sent", description: `${doctor?.name ?? "The doctor"} still needs to confirm this time.` });
+      toast({ title: t("pt.requestSent"), description: t("pt.appt.needsConfirm", { name: doctor?.name ?? t("pt.theDoctor") }) });
       onOpenChange(false);
       setReason("");
       setSlot(null);
@@ -112,48 +124,47 @@ function BookDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Book a visit</DialogTitle>
-          <DialogDescription className="text-base">Choose a time your doctor has set aside. They will confirm it.</DialogDescription>
+          <DialogTitle className="text-2xl">{t("home.book")}</DialogTitle>
+          <DialogDescription className="text-base">{t("pt.appt.bookDesc")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-5">
           {connected.length !== 1 && (
             <div className="space-y-2">
-              <Label htmlFor="book-doctor" className="text-base">Which doctor?</Label>
+              <Label htmlFor="book-doctor" className="text-base">{t("pt.appt.whichDoctor")}</Label>
               <NativeSelect id="book-doctor" value={pairingId} onChange={(e) => { setPairingId(e.target.value); setSlot(null); }}>
-                <option value="">Choose a doctor</option>
+                <option value="">{t("pt.appt.chooseDoctor")}</option>
                 {connected.map((p) => (
-                  <option key={p.id} value={p.id}>{p.doctor?.name} — {p.doctor?.specialty}</option>
+                  <option key={p.id} value={p.id}>{p.doctor ? t("pt.nameSpecialtyDash", { name: p.doctor.name, specialty: specialtyLabel(t, p.doctor.specialty) }) : ""}</option>
                 ))}
               </NativeSelect>
             </div>
           )}
-          {connected.length === 1 && <p className="text-lg">With <strong>{doctor?.name}</strong> <span className="text-muted-foreground">({doctor?.specialty})</span></p>}
+          {connected.length === 1 && (
+            <p className="text-lg">
+              {withBefore}<strong>{doctor?.name}</strong>{withAfter} <span className="text-muted-foreground">({doctor ? specialtyLabel(t, doctor.specialty) : ""})</span>
+            </p>
+          )}
 
           <div className="space-y-2">
-            <Label htmlFor="book-type" className="text-base">How would you like to meet?</Label>
+            <Label htmlFor="book-type" className="text-base">{t("pt.appt.howMeet")}</Label>
             <NativeSelect id="book-type" value={type} onChange={(e) => setType(e.target.value)}>
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              {TYPES.map((v) => <option key={v} value={v}>{appointmentTypeLabel(t, v)}</option>)}
             </NativeSelect>
-            {type === "Video Visit" && (
-              <p className="text-sm text-muted-foreground">
-                Video calling is not built into Avela yet. Your doctor will contact you by phone or send you a link at the time of your visit.
-              </p>
-            )}
           </div>
 
           {pairingId && (
             <div className="space-y-2">
-              <p className="text-base font-medium">When?</p>
-              <QueryState query={slotsQuery} loadingLabel="Finding available times">
+              <p className="text-base font-medium">{t("pt.appt.when")}</p>
+              <QueryState query={slotsQuery} loadingLabel={t("pt.appt.findingTimes")}>
                 {(data) =>
                   !data.hasPublishedAvailability ? (
-                    <NoTimesPublished doctorName={doctor?.name ?? "This doctor"} pairingId={pairingId} />
+                    <NoTimesPublished doctorName={doctor?.name ?? t("pt.thisDoctor")} pairingId={pairingId} />
                   ) : data.slots.length === 0 ? (
-                    <EmptyBlock title="No open times in the next three weeks">
-                      <Link href={`/chat/${pairingId}`} className="text-primary underline">Message {doctor?.name}</Link> to ask about other times.
+                    <EmptyBlock title={t("pt.appt.noOpenTitle")}>
+                      {noOpenBefore}<Link href={`/chat/${pairingId}`} className="text-primary underline">{t("pt.messageName", { name: doctor?.name ?? "" })}</Link>{noOpenAfter}
                     </EmptyBlock>
                   ) : (
-                    <SlotPicker slots={data.slots} value={slot} onChange={setSlot} doctorTimezone={data.doctorTimezone} doctorName={doctor?.name ?? "The doctor"} />
+                    <SlotPicker slots={data.slots} value={slot} onChange={setSlot} doctorTimezone={data.doctorTimezone} doctorName={doctor?.name ?? t("pt.theDoctor")} />
                   )
                 }
               </QueryState>
@@ -161,15 +172,15 @@ function BookDialog({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="book-reason" className="text-base">What is the visit about?</Label>
-            <Textarea id="book-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="For example: follow-up on my cough" rows={3} aria-describedby={error ? "book-error" : undefined} />
+            <Label htmlFor="book-reason" className="text-base">{t("pt.appt.about")}</Label>
+            <Textarea id="book-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("pt.appt.aboutPh")} rows={3} aria-describedby={error ? "book-error" : undefined} />
           </div>
 
           {error && (
             <p id="book-error" role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>
           )}
           <Button size="lg" className="w-full" onClick={book} disabled={submitting}>
-            {submitting ? "Sending…" : "Request this time"}
+            {submitting ? t("pt.sending") : t("pt.appt.request")}
           </Button>
         </div>
       </DialogContent>
@@ -178,6 +189,7 @@ function BookDialog({
 }
 
 function RescheduleDialog({ appointment, onClose }: { appointment: Appointment | null; onClose: () => void }) {
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [slot, setSlot] = useState<string | null>(null);
@@ -191,14 +203,14 @@ function RescheduleDialog({ appointment, onClose }: { appointment: Appointment |
   }, [appointment?.id]);
 
   async function move() {
-    if (!appointment || !slot) return setError("Choose a new day and time first.");
+    if (!appointment || !slot) return setError(t("pt.appt.errNewTime"));
     setSubmitting(true);
     setError(null);
     try {
       await apiRequest("PATCH", `/api/appointments/${appointment.id}/reschedule`, { scheduledAt: slot });
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      toast({ title: "New time requested", description: `${appointment.doctor?.name ?? "The doctor"} needs to confirm it.` });
+      toast({ title: t("pt.appt.newTimeTitle"), description: t("pt.appt.newTimeBody", { name: appointment.doctor?.name ?? t("pt.theDoctor") }) });
       onClose();
     } catch (err: any) {
       setError(err.message);
@@ -213,28 +225,29 @@ function RescheduleDialog({ appointment, onClose }: { appointment: Appointment |
     <Dialog open={!!appointment} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Change the time</DialogTitle>
+          <DialogTitle className="text-2xl">{t("pt.appt.changeTitle")}</DialogTitle>
           <DialogDescription className="text-base">
-            Now: {appointment && formatRelativeDay(appointment.scheduledAt)}. Your old time stays yours until the new one is saved, and the doctor will need to confirm the new time.
+            {t("pt.appt.changeDesc", { when: appointment ? formatRelativeDay(appointment.scheduledAt) : "" })}
           </DialogDescription>
         </DialogHeader>
-        <QueryState query={slotsQuery} loadingLabel="Finding available times">
+        <QueryState query={slotsQuery} loadingLabel={t("pt.appt.findingTimes")}>
           {(data) =>
             data.slots.length === 0 ? (
-              <EmptyBlock title="No other open times in the next three weeks" />
+              <EmptyBlock title={t("pt.appt.noOtherTimes")} />
             ) : (
-              <SlotPicker slots={data.slots} value={slot} onChange={setSlot} doctorTimezone={data.doctorTimezone} doctorName={appointment?.doctor?.name ?? "The doctor"} />
+              <SlotPicker slots={data.slots} value={slot} onChange={setSlot} doctorTimezone={data.doctorTimezone} doctorName={appointment?.doctor?.name ?? t("pt.theDoctor")} />
             )
           }
         </QueryState>
         {error && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
-        <Button size="lg" onClick={move} disabled={submitting || !slot}>{submitting ? "Saving…" : "Request this new time"}</Button>
+        <Button size="lg" onClick={move} disabled={submitting || !slot}>{submitting ? t("common.saving") : t("pt.appt.requestNew")}</Button>
       </DialogContent>
     </Dialog>
   );
 }
 
 export default function Appointments() {
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const params = new URLSearchParams(window.location.search);
@@ -250,9 +263,9 @@ export default function Appointments() {
       await apiRequest("PATCH", `/api/appointments/${id}/cancel`);
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      toast({ title: "Appointment cancelled", description: "That time is free again. You can book another whenever you like." });
+      toast({ title: t("pt.appt.cancelledTitle"), description: t("pt.appt.cancelledBody") });
     } catch (err: any) {
-      toast({ title: "We couldn't cancel it", description: err.message, variant: "destructive" });
+      toast({ title: t("pt.cancelFail"), description: err.message, variant: "destructive" });
       throw err;
     }
   }
@@ -261,29 +274,29 @@ export default function Appointments() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">Appointments</h1>
-          <p className="text-muted-foreground">Your visits with your doctors.</p>
+          <h1 className="text-3xl font-semibold">{t("nav.appointments")}</h1>
+          <p className="text-muted-foreground">{t("pt.appt.subtitle")}</p>
         </div>
         {connected.length > 0 && (
           <Button size="lg" onClick={() => setBookOpen(true)}>
-            <CalendarPlus aria-hidden="true" /> Book a visit
+            <CalendarPlus aria-hidden="true" /> {t("home.book")}
           </Button>
         )}
       </div>
 
       {pairingsQuery.isSuccess && connected.length === 0 && (
         <EmptyBlock
-          title="You need a doctor first"
-          action={<Button asChild size="lg"><Link href="/symptoms">Find a doctor</Link></Button>}
+          title={t("pt.appt.needDoctor")}
+          action={<Button asChild size="lg"><Link href="/symptoms">{t("home.findDoctor")}</Link></Button>}
         >
-          Once a doctor accepts your request, you can book a time with them here.
+          {t("pt.appt.needDoctorBody")}
         </EmptyBlock>
       )}
 
       <QueryState
         query={appointmentsQuery}
         isEmpty={(a) => a.length === 0}
-        empty={connected.length > 0 ? <EmptyBlock title="No visits yet">When you book one, it will appear here.</EmptyBlock> : null}
+        empty={connected.length > 0 ? <EmptyBlock title={t("pt.appt.noVisits")}>{t("pt.appt.noVisitsBody")}</EmptyBlock> : null}
       >
         {(all) => {
           const upcoming = all
@@ -294,31 +307,31 @@ export default function Appointments() {
             <>
               {upcoming.length > 0 && (
                 <section aria-labelledby="upcoming-heading" className="space-y-4">
-                  <h2 id="upcoming-heading" className="text-xl font-semibold">Coming up</h2>
+                  <h2 id="upcoming-heading" className="text-xl font-semibold">{t("pt.appt.comingUp")}</h2>
                   <div className="grid gap-4">
                     {upcoming.map((a) => (
                       <Card key={a.id}>
                         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                           <div>
                             <CardTitle as="h3" className="text-xl">{formatRelativeDay(a.scheduledAt)}</CardTitle>
-                            <CardDescription className="text-base">{a.type} with {a.doctor?.name}</CardDescription>
+                            <CardDescription className="text-base">{t("pt.appt.typeWith", { type: appointmentTypeLabel(t, a.type), doctor: a.doctor?.name ?? "" })}</CardDescription>
                           </div>
                           <StatusBadge kind="appointment" status={a.status} />
                         </CardHeader>
                         <CardContent className="space-y-4">
-                          <p className="text-muted-foreground">{STATUS_EXPLANATION[a.status]}</p>
+                          <p className="text-muted-foreground">{STATUS_EXPLANATION[a.status] ? t(STATUS_EXPLANATION[a.status]) : ""}</p>
                           <p>{a.reason}</p>
                           <div className="flex flex-wrap gap-3">
                             <Button asChild variant="outline">
-                              <Link href={`/appointments/${a.id}`}>Get ready <ArrowRight aria-hidden="true" /></Link>
+                              <Link href={`/appointments/${a.id}`}>{t("pt.getReady")} <ArrowRight aria-hidden="true" className="flip-rtl" /></Link>
                             </Button>
-                            <Button variant="outline" onClick={() => setRescheduling(a)}>Change time</Button>
+                            <Button variant="outline" onClick={() => setRescheduling(a)}>{t("pt.appt.changeTime")}</Button>
                             <ConfirmAction
-                              trigger={<Button variant="outline">Cancel visit</Button>}
-                              title="Cancel this appointment?"
-                              description={`Your ${a.type.toLowerCase()} with ${a.doctor?.name} on ${formatRelativeDay(a.scheduledAt)} will be cancelled. You can book another time afterwards.`}
-                              confirmLabel="Yes, cancel it"
-                              cancelLabel="No, keep my visit"
+                              trigger={<Button variant="outline">{t("pt.appt.cancelVisit")}</Button>}
+                              title={t("pt.appt.cancelTitle")}
+                              description={t("pt.appt.cancelBody", { type: appointmentTypeLabel(t, a.type).toLowerCase(), doctor: a.doctor?.name ?? "", when: formatRelativeDay(a.scheduledAt) })}
+                              confirmLabel={t("pt.yesCancel")}
+                              cancelLabel={t("pt.appt.keepVisit")}
                               destructive
                               onConfirm={() => cancel(a.id)}
                             />
@@ -331,19 +344,19 @@ export default function Appointments() {
               )}
               {past.length > 0 && (
                 <section aria-labelledby="past-heading" className="space-y-4">
-                  <h2 id="past-heading" className="text-xl font-semibold">Earlier</h2>
+                  <h2 id="past-heading" className="text-xl font-semibold">{t("pt.appt.earlier")}</h2>
                   <div className="grid gap-4">
                     {past.map((a) => (
                       <Card key={a.id}>
                         <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                           <div>
                             <CardTitle as="h3" className="text-lg">{formatRelativeDay(a.scheduledAt)}</CardTitle>
-                            <CardDescription className="text-base">{a.type} with {a.doctor?.name}</CardDescription>
+                            <CardDescription className="text-base">{t("pt.appt.typeWith", { type: appointmentTypeLabel(t, a.type), doctor: a.doctor?.name ?? "" })}</CardDescription>
                           </div>
                           <StatusBadge kind="appointment" status={a.status} />
                         </CardHeader>
                         <CardContent>
-                          <Button asChild variant="outline"><Link href={`/appointments/${a.id}`}>See summary</Link></Button>
+                          <Button asChild variant="outline"><Link href={`/appointments/${a.id}`}>{t("pt.appt.summary")}</Link></Button>
                         </CardContent>
                       </Card>
                     ))}
@@ -355,7 +368,7 @@ export default function Appointments() {
         }}
       </QueryState>
 
-      {pairingsQuery.isLoading && <LoadingBlock label="Loading your doctors" />}
+      {pairingsQuery.isLoading && <LoadingBlock label={t("pt.appt.loadingDoctors")} />}
 
       {bookOpen && <BookDialog open={bookOpen} onOpenChange={setBookOpen} connected={connected} initialPairingId={params.get("book") || ""} />}
       <RescheduleDialog appointment={rescheduling} onClose={() => setRescheduling(null)} />

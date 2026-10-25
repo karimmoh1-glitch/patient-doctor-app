@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 interface DoctorPairing {
   id: string;
@@ -12,18 +13,19 @@ interface DoctorPairing {
 }
 
 export default function DoctorPatients() {
+  const { t } = useI18n();
   const { data: requests, isLoading } = useQuery<DoctorPairing[]>({ queryKey: ["/api/pairings/doctor"] });
   const patients = (requests || []).filter((r) => r.status === "accepted");
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Patients</h1>
-        <p className="text-sm text-muted-foreground">Everyone you're connected with.</p>
+        <h1 className="text-2xl font-semibold">{t("nav.d.patients")}</h1>
+        <p className="text-sm text-muted-foreground">{t("dpat.subtitle")}</p>
       </div>
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
-      {!isLoading && patients.length === 0 && <p className="text-sm text-muted-foreground">No connected patients yet — accept a request to get started.</p>}
+      {isLoading && <p className="text-muted-foreground">{t("common.loading")}</p>}
+      {!isLoading && patients.length === 0 && <p className="text-sm text-muted-foreground">{t("dpat.none")}</p>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {patients.map((p) => (
@@ -33,7 +35,7 @@ export default function DoctorPatients() {
             </CardHeader>
             <CardContent>
               <Link href={`/doctor/patients/${p.id}`}>
-                <Button size="sm" variant="outline" className="gap-1">Open <ArrowRight className="h-3.5 w-3.5" /></Button>
+                <Button size="sm" variant="outline" className="gap-1">{t("dpat.open")} <ArrowRight className="h-3.5 w-3.5 flip-rtl" /></Button>
               </Link>
             </CardContent>
           </Card>

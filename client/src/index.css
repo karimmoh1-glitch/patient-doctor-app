@@ -1,38 +1,51 @@
+@import "@fontsource-variable/figtree/wght.css";
+@import "@fontsource-variable/fraunces/wght.css";
+@import "@fontsource-variable/noto-sans-arabic/wght.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  /* Light, clinical palette — calm and legible, not clinical-sterile.
-     A single teal accent for primary actions/links; everything else is
-     neutral so symptom text and doctor info stay the visual focus. */
-  --color-background: #F7F8FA;
-  --color-foreground: #14181F;
+  /* Avela palette. Deep forest-teal for action and identity, warm white and
+     sand neutrals for surfaces, and near-black green for text. Contrast on
+     the page background: foreground 15:1, muted text 7.4:1, primary 8.6:1. */
+  --color-background: #FBFAF6;
+  --color-foreground: #16211F;
   --color-card: #FFFFFF;
-  --color-card-foreground: #14181F;
+  --color-card-foreground: #16211F;
   --color-popover: #FFFFFF;
-  --color-popover-foreground: #14181F;
-  --color-primary: #0B5F58;
+  --color-popover-foreground: #16211F;
+  --color-primary: #0E5A4F;
+  --color-primary-hover: #0A453D;
   --color-primary-foreground: #FFFFFF;
-  --color-secondary: #EEF1F4;
-  --color-secondary-foreground: #14181F;
-  --color-muted: #EEF1F4;
-  --color-muted-foreground: #4B5565;
-  --color-accent: #0B5F58;
+  /* A soft sage tint for selected and quiet areas. */
+  --color-secondary: #E9F0EB;
+  --color-secondary-foreground: #0F2F2A;
+  --color-muted: #F1EFE8;
+  --color-muted-foreground: #4A5551;
+  /* Warm sand, used sparingly to lift a surface or mark a highlight. */
+  --color-sand: #F4EBDD;
+  --color-sand-foreground: #5B3F12;
+  --color-ochre: #C58A3A;
+  --color-accent: #0E5A4F;
   --color-accent-foreground: #FFFFFF;
-  --color-destructive: #C21E1E;
+  --color-destructive: #B3261E;
   --color-destructive-foreground: #FFFFFF;
-  --color-border: #E2E5EA;
+  --color-border: #E3E0D6;
   /* Form-control boundaries must be identifiable (WCAG 1.4.11, 3:1);
      --color-border stays light because it only draws decorative card edges. */
-  --color-input: #7D8799;
-  --color-ring: #0B5F58;
+  --color-input: #77817B;
+  --color-ring: #0E5A4F;
 
-  /* System fonts: no download on slow connections, familiar to the person's
-     own device, and no third-party request that reveals they opened this app. */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --radius: 12px;
+  /* Self-hosted variable fonts (no third-party request): Figtree for the
+     interface, Fraunces for display headlines, Noto Sans Arabic for Arabic.
+     The system stack is the fallback while a font loads. */
+  --font-sans: "Figtree Variable", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Fraunces Variable", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --radius: 14px;
+  --shadow-soft: 0 1px 2px rgb(22 33 31 / 0.05), 0 10px 28px -14px rgb(22 33 31 / 0.14);
+  --shadow-lift: 0 2px 4px rgb(22 33 31 / 0.06), 0 18px 40px -16px rgb(22 33 31 / 0.22);
 
   /* The smallest text anywhere is ~16px (at the standard text size), not
      12px. Components were written with text-xs / text-sm for secondary text;
@@ -81,4 +94,25 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-semibold tracking-tight text-foreground;
   }
+  /* Arabic uses a purpose-made typeface everywhere, and no negative tracking
+     (it would break the joins between letters). */
+  html[lang="ar"] body,
+  html[lang="ar"] h1, html[lang="ar"] h2, html[lang="ar"] h3, html[lang="ar"] h4,
+  html[lang="ar"] .font-display {
+    font-family: "Noto Sans Arabic Variable", "Figtree Variable", system-ui, sans-serif;
+    letter-spacing: 0;
+  }
+  html[lang="ar"] body { line-height: 1.75; }
+  /* Phone numbers, email addresses and similar stay left-to-right and are
+     isolated from the surrounding Arabic text. */
+  .ltr-isolate { direction: ltr; unicode-bidi: isolate; text-align: start; }
+  html[dir="rtl"] .ltr-isolate { text-align: end; }
+  /* Chevrons and arrows that point "forward" must flip with the writing direction. */
+  html[dir="rtl"] .flip-rtl { transform: scaleX(-1); }
+}
+
+@layer components {
+  .font-display { font-family: var(--font-display); font-optical-sizing: auto; }
+  .shadow-soft { box-shadow: var(--shadow-soft); }
+  .shadow-lift { box-shadow: var(--shadow-lift); }
 }

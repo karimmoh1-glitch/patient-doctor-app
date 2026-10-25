@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 /**
  * Wraps any trigger button in a plain-language confirmation. The safe choice
@@ -17,7 +18,7 @@ export default function ConfirmAction({
   title,
   description,
   confirmLabel,
-  cancelLabel = "No, keep it",
+  cancelLabel,
   destructive = false,
   onConfirm,
 }: {
@@ -29,6 +30,7 @@ export default function ConfirmAction({
   destructive?: boolean;
   onConfirm: () => void | Promise<void>;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -41,7 +43,7 @@ export default function ConfirmAction({
           <AlertDialogDescription className="text-base text-muted-foreground">{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter className="gap-3 sm:gap-3">
-          <AlertDialogCancel className={cn(buttonVariants({ variant: "outline" }), "mt-0")}>{cancelLabel}</AlertDialogCancel>
+          <AlertDialogCancel className={cn(buttonVariants({ variant: "outline" }), "mt-0")}>{cancelLabel ?? t("confirmact.keep")}</AlertDialogCancel>
           <AlertDialogAction
             className={buttonVariants({ variant: destructive ? "destructive" : "default" })}
             disabled={busy}
@@ -56,7 +58,7 @@ export default function ConfirmAction({
               }
             }}
           >
-            {busy ? "Working…" : confirmLabel}
+            {busy ? t("confirmact.working") : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

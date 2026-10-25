@@ -62,11 +62,6 @@ const MESSAGES: Record<string, { subject: string; body: string; bodyNamed: (name
     body: "حان وقت أحد أدويتك المجدولة. افتح أفيلا لمعرفة أيّها.",
     bodyNamed: (n) => `حان وقت دوائك المجدول: ${n}.`,
   },
-  es: {
-    subject: "Recordatorio de Avela",
-    body: "Es hora de uno de sus medicamentos programados. Abra Avela para ver cuál.",
-    bodyNamed: (n) => `Es hora de su medicamento programado: ${n}.`,
-  },
 };
 
 export interface DispatchResult {

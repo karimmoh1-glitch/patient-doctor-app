@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { getLocale, translate } from "@/lib/i18n";
 
 /** Fired when a request that carried a login token comes back 401: the session ended. */
 export const SESSION_EXPIRED_EVENT = "pdapp:session-expired";
@@ -12,8 +13,8 @@ export class NetworkError extends Error {
   constructor() {
     super(
       typeof navigator !== "undefined" && navigator.onLine === false
-        ? "You're offline right now. Please check your internet connection and try again."
-        : "We couldn't reach the server. Please check your connection and try again.",
+        ? translate(getLocale(), "neterr.offline")
+        : translate(getLocale(), "neterr.unreachable"),
     );
     this.name = "NetworkError";
   }
@@ -58,7 +59,7 @@ async function request(url: string, init: RequestInit): Promise<Response> {
 
 async function throwIfResNotOk(res: Response) {
   if (res.ok) return;
-  let message = res.statusText || "Something went wrong. Please try again.";
+  let message = res.statusText || translate(getLocale(), "common.error.generic");
   try {
     const data = await res.json();
     if (data?.message) message = data.message;

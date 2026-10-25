@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import QueryState from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getIntlLocale, useI18n, type MessageKey } from "@/lib/i18n";
 
 interface Window {
   weekday: number;
@@ -18,15 +19,18 @@ interface Availability {
   windows: Window[];
 }
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const ZONES: [string, string][] = [
-  ["America/New_York", "Eastern"],
-  ["America/Chicago", "Central"],
-  ["America/Denver", "Mountain"],
-  ["America/Phoenix", "Arizona (no daylight saving)"],
-  ["America/Los_Angeles", "Pacific"],
-  ["America/Anchorage", "Alaska"],
-  ["Pacific/Honolulu", "Hawaii"],
+// Weekday 0 is Sunday. 4 Jan 2026 is a Sunday, so day N of that week names weekday N in any language.
+const weekdayName = (weekday: number) =>
+  new Intl.DateTimeFormat(getIntlLocale(), { weekday: "long" }).format(new Date(2026, 0, 4 + weekday));
+const DAYS = [0, 1, 2, 3, 4, 5, 6];
+const ZONES: [string, MessageKey][] = [
+  ["America/New_York", "avail.zone.eastern"],
+  ["America/Chicago", "avail.zone.central"],
+  ["America/Denver", "avail.zone.mountain"],
+  ["America/Phoenix", "avail.zone.arizona"],
+  ["America/Los_Angeles", "avail.zone.pacific"],
+  ["America/Anchorage", "avail.zone.alaska"],
+  ["Pacific/Honolulu", "avail.zone.hawaii"],
 ];
 
 const toTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
@@ -36,6 +40,7 @@ const toMinutes = (value: string) => {
 };
 
 function Editor({ initial }: { initial: Availability }) {
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [timezone, setTimezone] = useState(initial.timezone);
@@ -48,7 +53,8 @@ function Editor({ initial }: { initial: Availability }) {
     setWindows(initial.windows);
   }, [initial]);
 
-  const zoneOptions = ZONES.some(([z]) => z === timezone) ? ZONES : [...ZONES, [timezone, timezone] as [string, string]];
+  const zoneOptions: [string, string][] = ZONES.map(([z, key]) => [z, t(key)]);
+  if (!ZONES.some(([z]) => z === timezone)) zoneOptions.push([timezone, timezone]);
 
   function update(index: number, patch: Partial<Window>) {
     setWindows((w) => w.map((x, i) => (i === index ? { ...x, ...patch } : x)));
@@ -60,7 +66,7 @@ function Editor({ initial }: { initial: Availability }) {
     try {
       await apiRequest("PUT", "/api/doctors/me/availability", { timezone, windows });
       queryClient.invalidateQueries({ queryKey: ["/api/doctors/me/availability"] });
-      toast({ title: "Your hours are saved", description: "Connected patients can now book these times." });
+      toast({ title: t("avail.saved.title"), description: t("avail.saved.desc") });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -72,12 +78,12 @@ function Editor({ initial }: { initial: Availability }) {
     <div className="space-y-6">
       {windows.length === 0 && (
         <p role="status" className="rounded-xl border-2 border-input p-4">
-          You haven't added any hours yet, so patients can't book a visit with you. Add the times you are usually free.
+          {t("avail.empty")}
         </p>
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="tz" className="text-base">Your time zone</Label>
+        <Label htmlFor="tz" className="text-base">{t("avail.tz")}</Label>
         <select
           id="tz"
           value={timezone}
@@ -86,43 +92,45 @@ function Editor({ initial }: { initial: Availability }) {
         >
           {zoneOptions.map(([z, label]) => <option key={z} value={z}>{label}</option>)}
         </select>
-        <p className="text-sm text-muted-foreground">Hours below are in this time zone. Patients see them converted to their own.</p>
+        <p className="text-sm text-muted-foreground">{t("avail.tz.help")}</p>
       </div>
 
       <div className="space-y-4">
-        {DAYS.map((day, weekday) => {
+        {DAYS.map((weekday) => {
+          const day = weekdayName(weekday);
           const entries = windows.map((w, index) => ({ w, index })).filter(({ w }) => w.weekday === weekday);
           return (
-            <Card key={day}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <Card key={weekday}>
+              <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0 pb-3">
                 <CardTitle className="text-lg">{day}</CardTitle>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  aria-label={t("avail.addHoursOn", { day })}
                   onClick={() => setWindows((w) => [...w, { weekday, startMinute: 9 * 60, endMinute: 12 * 60 }])}
                 >
-                  <Plus aria-hidden="true" /> Add hours<span className="sr-only"> on {day}</span>
+                  <Plus aria-hidden="true" /> {t("avail.addHours")}
                 </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                {entries.length === 0 && <p className="text-muted-foreground">Not available</p>}
+                {entries.length === 0 && <p className="text-muted-foreground">{t("avail.notAvailable")}</p>}
                 {entries.map(({ w, index }) => (
                   <div key={index} className="flex flex-wrap items-end gap-3">
                     <div className="space-y-1">
-                      <Label htmlFor={`start-${index}`}>From</Label>
+                      <Label htmlFor={`start-${index}`}>{t("avail.from")}</Label>
                       <input id={`start-${index}`} type="time" step={900} value={toTime(w.startMinute)}
                         onChange={(e) => update(index, { startMinute: toMinutes(e.target.value) })}
-                        className="h-12 rounded-md border border-input bg-white px-3 text-base" />
+                        dir="ltr" className="h-12 rounded-md border border-input bg-white px-3 text-base" />
                     </div>
                     <div className="space-y-1">
-                      <Label htmlFor={`end-${index}`}>Until</Label>
+                      <Label htmlFor={`end-${index}`}>{t("avail.until")}</Label>
                       <input id={`end-${index}`} type="time" step={900} value={toTime(w.endMinute)}
                         onChange={(e) => update(index, { endMinute: toMinutes(e.target.value) })}
-                        className="h-12 rounded-md border border-input bg-white px-3 text-base" />
+                        dir="ltr" className="h-12 rounded-md border border-input bg-white px-3 text-base" />
                     </div>
-                    <Button type="button" variant="outline" onClick={() => setWindows((all) => all.filter((_, i) => i !== index))}>
-                      <Trash2 aria-hidden="true" /> Remove<span className="sr-only"> these hours on {day}</span>
+                    <Button type="button" variant="outline" aria-label={t("avail.removeOn", { day })} onClick={() => setWindows((all) => all.filter((_, i) => i !== index))}>
+                      <Trash2 aria-hidden="true" /> {t("avail.remove")}
                     </Button>
                   </div>
                 ))}
@@ -133,18 +141,19 @@ function Editor({ initial }: { initial: Availability }) {
       </div>
 
       {error && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
-      <Button size="lg" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save my hours"}</Button>
+      <Button size="lg" onClick={save} disabled={saving}>{saving ? t("common.saving") : t("avail.save")}</Button>
     </div>
   );
 }
 
 export default function DoctorAvailability() {
+  const { t } = useI18n();
   const query = useQuery<Availability>({ queryKey: ["/api/doctors/me/availability"] });
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold">My hours</h1>
-        <p className="text-muted-foreground">Patients you are connected with can book visits only inside these times, in 30-minute slots, with at least two hours' notice.</p>
+        <h1 className="text-3xl font-semibold">{t("nav.d.hours")}</h1>
+        <p className="text-muted-foreground">{t("avail.subtitle")}</p>
       </div>
       <QueryState query={query}>{(data) => <Editor initial={data} />}</QueryState>
     </div>

@@ -6,6 +6,7 @@ import StatusBadge from "@/components/status-badge";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
+import { useI18n } from "@/lib/i18n";
 
 interface DoctorPairing {
   id: string;
@@ -16,10 +17,11 @@ interface DoctorPairing {
 }
 
 export default function DoctorRequests() {
+  const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [symptomText, setSymptomText] = useState<Record<string, string>>({});
+  const [symptomText, setSymptomText] = useState<Record<string, string | null>>({});
   const [respondingId, setRespondingId] = useState<string | null>(null);
 
   const { data: requests, isLoading } = useQuery<DoctorPairing[]>({ queryKey: ["/api/pairings/doctor"] });
@@ -30,13 +32,13 @@ export default function DoctorRequests() {
       return;
     }
     setExpandedId(id);
-    if (!symptomText[id]) {
+    if (!(id in symptomText)) {
       try {
         const res = await apiRequest("GET", `/api/pairings/${id}/symptom-report`);
         const data = await res.json();
         setSymptomText((prev) => ({ ...prev, [id]: data.symptomText }));
       } catch {
-        setSymptomText((prev) => ({ ...prev, [id]: "No symptom report attached." }));
+        setSymptomText((prev) => ({ ...prev, [id]: null }));
       }
     }
   }
@@ -48,7 +50,7 @@ export default function DoctorRequests() {
       queryClient.invalidateQueries({ queryKey: ["/api/pairings/doctor"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/doctor"] });
     } catch (err: any) {
-      toast({ title: "Couldn't respond", description: err.message, variant: "destructive" });
+      toast({ title: t("dreq.couldntRespond"), description: err.message, variant: "destructive" });
     } finally {
       setRespondingId(null);
     }
@@ -60,35 +62,35 @@ export default function DoctorRequests() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold">Connection requests</h1>
-        <p className="text-sm text-muted-foreground">Patients asking to connect with you.</p>
+        <h1 className="text-2xl font-semibold">{t("dreq.title")}</h1>
+        <p className="text-sm text-muted-foreground">{t("dreq.subtitle")}</p>
       </div>
 
-      {isLoading && <p className="text-muted-foreground">Loading…</p>}
-      {!isLoading && pending.length === 0 && <p className="text-sm text-muted-foreground">No pending requests.</p>}
+      {isLoading && <p className="text-muted-foreground">{t("common.loading")}</p>}
+      {!isLoading && pending.length === 0 && <p className="text-sm text-muted-foreground">{t("dreq.none")}</p>}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {pending.map((r) => (
           <Card key={r.id}>
-            <CardHeader className="flex flex-row items-start justify-between space-y-0">
-              <div>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+              <div className="min-w-0">
                 <CardTitle>{r.patientName}</CardTitle>
-                <CardDescription>Requested {formatDate(r.requestedAt)}</CardDescription>
+                <CardDescription>{t("dreq.requested", { date: formatDate(r.requestedAt) })}</CardDescription>
               </div>
               <StatusBadge kind="pairing" status={r.status} />
             </CardHeader>
             <CardContent className="space-y-3">
               {r.symptomReportId && (
                 <Button variant="outline" size="sm" onClick={() => toggleSymptomReport(r.id)}>
-                  {expandedId === r.id ? "Hide symptoms" : "View symptoms"}
+                  {expandedId === r.id ? t("dreq.hideSymptoms") : t("dreq.viewSymptoms")}
                 </Button>
               )}
               {expandedId === r.id && (
-                <p className="rounded-md border border-border bg-muted p-3 text-sm">{symptomText[r.id]}</p>
+                <p className="rounded-md border border-border bg-muted p-3 text-sm">{symptomText[r.id] === null ? t("dreq.noSymptoms") : symptomText[r.id]}</p>
               )}
-              <div className="flex gap-2">
-                <Button size="sm" disabled={respondingId === r.id} onClick={() => respond(r.id, "accept")}>Accept</Button>
-                <Button size="sm" variant="outline" disabled={respondingId === r.id} onClick={() => respond(r.id, "decline")}>Decline</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" disabled={respondingId === r.id} onClick={() => respond(r.id, "accept")}>{t("dreq.accept")}</Button>
+                <Button size="sm" variant="outline" disabled={respondingId === r.id} onClick={() => respond(r.id, "decline")}>{t("dreq.decline")}</Button>
               </div>
             </CardContent>
           </Card>
@@ -97,11 +99,11 @@ export default function DoctorRequests() {
 
       {resolved.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">Past requests</h2>
+          <h2 className="text-sm font-semibold text-muted-foreground">{t("dreq.past")}</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {resolved.map((r) => (
               <Card key={r.id} className="">
-                <CardHeader className="flex flex-row items-start justify-between space-y-0">
+                <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                   <CardTitle className="text-base">{r.patientName}</CardTitle>
                   <StatusBadge kind="pairing" status={r.status} />
                 </CardHeader>

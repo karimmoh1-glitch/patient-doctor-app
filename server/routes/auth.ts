@@ -64,7 +64,7 @@ const signupBodySchema = z.object({
   password: z.string().min(8).max(200),
   state: z.enum(US_STATES),
   phone: z.string().optional(),
-  language: z.enum(["en", "ar", "es"]).optional(),
+  language: z.enum(["en", "ar"]).optional(),
 });
 
 router.post("/signup", authLimiter, async (req, res) => {
@@ -240,8 +240,8 @@ router.get("/me", requireAuth, async (req, res) => {
 // The person's own preferences. Language drives the interface and any
 // notification text sent to them.
 router.patch("/me/preferences", requireAuth, async (req, res) => {
-  const parsed = z.object({ language: z.enum(["en", "ar", "es"]) }).strict().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Choose English, Arabic or Spanish" });
+  const parsed = z.object({ language: z.enum(["en", "ar"]) }).strict().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Choose English or Arabic" });
   const user = await storage.updateUserLanguage((req as any).userId as string, parsed.data.language);
   if (!user) return res.status(404).json({ message: "User not found" });
   res.json(await sessionUser(user));

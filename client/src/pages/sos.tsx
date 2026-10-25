@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
+import { useI18n } from "@/lib/i18n";
+import { Ltr } from "@/components/ltr";
 
 interface Pairing {
   id: string;
@@ -24,6 +26,7 @@ interface EmergencyProfile {
 }
 
 export default function Sos() {
+  const { t } = useI18n();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [note, setNote] = useState("");
@@ -41,7 +44,7 @@ export default function Sos() {
   // anywhere if they then choose to send a message.
   function requestShareLocation() {
     if (!navigator.geolocation) {
-      toast({ title: "This device can't share its location", variant: "destructive" });
+      toast({ title: t("pt.sos.noGeo"), variant: "destructive" });
       return;
     }
     setLocationRequesting(true);
@@ -52,7 +55,7 @@ export default function Sos() {
       },
       () => {
         setLocationRequesting(false);
-        toast({ title: "We couldn't find your location", description: "Check that location is allowed for this website.", variant: "destructive" });
+        toast({ title: t("pt.sos.geoFail"), description: t("pt.sos.geoFailBody"), variant: "destructive" });
       },
       { timeout: 10000 },
     );
@@ -61,35 +64,38 @@ export default function Sos() {
   async function sendUrgentMessage(pairingId: string, doctorName: string) {
     setAlertingId(pairingId);
     setAlertError(null);
-    const parts = ["URGENT: I need to hear back as soon as possible."];
+    const parts = [t("pt.sos.urgentMsg")];
     if (note.trim()) parts.push(note.trim());
-    if (locationText) parts.push(`My location: ${locationText}`);
+    if (locationText) parts.push(t("pt.sos.myLocation", { url: locationText }));
     try {
       await apiRequest("POST", `/api/pairings/${pairingId}/messages`, { body: parts.join(" ") });
       setLocation(`/chat/${pairingId}?with=${encodeURIComponent(doctorName)}`);
     } catch (err: any) {
-      setAlertError(`The message to ${doctorName} was NOT sent. ${err.message} Please call instead.`);
+      setAlertError(t("pt.sos.notSent", { name: doctorName, error: err.message ?? "" }));
     } finally {
       setAlertingId(null);
     }
   }
 
+  // The link sits inside the sentence, so its position comes from the translation.
+  const [noInfoBefore, noInfoAfter] = t("pt.sos.noInfo").split("{link}");
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="flex items-center gap-3 text-3xl font-semibold text-destructive">
-        <TriangleAlert className="h-8 w-8" aria-hidden="true" /> Emergency
+        <TriangleAlert className="h-8 w-8" aria-hidden="true" /> {t("top.emergency")}
       </h1>
 
       <Card className="border-2 border-destructive">
         <CardHeader>
-          <CardTitle as="h2" className="text-2xl">Is someone in danger right now?</CardTitle>
+          <CardTitle as="h2" className="text-2xl">{t("pt.sos.dangerTitle")}</CardTitle>
           <CardDescription className="text-lg">
-            Call {EMERGENCY_NUMBER} or your local emergency number. Avela is not an emergency service. No one here is watching for urgent messages, and we cannot send help.
+            {t("pt.sos.dangerBody", { number: EMERGENCY_NUMBER })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild variant="destructive" size="lg" className="min-h-20 w-full text-2xl">
-            <a href={EMERGENCY_TEL}><Phone className="!size-7" aria-hidden="true" /> Call {EMERGENCY_NUMBER} now</a>
+            <a href={EMERGENCY_TEL}><Phone className="!size-7" aria-hidden="true" /> {t("emergency.callNow", { number: EMERGENCY_NUMBER })}</a>
           </Button>
         </CardContent>
       </Card>
@@ -97,24 +103,23 @@ export default function Sos() {
       {profile?.emergencyContactPhone && (
         <Button asChild size="lg" variant="outline" className="min-h-16 w-full text-xl">
           <a href={`tel:${profile.emergencyContactPhone}`}>
-            <UserRound aria-hidden="true" /> Call {profile.emergencyContactName || "my emergency contact"}
+            <UserRound aria-hidden="true" /> {profile.emergencyContactName ? t("pt.callName", { name: profile.emergencyContactName }) : t("pt.sos.callContactDefault")}
           </a>
         </Button>
       )}
 
       <details className="rounded-xl border-2 border-input bg-card p-4">
-        <summary className="min-h-11 cursor-pointer text-xl font-semibold">Information for the people helping me</summary>
+        <summary className="min-h-11 cursor-pointer text-xl font-semibold">{t("pt.sos.infoSummary")}</summary>
         <div className="mt-3 space-y-3 text-lg">
           {!hasInfo ? (
             <p>
-              You haven't added any yet.{" "}
-              <Link href="/profile" className="font-medium text-primary underline underline-offset-4">Add it in Profile &amp; privacy</Link>.
+              {noInfoBefore}<Link href="/profile" className="font-medium text-primary underline underline-offset-4">{t("pt.sos.noInfoLink")}</Link>{noInfoAfter}
             </p>
           ) : (
             <dl className="space-y-3">
-              {profile?.emergencyContactName && (<div><dt className="font-semibold">Emergency contact</dt><dd>{profile.emergencyContactName}{profile.emergencyContactPhone ? ` · ${profile.emergencyContactPhone}` : ""}</dd></div>)}
-              {profile?.allergiesText && (<div><dt className="font-semibold">Allergies</dt><dd>{profile.allergiesText}</dd></div>)}
-              {profile?.emergencyNotes && (<div><dt className="font-semibold">Notes</dt><dd>{profile.emergencyNotes}</dd></div>)}
+              {profile?.emergencyContactName && (<div><dt className="font-semibold">{t("pt.sos.emContact")}</dt><dd>{profile.emergencyContactName}{profile.emergencyContactPhone ? <> · <Ltr>{profile.emergencyContactPhone}</Ltr></> : ""}</dd></div>)}
+              {profile?.allergiesText && (<div><dt className="font-semibold">{t("pt.sos.allergies")}</dt><dd>{profile.allergiesText}</dd></div>)}
+              {profile?.emergencyNotes && (<div><dt className="font-semibold">{t("pt.sos.notes")}</dt><dd>{profile.emergencyNotes}</dd></div>)}
             </dl>
           )}
         </div>
@@ -122,22 +127,22 @@ export default function Sos() {
 
       <Card>
         <CardHeader>
-          <CardTitle as="h2" className="text-xl">Urgent, but not life-threatening?</CardTitle>
+          <CardTitle as="h2" className="text-xl">{t("pt.sos.urgentTitle")}</CardTitle>
           <CardDescription className="text-base">
-            You can phone your doctor. A message may not be read for hours or days, so phoning is faster.
+            {t("pt.sos.urgentBody")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {connected.length === 0 && <p className="text-lg">You aren't connected with a doctor yet. If this can't wait, call {EMERGENCY_NUMBER} or go to your nearest urgent care.</p>}
+          {connected.length === 0 && <p className="text-lg">{t("pt.sos.noConnected", { number: EMERGENCY_NUMBER })}</p>}
           {connected.map((p) => (
             <div key={p.id} className="space-y-3 rounded-xl border-2 border-input p-4">
               <p className="text-xl font-semibold">{p.doctor?.name}</p>
               <div className="flex flex-wrap gap-3">
                 {p.doctor?.phone && (
-                  <Button asChild size="lg"><a href={`tel:${p.doctor.phone}`}><Phone aria-hidden="true" /> Call {p.doctor.name}</a></Button>
+                  <Button asChild size="lg"><a href={`tel:${p.doctor.phone}`}><Phone aria-hidden="true" /> {t("pt.callName", { name: p.doctor.name })}</a></Button>
                 )}
-                <Button size="lg" variant="outline" disabled={alertingId === p.id} onClick={() => sendUrgentMessage(p.id, p.doctor?.name ?? "your doctor")}>
-                  <MessageCircle aria-hidden="true" /> {alertingId === p.id ? "Sending…" : "Send an urgent message"}<span className="sr-only"> to {p.doctor?.name}</span>
+                <Button size="lg" variant="outline" disabled={alertingId === p.id} onClick={() => sendUrgentMessage(p.id, p.doctor?.name ?? t("pt.yourDoctor"))}>
+                  <MessageCircle aria-hidden="true" /> {alertingId === p.id ? t("pt.sending") : t("pt.sos.sendUrgent")}<span className="sr-only"> {t("pt.sos.toName", { name: p.doctor?.name ?? "" })}</span>
                 </Button>
               </div>
             </div>
@@ -145,11 +150,11 @@ export default function Sos() {
           {connected.length > 0 && (
             <div className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="urgent-note" className="text-base">Add a note to the message (optional)</Label>
+                <Label htmlFor="urgent-note" className="text-base">{t("pt.sos.noteLabel")}</Label>
                 <Textarea id="urgent-note" value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
               </div>
               <Button variant="outline" disabled={locationRequesting} onClick={requestShareLocation}>
-                <MapPin aria-hidden="true" /> {locationText ? "My location will be added" : locationRequesting ? "Finding you…" : "Add my location to the message"}
+                <MapPin aria-hidden="true" /> {locationText ? t("pt.sos.locAdded") : locationRequesting ? t("pt.sos.locFinding") : t("pt.sos.locAdd")}
               </Button>
               {alertError && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{alertError}</p>}
             </div>

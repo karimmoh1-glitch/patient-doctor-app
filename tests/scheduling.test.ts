@@ -26,7 +26,7 @@ function book(patient: TestUser, pairingId: string, scheduledAt: string) {
   return request(app)
     .post("/api/appointments")
     .set(auth(patient.token))
-    .send({ pairingRequestId: pairingId, type: "Video Visit", reason: "Follow-up on cough", scheduledAt });
+    .send({ pairingRequestId: pairingId, type: "Phone Call", reason: "Follow-up on cough", scheduledAt });
 }
 
 describe("doctor availability", () => {

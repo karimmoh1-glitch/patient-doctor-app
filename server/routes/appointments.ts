@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { requireApprovedDoctor, requirePatientOrApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
-import { getVideoProvider } from "../services/videoService";
+import { getVideoProvider, videoAvailable } from "../services/videoService";
 import { bookSlot, getOpenSlots, MAX_HORIZON_DAYS, SLOT_MINUTES } from "../services/schedulingService";
 
 const router = Router();
@@ -13,7 +13,8 @@ const APPOINTMENT_TYPES = ["Video Visit", "Phone Call", "In-Person"] as const;
 
 const createAppointmentSchema = z.object({
   pairingRequestId: z.string().min(1),
-  type: z.enum(APPOINTMENT_TYPES),
+  // A video visit can only be booked once a real video provider is configured.
+  type: z.enum(APPOINTMENT_TYPES).refine((t) => t !== "Video Visit" || videoAvailable(), "Video visits aren't available in Avela yet. Please choose a phone call or an in-person visit."),
   reason: z.string().trim().min(3).max(1000),
   scheduledAt: z.string().datetime(),
 });

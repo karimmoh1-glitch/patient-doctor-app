@@ -1,29 +1,28 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Home, Stethoscope, CalendarDays, HeartPulse, LogOut, Siren, LifeBuoy, Settings as SettingsIcon,
-  Inbox, UserCog, Users, Gauge, Clock,
+  Inbox, UserCog, Users, Gauge, Clock, Bell, ClipboardCheck, UserRound, ScrollText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import ConfirmAction from "@/components/confirm-action";
-import { useTextSize, type TextSize } from "@/hooks/use-text-size";
-import { useI18n, LOCALES, type Key, type Locale } from "@/lib/i18n";
 import { NativeSelect } from "@/components/ui/native-select";
+import ConfirmAction from "@/components/confirm-action";
+import Logo from "@/components/logo";
+import { useTextSize, type TextSize } from "@/hooks/use-text-size";
+import { useI18n, LOCALES, type MessageKey, type Locale } from "@/lib/i18n";
 import { useAppConfig } from "@/hooks/use-app-config";
 import { cn } from "@/lib/utils";
 import type { AuthUser } from "@/hooks/use-auth";
 
 interface NavItem {
   href: string;
-  label: string;
-  /** Translation keys (patient navigation). Other roles use `label` as-is. */
-  labelKey?: Key;
-  shortKey?: Key;
-  /** One short word for the bottom tab bar, where four labels must fit side by side at any text size. */
-  short?: string;
+  labelKey: MessageKey;
+  /** One short word for the bottom tab bar, where several labels must fit side by side at any text size. */
+  shortKey?: MessageKey;
   icon: React.ComponentType<{ className?: string }>;
   /** Route prefixes that should light this item up (it "owns" these screens). */
   owns?: string[];
@@ -35,33 +34,41 @@ interface NavItem {
 // inside one of them (My Health is a hub, My Doctors holds messages), so no
 // one has to remember where a feature is hiding.
 const PATIENT_NAV: NavItem[] = [
-  { href: "/", label: "Home", labelKey: "nav.home", icon: Home },
-  { href: "/care-team", label: "My Doctors", labelKey: "nav.doctors", shortKey: "nav.doctors.short", short: "Doctors", icon: Stethoscope, owns: ["/doctors", "/messages", "/chat", "/symptoms", "/match-results"] },
-  { href: "/appointments", label: "Appointments", labelKey: "nav.appointments", shortKey: "nav.appointments.short", short: "Visits", icon: CalendarDays },
+  { href: "/", labelKey: "nav.home", icon: Home },
   {
-    href: "/my-health",
-    label: "My Health",
-    labelKey: "nav.health",
-    shortKey: "nav.health.short",
-    short: "Health",
-    icon: HeartPulse,
-    owns: ["/medications", "/prescriptions", "/pharmacy", "/timeline", "/documents", "/handoff", "/assistant", "/care-circle", "/profile"],
+    href: "/care-team", labelKey: "nav.doctors", shortKey: "nav.doctors.short", icon: Stethoscope,
+    owns: ["/doctors", "/messages", "/chat", "/symptoms", "/match-results"],
+  },
+  { href: "/appointments", labelKey: "nav.appointments", shortKey: "nav.appointments.short", icon: CalendarDays },
+  {
+    href: "/my-health", labelKey: "nav.health", shortKey: "nav.health.short", icon: HeartPulse,
+    owns: ["/medications", "/prescriptions", "/pharmacy", "/timeline", "/documents", "/handoff", "/assistant", "/care-circle", "/profile", "/notifications"],
   },
 ];
 
-function navForRole(role: AuthUser["role"]): NavItem[] {
-  if (role === "patient") return PATIENT_NAV;
-  if (role === "doctor") {
-    return [
-      { href: "/doctor", label: "Home", icon: Home, exact: true },
-      { href: "/doctor/requests", label: "Requests", icon: Inbox },
-      { href: "/doctor/patients", label: "Patients", icon: Users, owns: ["/chat"] },
-      { href: "/doctor/appointments", label: "Appointments", icon: CalendarDays },
-      { href: "/doctor/availability", label: "My hours", icon: Clock },
-    ];
-  }
-  if (role === "caregiver") return [{ href: "/caregiver", label: "Care Circle", icon: Gauge }];
-  return [{ href: "/admin", label: "Doctor applications", icon: UserCog }];
+const DOCTOR_NAV: NavItem[] = [
+  { href: "/doctor", labelKey: "nav.d.home", icon: Home, exact: true },
+  { href: "/doctor/requests", labelKey: "nav.d.requests", icon: Inbox },
+  { href: "/doctor/patients", labelKey: "nav.d.patients", icon: Users, owns: ["/chat"] },
+  { href: "/doctor/appointments", labelKey: "nav.d.appointments", icon: CalendarDays },
+  { href: "/doctor/availability", labelKey: "nav.d.hours", icon: Clock },
+  { href: "/doctor/profile", labelKey: "nav.d.profile", icon: UserRound, owns: ["/notifications"] },
+];
+
+// Until an administrator approves them, a doctor has exactly one place to be:
+// their own application. Nothing clinical is reachable (or shown).
+const UNAPPROVED_DOCTOR_NAV: NavItem[] = [
+  { href: "/doctor/application", labelKey: "nav.d.application", icon: ClipboardCheck },
+];
+
+function navFor(user: AuthUser): NavItem[] {
+  if (user.role === "patient") return PATIENT_NAV;
+  if (user.role === "doctor") return user.doctorStatus === "approved" ? DOCTOR_NAV : UNAPPROVED_DOCTOR_NAV;
+  if (user.role === "caregiver") return [{ href: "/caregiver", labelKey: "nav.caregiver", icon: Gauge }];
+  return [
+    { href: "/admin", labelKey: "nav.admin", icon: UserCog, exact: true },
+    { href: "/admin/activity", labelKey: "nav.admin.activity", icon: ScrollText },
+  ];
 }
 
 function isActive(item: NavItem, location: string): boolean {
@@ -70,7 +77,7 @@ function isActive(item: NavItem, location: string): boolean {
   return !!item.owns?.some((p) => location === p || location.startsWith(p + "/"));
 }
 
-const TEXT_SIZES: { value: TextSize; key: Key }[] = [
+const TEXT_SIZES: { value: TextSize; key: MessageKey }[] = [
   { value: "normal", key: "settings.size.normal" },
   { value: "large", key: "settings.size.large" },
   { value: "xlarge", key: "settings.size.xlarge" },
@@ -153,23 +160,39 @@ function DemoBanner() {
   const { t } = useI18n();
   if (!config?.demoMode) return null;
   return (
-    <p role="note" className="bg-secondary px-4 py-2 text-center text-base font-medium text-foreground">
+    <p role="note" className="bg-sand px-4 py-2 text-center text-base font-medium text-sand-foreground">
       {t("demo.banner")}
     </p>
   );
 }
 
+// The bell shows an unread count only when there is one, and always carries a
+// text alternative: the count is never conveyed by colour or the badge alone.
+function NotificationsLink() {
+  const { t } = useI18n();
+  const { data } = useQuery<{ unread: number }>({ queryKey: ["/api/notifications/unread-count"], refetchInterval: 60_000 });
+  const unread = data?.unread ?? 0;
+  return (
+    <Button asChild variant="outline" size="sm" className="relative px-3">
+      <Link href="/notifications" aria-label={t("top.notifications.unread", { count: unread } as never)}>
+        <Bell aria-hidden="true" />
+        {unread > 0 && (
+          <span aria-hidden="true" className="absolute -end-1.5 -top-1.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-destructive px-1.5 text-sm font-bold leading-none text-destructive-foreground">
+            {unread > 99 ? "99+" : unread}
+          </span>
+        )}
+      </Link>
+    </Button>
+  );
+}
+
 function TopBar({ user, onOpenSettings, large }: { user: AuthUser; onOpenSettings: () => void; large?: boolean }) {
   const { t } = useI18n();
+  const clinical = user.role === "patient" || (user.role === "doctor" && user.doctorStatus === "approved");
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-card">
+    <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-sm">
       <div className={cn("mx-auto flex flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-5", large ? "max-w-xl" : "max-w-6xl")}>
-        <Link href="/" className="hidden min-h-12 items-center gap-2 text-lg font-semibold text-primary sm:flex">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Stethoscope className="h-5 w-5" aria-hidden="true" />
-          </span>
-          <span>Avela</span>
-        </Link>
+        <Logo hideTextOnPhone />
         <div className="flex flex-wrap items-center justify-end gap-2">
           {user.role === "patient" && (
             <>
@@ -181,6 +204,7 @@ function TopBar({ user, onOpenSettings, large }: { user: AuthUser; onOpenSetting
               </Button>
             </>
           )}
+          {clinical && <NotificationsLink />}
           <Button variant="outline" size="sm" onClick={onOpenSettings} aria-label={t("top.settings")} className="px-3 md:px-4">
             <SettingsIcon aria-hidden="true" /> <span className="hidden md:inline">{t("top.settings")}</span>
           </Button>
@@ -193,8 +217,8 @@ function TopBar({ user, onOpenSettings, large }: { user: AuthUser; onOpenSetting
 function SideNav({ items, location }: { items: NavItem[]; location: string }) {
   const { t } = useI18n();
   return (
-    <nav aria-label={t("nav.main")} className="hidden w-60 shrink-0 border-r border-border bg-card p-3 md:block">
-      <ul className="space-y-2">
+    <nav aria-label={t("nav.main")} className="hidden w-64 shrink-0 border-e border-border bg-card/60 p-4 md:block">
+      <ul className="space-y-1.5">
         {items.map((item) => {
           const active = isActive(item, location);
           const Icon = item.icon;
@@ -204,12 +228,12 @@ function SideNav({ items, location }: { items: NavItem[]; location: string }) {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex min-h-14 items-center gap-3 rounded-xl px-4 text-lg font-semibold",
-                  active ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-secondary",
+                  "flex min-h-14 items-center gap-3 rounded-xl px-4 text-lg font-semibold transition-colors",
+                  active ? "bg-secondary text-primary" : "text-foreground hover:bg-muted",
                 )}
               >
                 <Icon className="h-6 w-6 shrink-0" aria-hidden="true" />
-                {item.labelKey ? t(item.labelKey) : item.label}
+                {t(item.labelKey)}
               </Link>
             </li>
           );
@@ -227,6 +251,8 @@ function BottomNav({ items, location }: { items: NavItem[]; location: string }) 
         {items.map((item) => {
           const active = isActive(item, location);
           const Icon = item.icon;
+          const full = t(item.labelKey);
+          const short = item.shortKey ? t(item.shortKey) : full;
           return (
             <li key={item.href}>
               <Link
@@ -240,8 +266,8 @@ function BottomNav({ items, location }: { items: NavItem[]; location: string }) 
                 <span className={cn("flex h-[32px] w-[56px] items-center justify-center rounded-full", active && "bg-secondary")}>
                   <Icon className="h-6 w-6" aria-hidden="true" />
                 </span>
-                <span aria-hidden="true">{item.shortKey ? t(item.shortKey) : item.short ?? (item.labelKey ? t(item.labelKey) : item.label)}</span>
-                <span className="sr-only">{item.labelKey ? t(item.labelKey) : item.label}</span>
+                <span aria-hidden="true">{short}</span>
+                <span className="sr-only">{full}</span>
               </Link>
             </li>
           );
@@ -267,13 +293,13 @@ export default function AppShell({
   const [location] = useLocation();
   const { t } = useI18n();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const items = navForRole(user.role);
+  const items = navFor(user);
   const showBottomNav = items.length > 1;
 
   const skipLink = (
     <a
       href="#main"
-      className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground"
+      className="sr-only focus:not-sr-only focus:fixed focus:start-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground"
     >
       {t("skip")}
     </a>
@@ -311,7 +337,7 @@ export default function AppShell({
       <TopBar user={user} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="mx-auto flex max-w-6xl">
         {showBottomNav && <SideNav items={items} location={location} />}
-        <main id="main" tabIndex={-1} className={cn("min-w-0 flex-1 px-4 py-6 outline-none md:px-8 md:py-8", showBottomNav && "pb-28 md:pb-8")}>
+        <main id="main" tabIndex={-1} className={cn("min-w-0 flex-1 px-4 py-6 outline-none md:px-8 md:py-10", showBottomNav && "pb-28 md:pb-10")}>
           {children}
         </main>
       </div>

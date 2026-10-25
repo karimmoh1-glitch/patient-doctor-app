@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { parseErrorMessage } from "@/lib/api-error";
 import { queryClient, SESSION_EXPIRED_EVENT } from "@/lib/queryClient";
+import type { DoctorStatus } from "@shared/languages";
 
 export const SESSION_NOTICE_KEY = "pdapp_session_notice";
 
@@ -10,6 +11,10 @@ export interface AuthUser {
   email: string;
   role: "patient" | "doctor" | "admin" | "caregiver";
   state: string | null;
+  /** Interface language the person chose (en | ar). */
+  language?: string;
+  /** Doctors only: only "approved" unlocks the clinical workspace. */
+  doctorStatus?: DoctorStatus;
 }
 
 interface AuthState {
@@ -87,11 +92,11 @@ export function useAuth() {
     persistAuth({ token: data.token, user: data.user });
   }, [persistAuth]);
 
-  const signup = useCallback(async (name: string, email: string, password: string, state: string, phone?: string) => {
+  const signup = useCallback(async (fields: { name: string; email: string; password: string; state: string; phone?: string; language: string }) => {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, state, phone }),
+      body: JSON.stringify(fields),
     });
     if (!res.ok) {
       throw new Error(await parseErrorMessage(res, "Signup failed"));
@@ -101,6 +106,34 @@ export function useAuth() {
     persistAuth(authState);
     return authState.user;
   }, [persistAuth]);
+
+  // A doctor gets an account straight away but no clinical access until an
+  // administrator approves their application.
+  const registerDoctor = useCallback(async (fields: { name: string; email: string; password: string; language: string }) => {
+    const res = await fetch("/api/doctors/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fields),
+    });
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, "Registration failed"));
+    }
+    const data = await res.json();
+    persistAuth({ token: data.token, user: data.user });
+    return data.user as AuthUser;
+  }, [persistAuth]);
+
+  // Re-reads who the server says this person is: how a doctor learns they were
+  // approved (or suspended) without signing out and back in.
+  const refreshUser = useCallback(async () => {
+    const stored = localStorage.getItem("pdapp_auth");
+    const token = stored ? JSON.parse(stored)?.token : null;
+    if (!token) return;
+    const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return;
+    const user = (await res.json()) as AuthUser;
+    setAuth((current) => (current ? { ...current, user: { ...current.user, ...user } } : current));
+  }, []);
 
   const acceptCareCircleInvite = useCallback(async (inviteToken: string, password: string) => {
     const res = await fetch(`/api/care-circle/invitations/accept/${inviteToken}`, {
@@ -139,6 +172,8 @@ export function useAuth() {
     login,
     demoLogin,
     signup,
+    registerDoctor,
+    refreshUser,
     acceptCareCircleInvite,
     signOut,
   };

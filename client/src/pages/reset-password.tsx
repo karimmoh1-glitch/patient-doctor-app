@@ -5,8 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseErrorMessage } from "@/lib/api-error";
+import { useI18n } from "@/lib/i18n";
 
 export default function ResetPassword() {
+  const { t } = useI18n();
   const [, setLocation] = useLocation();
   const token = new URLSearchParams(window.location.search).get("token") || "";
   const [password, setPassword] = useState("");
@@ -19,7 +21,7 @@ export default function ResetPassword() {
     e.preventDefault();
     setError(null);
     if (password !== confirmPassword) {
-      setError("Passwords don't match");
+      setError(t("resetpw.mismatch"));
       return;
     }
     setLoading(true);
@@ -29,7 +31,7 @@ export default function ResetPassword() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
       });
-      if (!res.ok) throw new Error(await parseErrorMessage(res, "Couldn't reset password"));
+      if (!res.ok) throw new Error(await parseErrorMessage(res, t("resetpw.fail")));
       setDone(true);
     } catch (err: any) {
       setError(err.message);
@@ -43,13 +45,13 @@ export default function ResetPassword() {
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <Card className="w-full max-w-sm text-center">
           <CardHeader>
-            <CardTitle>Invalid link</CardTitle>
+            <CardTitle>{t("resetpw.invalid.title")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              This password reset link is missing its token.{" "}
+              {t("resetpw.invalid.body")}{" "}
               <Link href="/forgot-password" className="text-primary underline-offset-4 hover:underline">
-                Request a new one
+                {t("resetpw.invalid.link")}
               </Link>
               .
             </p>
@@ -64,12 +66,12 @@ export default function ResetPassword() {
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <Card className="w-full max-w-sm text-center">
           <CardHeader>
-            <CardTitle>Password reset</CardTitle>
+            <CardTitle>{t("resetpw.done.title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">You can now log in with your new password.</p>
+            <p className="text-sm text-muted-foreground">{t("resetpw.done.body")}</p>
             <Button className="w-full" onClick={() => setLocation("/login")}>
-              Go to log in
+              {t("resetpw.done.go")}
             </Button>
           </CardContent>
         </Card>
@@ -81,12 +83,12 @@ export default function ResetPassword() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Choose a new password</CardTitle>
+          <CardTitle>{t("resetpw.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="password">New password</Label>
+              <Label htmlFor="password">{t("resetpw.new")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -97,7 +99,7 @@ export default function ResetPassword() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword">Confirm password</Label>
+              <Label htmlFor="confirmPassword">{t("resetpw.confirm")}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
@@ -109,7 +111,7 @@ export default function ResetPassword() {
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Resetting…" : "Reset password"}
+              {loading ? t("resetpw.resetting") : t("resetpw.submit")}
             </Button>
           </form>
         </CardContent>
