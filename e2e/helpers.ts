@@ -27,6 +27,14 @@ export function uniqueEmail(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}@e2e.example`;
 }
 
+/** The short welcome shown right after patient sign-up: every step is optional. */
+export async function finishWelcome(page: Page) {
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Welcome");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Skip for now" }).click();
+  await page.getByRole("button", { name: "Go to my home screen" }).click();
+}
+
 export async function signUpPatient(page: Page, name: string, email: string, state = "CA") {
   await page.goto("/signup");
   await page.getByLabel("Your name").fill(name);
@@ -34,5 +42,32 @@ export async function signUpPatient(page: Page, name: string, email: string, sta
   await page.getByLabel("State where you live").selectOption(state);
   await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Create my account" }).click();
+  await finishWelcome(page);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(name.split(" ")[0]);
+}
+
+const COMPLETE_APPLICATION = {
+  displayName: "", professionalRole: "physician", specialty: "Dermatology", state: "CA", licenseNumber: "E2E-1",
+  licensingBody: "Medical Board of California", languages: ["en", "ar"], modalities: ["phone", "messaging"], phone: "+1 555 000 4444",
+};
+
+/** Registers a doctor and sends a complete application, all through the API. Returns the application id. */
+export async function registerDoctorViaApi(page: Page, name: string, email: string, overrides: Record<string, unknown> = {}) {
+  const reg = await page.request.post("/api/doctors/register", { data: { name, email, password: PASSWORD } });
+  expect(reg.status()).toBe(201);
+  const token = (await reg.json()).token as string;
+  const headers = { Authorization: `Bearer ${token}` };
+  const save = await page.request.put("/api/doctors/me/application", { headers, data: { ...COMPLETE_APPLICATION, displayName: name, ...overrides } });
+  expect(save.status()).toBe(200);
+  const sub = await page.request.post("/api/doctors/me/application/submit", { headers });
+  expect(sub.status()).toBe(200);
+  return { applicationId: (await sub.json()).id as string, token };
+}
+
+/** An administrator approves an application, through the API. */
+export async function approveViaApi(browser: Browser, applicationId: string) {
+  const admin = await newSession(browser, "admin@avela.dev");
+  const res = await admin.page.request.post(`/api/admin/doctor-applications/${applicationId}/approve`, { headers: { Authorization: `Bearer ${admin.session.token}` } });
+  expect(res.ok()).toBeTruthy();
+  await admin.context.close();
 }

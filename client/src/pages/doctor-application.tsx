@@ -142,7 +142,8 @@ function Wizard({ application }: { application: Application }) {
     if (!application.phone || !application.languages?.length) return 2;
     return 3;
   };
-  const [step, setStep] = useState(initialStep);
+  // When the team asked for changes, start from the first page so everything can be reviewed.
+  const [step, setStep] = useState(() => (needsInfo ? 1 : initialStep()));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

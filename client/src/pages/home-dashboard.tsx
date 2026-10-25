@@ -7,7 +7,8 @@ import StatusBadge from "@/components/status-badge";
 import QueryState from "@/components/query-state";
 import { greeting, formatRelativeDay, formatClock, timeAgo } from "@/lib/format";
 import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { appointmentTypeLabel } from "@/lib/labels";
 import type { AuthUser } from "@/hooks/use-auth";
 
 interface DashboardData {
@@ -21,9 +22,9 @@ interface DashboardData {
   careTeamCount: number;
 }
 
-const STATUS_HELP: Record<string, string> = {
-  requested: "Waiting for your doctor to confirm this time.",
-  confirmed: "Your doctor has confirmed this time.",
+const STATUS_HELP: Record<string, MessageKey> = {
+  requested: "home.status.requested",
+  confirmed: "home.status.confirmed",
 };
 
 function ToDoRow({ href, icon: Icon, title, detail }: { href: string; icon: React.ComponentType<{ className?: string }>; title: string; detail?: string }) {
@@ -49,13 +50,13 @@ export default function HomeDashboard({ user }: { user: AuthUser }) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
-      <h1 className="text-3xl font-semibold">{greeting()}, {user.name.split(" ")[0]}.</h1>
+      <h1 className="font-display text-3xl font-semibold md:text-4xl">{greeting()}, {user.name.split(" ")[0]}.</h1>
 
-      <QueryState query={query} loadingLabel="Loading your day">
+      <QueryState query={query} loadingLabel={t("home.loading")}>
         {(data) => {
           const todo: React.ReactNode[] = [];
           if (data.outstandingFollowUp) {
-            todo.push(<ToDoRow key="fu" href="/timeline" icon={ListChecks} title={data.outstandingFollowUp.title} detail={data.outstandingFollowUp.detail ?? "From your doctor"} />);
+            todo.push(<ToDoRow key="fu" href="/timeline" icon={ListChecks} title={data.outstandingFollowUp.title} detail={data.outstandingFollowUp.detail ?? t("home.fromDoctor")} />);
           }
           if (data.nextMedicationReminder && data.dosesRemainingToday > 0) {
             todo.push(
@@ -63,15 +64,15 @@ export default function HomeDashboard({ user }: { user: AuthUser }) {
                 key="med"
                 href="/medications"
                 icon={Pill}
-                title={`Take ${data.nextMedicationReminder.medicationName}`}
-                detail={`Next one is due at ${formatClock(data.nextMedicationReminder.time)}. ${data.dosesRemainingToday} left today.`}
+                title={t("home.take", { name: data.nextMedicationReminder.medicationName })}
+                detail={t("home.nextDose", { time: formatClock(data.nextMedicationReminder.time), count: data.dosesRemainingToday })}
               />,
             );
           }
           if (data.recentDoctorMessage?.fromDoctor) {
             todo.push(
               <ToDoRow key="msg" href={`/chat/${data.recentDoctorMessage.pairingId}`} icon={MessageCircle}
-                title={`Message from ${data.recentDoctorMessage.doctorName}`} detail={timeAgo(data.recentDoctorMessage.createdAt)} />,
+                title={t("home.messageFrom", { name: data.recentDoctorMessage.doctorName })} detail={timeAgo(data.recentDoctorMessage.createdAt)} />,
             );
           }
 
@@ -89,22 +90,22 @@ export default function HomeDashboard({ user }: { user: AuthUser }) {
                       <>
                         <div>
                           <p className="text-2xl font-semibold">{formatRelativeDay(data.upcomingAppointment.scheduledAt)}</p>
-                          <p className="text-lg">{data.upcomingAppointment.type} with {data.upcomingAppointment.doctorName}</p>
+                          <p className="text-lg">{t("home.visitWith", { type: appointmentTypeLabel(t, data.upcomingAppointment.type), name: data.upcomingAppointment.doctorName })}</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-3">
                           <StatusBadge kind="appointment" status={data.upcomingAppointment.status} />
-                          <span className="text-muted-foreground">{STATUS_HELP[data.upcomingAppointment.status]}</span>
+                          <span className="text-muted-foreground">{STATUS_HELP[data.upcomingAppointment.status] ? t(STATUS_HELP[data.upcomingAppointment.status]) : ""}</span>
                         </div>
-                        <Button asChild size="lg"><Link href={`/appointments/${data.upcomingAppointment.id}`}>Get ready for this visit</Link></Button>
+                        <Button asChild size="lg"><Link href={`/appointments/${data.upcomingAppointment.id}`}>{t("home.getReady")}</Link></Button>
                       </>
                     ) : data.careTeamCount > 0 ? (
                       <>
-                        <p className="text-lg">You don't have a visit booked.</p>
+                        <p className="text-lg">{t("home.noVisit")}</p>
                         <Button asChild size="lg"><Link href="/appointments">{t("home.book")}</Link></Button>
                       </>
                     ) : (
                       <>
-                        <p className="text-lg">Start by finding a doctor. Tell us what you need help with.</p>
+                        <p className="text-lg">{t("home.startFinding")}</p>
                         <Button asChild size="lg"><Link href="/symptoms"><Search aria-hidden="true" /> {t("home.findDoctor")}</Link></Button>
                       </>
                     )}

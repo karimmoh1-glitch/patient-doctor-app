@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { newSession, signInAs, signUpPatient, uniqueEmail, PASSWORD } from "./helpers";
+import { newSession, signInAs, signUpPatient, uniqueEmail, PASSWORD, registerDoctorViaApi, approveViaApi } from "./helpers";
 
 test.describe("caregiver", () => {
   test("sees only what the patient shared, and can't change anything", async ({ page }) => {
@@ -58,18 +58,10 @@ test.describe("patients are walled off from each other", () => {
 
 test.describe("doctor", () => {
   test("publishes weekly hours, which patients then see as real bookable times", async ({ page, browser }) => {
-    // A brand-new doctor with no hours: applies, is approved, signs in.
+    // A brand-new doctor with no hours: registers, is approved, signs in.
     const email = uniqueEmail("drnew");
-    const apply = await page.request.post("/api/doctors/applications", {
-      data: { name: "Dr. Priya Raman", email, password: PASSWORD, licenseNumber: "E2E-1", licensedStates: ["CA"], specialty: "Dermatology", phone: "+15550004444", bio: "" },
-    });
-    expect(apply.status()).toBe(201);
-    const admin = await newSession(browser, "admin@avela.dev");
-    const apps = await admin.page.request.get("/api/admin/doctor-applications", { headers: { Authorization: `Bearer ${admin.session.token}` } });
-    const mine = (await apps.json()).find((a: any) => a.email === email);
-    const approve = await admin.page.request.post(`/api/admin/doctor-applications/${mine.id}/approve`, { headers: { Authorization: `Bearer ${admin.session.token}` } });
-    expect(approve.ok()).toBeTruthy();
-    await admin.context.close();
+    const { applicationId } = await registerDoctorViaApi(page, "Dr. Priya Raman", email);
+    await approveViaApi(browser, applicationId);
 
     await signInAs(page, email);
     await page.goto("/doctor/availability");
@@ -85,38 +77,10 @@ test.describe("doctor", () => {
   });
 });
 
-test.describe("administrator", () => {
-  test("reviews a doctor application through the page and approves it", async ({ page }) => {
-    const email = uniqueEmail("drapply");
-    // Through the real public form.
-    await page.goto("/apply-as-doctor");
-    await page.getByLabel("Full name").fill("Dr. Amara Obi");
-    await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
-    await page.getByLabel("Medical licence number").fill("OB-4455");
-    await page.getByLabel("State you are licensed in").selectOption("NY");
-    await page.getByLabel("Your speciality").selectOption("Cardiology");
-    await page.getByLabel(/Phone number/).fill("+15550005555");
-    await page.getByRole("button", { name: "Send my application" }).click();
-    await expect(page.getByRole("heading", { name: "Application received" })).toBeVisible();
-
-    await signInAs(page, "admin@avela.dev");
-    await page.goto("/admin");
-    const card = page.getByText("Dr. Amara Obi").locator("xpath=ancestor::div[.//button[contains(., 'Approve')]][1]");
-    await expect(card).toContainText("OB-4455");
-    await card.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByText("Dr. Amara Obi")).toHaveCount(0);
-
-    // And the new doctor can now sign in.
-    const login = await page.request.post("/api/auth/login", { data: { email, password: PASSWORD } });
-    expect(login.ok()).toBeTruthy();
-  });
-});
-
 test.describe("accessibility of every role's screens", () => {
   const SCANS: [email: string, paths: string[]][] = [
-    ["doctor@avela.dev", ["/doctor", "/doctor/requests", "/doctor/patients", "/doctor/appointments", "/doctor/availability", "/help"]],
-    ["admin@avela.dev", ["/admin"]],
+    ["doctor@avela.dev", ["/doctor", "/doctor/requests", "/doctor/patients", "/doctor/appointments", "/doctor/availability", "/doctor/profile", "/notifications", "/help"]],
+    ["admin@avela.dev", ["/admin", "/admin/activity"]],
     ["caregiver@avela.dev", ["/caregiver", "/help"]],
   ];
   for (const [email, paths] of SCANS) {

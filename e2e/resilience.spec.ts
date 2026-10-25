@@ -58,7 +58,7 @@ test.describe("when things go wrong, the patient is told the truth and can recov
     await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign me out" }).click();
-    await expect(page.getByRole("link", { name: "Create an account" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Create an account" }).first()).toBeVisible();
 
     // The next person on the same device.
     await signUpPatient(page, "Dolores Nwosu", uniqueEmail("dolores"));

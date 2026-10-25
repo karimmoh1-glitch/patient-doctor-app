@@ -1,0 +1,123 @@
+import { test, expect } from "@playwright/test";
+import { newSession, signInAs, uniqueEmail, PASSWORD } from "./helpers";
+
+test.describe("becoming a doctor on Avela", () => {
+  test("registers, completes the application, waits for review, answers a request for more information, and is approved by a person", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    const email = uniqueEmail("drflow");
+    const name = "Amira Haddad";
+
+    // 1. A visitor chooses the doctor path and creates the account.
+    await page.goto("/get-started");
+    await page.getByRole("link", { name: /I'm a Doctor/ }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Apply as a doctor");
+    await page.getByLabel("Your full name").fill(name);
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
+    await page.getByRole("button", { name: "Create my doctor account" }).click();
+
+    // 2. The account exists but is NOT a working doctor account: only the application is reachable.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application");
+    await expect(page.getByText("Step 2 of 4")).toBeVisible();
+    await page.goto("/doctor/requests");
+    await expect(page).toHaveURL(/\/doctor\/application/);
+    const nav = page.getByRole("navigation", { name: "Main" }).filter({ visible: true });
+    await expect(nav).toHaveCount(0); // a single place to be: no clinical navigation at all
+
+    // 3. Professional details, with required fields enforced.
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("This is required").first()).toBeVisible();
+    await page.getByLabel("Professional role").selectOption("physician");
+    await page.getByLabel("Medical specialty").selectOption("Cardiology");
+    await page.getByLabel("State where you are licensed to practise").selectOption("TX");
+    await page.getByLabel("Licence or registration number").fill("TX-778899");
+    await page.getByLabel("Issuing regulatory body").fill("Texas Medical Board");
+    await page.getByRole("button", { name: "Next" }).click();
+
+    // 4. Profile: languages, how patients reach you, phone.
+    await expect(page.getByText("Step 3 of 4")).toBeVisible();
+    await page.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("Choose at least one language.")).toBeVisible();
+    await page.getByRole("checkbox", { name: "English" }).check();
+    await page.getByRole("checkbox", { name: "العربية" }).check();
+    await page.getByLabel("Phone number patients can call after you accept them").fill("+1 555 010 2030");
+    await page.getByRole("button", { name: "Next" }).click();
+
+    // 5. Review states plainly that nothing was verified by a register.
+    await expect(page.getByText(/self-reported/)).toBeVisible();
+    await page.getByRole("button", { name: "Send for review" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application is being reviewed");
+
+    // Still locked out of everything clinical, including the API.
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token as string);
+    const blocked = await page.request.get("/api/pairings/doctor", { headers: { Authorization: `Bearer ${stored}` } });
+    expect(blocked.status()).toBe(403);
+
+    // 6. A reviewer opens the queue, sees the details, and asks for more.
+    const admin = await newSession(browser, "admin@avela.dev");
+    await admin.page.goto("/admin");
+    const card = admin.page.getByRole("listitem").filter({ hasText: "Amira Haddad" }).filter({ hasText: "TX-778899" });
+    await expect(card).toContainText("Texas Medical Board");
+    await expect(card).toContainText("not check licence details against an official register");
+    await card.getByRole("button", { name: /Ask for more information/ }).click();
+    await admin.page.getByLabel("What do you need from them?").fill("Please add your NPI number or board certification.");
+    await admin.page.getByRole("button", { name: "Send request" }).click();
+    await expect(admin.page.getByRole("listitem").filter({ hasText: "TX-778899" })).toContainText("More information requested");
+
+    // 7. The doctor sees the request, updates, and sends again.
+    await page.goto("/doctor/application");
+    await expect(page.getByText("The team asked for more information")).toBeVisible();
+    await expect(page.getByText("Please add your NPI number or board certification.")).toBeVisible();
+    await page.getByLabel(/NPI number/).fill("1234567890");
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Send for review" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application is being reviewed");
+
+    // 8. Approval by a person unlocks the clinician workspace, without signing out.
+    await admin.page.goto("/admin");
+    const again = admin.page.getByRole("listitem").filter({ hasText: "TX-778899" });
+    await again.getByRole("button", { name: /^Approve/ }).click();
+    await admin.page.getByRole("alertdialog").getByRole("button", { name: "Yes, approve" }).click();
+    await admin.context.close();
+
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/Dr\. /);
+    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).getByRole("link")).toHaveCount(6);
+
+    // And patients can now find them, in their own language, with Avela's honest wording.
+    await page.goto("/find-doctors");
+    await page.getByLabel("State").selectOption("TX");
+    await page.getByLabel("Language spoken").selectOption("ar");
+    const listing = page.locator("li", { has: page.getByRole("heading", { level: 2, name: "Amira Haddad" }) });
+    await expect(listing).toContainText("Reviewed by the Avela team");
+    await expect(listing).toContainText("hasn't published any times yet");
+  });
+
+  test("an administrator can suspend an approved doctor, who is then signed out and locked out", async ({ page, browser }) => {
+    const email = uniqueEmail("drsusp");
+    const reg = await page.request.post("/api/doctors/register", { data: { name: "Dr. Susan Park", email, password: PASSWORD } });
+    const { token } = await reg.json();
+    const headers = { Authorization: `Bearer ${token}` };
+    await page.request.put("/api/doctors/me/application", { headers, data: { professionalRole: "physician", specialty: "Dermatology", state: "CA", licenseNumber: "S-1", licensingBody: "Board", languages: ["en"], modalities: ["phone"], phone: "+15550001234" } });
+    const sub = await (await page.request.post("/api/doctors/me/application/submit", { headers })).json();
+
+    const admin = await newSession(browser, "admin@avela.dev");
+    const ah = { Authorization: `Bearer ${admin.session.token}` };
+    await admin.page.request.post(`/api/admin/doctor-applications/${sub.id}/approve`, { headers: ah });
+    await admin.page.goto("/admin");
+    await admin.page.getByRole("radio", { name: /Approved/ }).click();
+    const card = admin.page.getByRole("listitem").filter({ hasText: "S-1" });
+    await card.getByRole("button", { name: /^Suspend/ }).click();
+    await admin.page.getByLabel(/Reason/).fill("Credentials under investigation");
+    await admin.page.getByRole("button", { name: "Suspend doctor" }).click();
+    await expect(admin.page.getByText("Doctor suspended")).toBeVisible();
+    await admin.context.close();
+
+    const after = await page.request.get("/api/pairings/doctor", { headers });
+    expect(after.status()).toBe(401);
+    await signInAs(page, email);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your doctor account is suspended");
+    await expect(page.getByText("Credentials under investigation")).toBeVisible();
+  });
+});
