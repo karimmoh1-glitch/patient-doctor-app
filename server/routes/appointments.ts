@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
+import { requireApprovedDoctor, requirePatientOrApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
 import { getVideoProvider } from "../services/videoService";
@@ -139,7 +140,7 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
   res.json(results);
 });
 
-router.get("/doctor", requireAuth, requireRole("doctor"), async (req, res) => {
+router.get("/doctor", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   if (!doctorProfile) return res.status(404).json({ message: "No doctor profile for this account" });
@@ -153,7 +154,7 @@ router.get("/doctor", requireAuth, requireRole("doctor"), async (req, res) => {
   res.json(results);
 });
 
-router.get("/:id", requireAuth, requireRole("patient", "doctor"), async (req, res) => {
+router.get("/:id", requireAuth, requirePatientOrApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const role = (req as any).userRole as string;
   const appointment = await storage.getAppointment(req.params.id);
@@ -181,7 +182,7 @@ router.get("/:id", requireAuth, requireRole("patient", "doctor"), async (req, re
 // Joining a video visit. Today no provider is configured, so this says so
 // plainly and tells the caller what to do instead; the screens never offer a
 // join button unless this returns available: true.
-router.get("/:id/video", requireAuth, requireRole("patient", "doctor"), async (req, res) => {
+router.get("/:id/video", requireAuth, requirePatientOrApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const role = (req as any).userRole as string;
   const appointment = await storage.getAppointment(req.params.id);
@@ -216,7 +217,7 @@ router.get("/:id/video", requireAuth, requireRole("patient", "doctor"), async (r
   res.json({ available: true, joinUrl: room.joinUrl, expiresAt: room.expiresAt });
 });
 
-router.patch("/:id/confirm", requireAuth, requireRole("doctor"), async (req, res) => {
+router.patch("/:id/confirm", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   const appointment = await storage.getAppointment(req.params.id);
@@ -231,7 +232,7 @@ router.patch("/:id/confirm", requireAuth, requireRole("doctor"), async (req, res
   res.json(updated);
 });
 
-router.patch("/:id/cancel", requireAuth, requireRole("patient", "doctor"), async (req, res) => {
+router.patch("/:id/cancel", requireAuth, requirePatientOrApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const role = (req as any).userRole as string;
   const appointment = await storage.getAppointment(req.params.id);
@@ -274,7 +275,7 @@ const completeSchema = z.object({
   followUpDate: z.string().datetime().optional(),
 });
 
-router.post("/:id/complete", requireAuth, requireRole("doctor"), async (req, res) => {
+router.post("/:id/complete", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   const appointment = await storage.getAppointment(req.params.id);

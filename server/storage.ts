@@ -5,7 +5,7 @@ import { db } from "./db";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
-  appointments, prescriptions, medications, medicationLogs, pharmacies, pharmacyOrders,
+  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
   type UserDevice, type InsertUserDevice,
@@ -18,7 +18,9 @@ import {
   type PairingRequest, type InsertPairingRequest,
   type Message, type InsertMessage,
   type Appointment, type InsertAppointment,
-  type Prescription, type InsertPrescription,
+  type Prescription, type InsertPrescription, type PrescriptionEvent,
+  type Notification, type InsertNotification,
+  type MedicationReminder, type InsertMedicationReminder,
   type Medication, type InsertMedication,
   type MedicationLog, type InsertMedicationLog,
   type Pharmacy, type InsertPharmacy,
@@ -56,22 +58,38 @@ export interface IStorage {
   getAuditLogsForSubject(subjectUserId: string, limit: number): Promise<AuditLog[]>;
   getRecentAuditLogs(limit: number): Promise<AuditLog[]>;
 
+  updateUserLanguage(userId: string, language: string): Promise<User | undefined>;
   createDoctorApplication(data: InsertDoctorApplication): Promise<DoctorApplication>;
   getDoctorApplication(id: string): Promise<DoctorApplication | undefined>;
+  getDoctorApplicationByUserId(userId: string): Promise<DoctorApplication | undefined>;
   getDoctorApplicationByEmail(email: string): Promise<DoctorApplication | undefined>;
-  getPendingDoctorApplications(): Promise<DoctorApplication[]>;
-  updateDoctorApplicationStatus(id: string, status: "approved" | "rejected", reviewedByUserId: string, reviewerNotes?: string): Promise<DoctorApplication | undefined>;
+  listDoctorApplications(statuses: string[]): Promise<DoctorApplication[]>;
+  countDoctorApplicationsByStatus(): Promise<Record<string, number>>;
 
+  /** Creates the doctor's account and an "incomplete" application together, or neither. */
+  registerDoctor(user: InsertUser, language: string): Promise<{ user: User; application: DoctorApplication }>;
+  /** Saves profile fields while the application is still editable (incomplete / needs_info). */
+  saveDoctorApplicationDraft(id: string, fields: Partial<InsertDoctorApplication>): Promise<DoctorApplication | undefined>;
+  /** incomplete|needs_info -> pending, atomically. Undefined if it was not in a submittable state. */
+  submitDoctorApplication(id: string): Promise<DoctorApplication | undefined>;
+  /** pending -> needs_info with a message for the applicant. */
+  requestDoctorApplicationInfo(id: string, reviewerUserId: string, message: string): Promise<DoctorApplication | undefined>;
+  /** pending|needs_info -> rejected. */
+  rejectDoctorApplication(id: string, reviewerUserId: string, reason?: string): Promise<DoctorApplication | undefined>;
   /**
-   * Approves a pending doctor application as ONE transaction: claim the
-   * application, create the doctor's user account, create their profile. If
-   * any step fails nothing is kept, so a half-approved application can never
-   * block a retry.
+   * pending -> approved as ONE transaction: claim the application and create
+   * the doctor's public profile. Role and ownership never come from request
+   * input. If any step fails nothing is kept.
    */
   approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string): Promise<
-    | { ok: true; user: User; profile: DoctorProfile; application: DoctorApplication }
-    | { ok: false; reason: "already_reviewed" | "email_taken" }
+    | { ok: true; profile: DoctorProfile; application: DoctorApplication }
+    | { ok: false; reason: "not_reviewable" | "incomplete_application" }
   >;
+  /** approved -> suspended: hides the profile and ends the doctor's sessions. */
+  suspendDoctor(applicationId: string, reviewerUserId: string, reason?: string): Promise<DoctorApplication | undefined>;
+  /** suspended -> approved. */
+  reinstateDoctor(applicationId: string, reviewerUserId: string): Promise<DoctorApplication | undefined>;
+  updateDoctorProfileSelf(profileId: string, fields: Partial<Pick<DoctorProfile, "bio" | "languages" | "modalities" | "clinic" | "phone">>): Promise<DoctorProfile | undefined>;
   createDoctorProfile(data: InsertDoctorProfile): Promise<DoctorProfile>;
   getDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
   getDoctorProfileByUserId(userId: string): Promise<DoctorProfile | undefined>;
@@ -109,6 +127,32 @@ export interface IStorage {
   getPrescriptionsByPatient(patientUserId: string): Promise<Prescription[]>;
   getPrescriptionsByDoctorProfile(doctorProfileId: string): Promise<Prescription[]>;
   updatePrescriptionStatus(id: string, status: "active" | "completed" | "cancelled"): Promise<Prescription | undefined>;
+  /** Drafts only: replaces the editable clinical fields. */
+  updatePrescriptionDraft(id: string, fields: Partial<InsertPrescription>): Promise<Prescription | undefined>;
+  /** draft -> active, atomically, stamping who authorized it and when. */
+  authorizePrescription(id: string, authorizedByUserId: string, now: Date): Promise<Prescription | undefined>;
+  /** draft|active -> cancelled, atomically. */
+  cancelPrescription(id: string): Promise<Prescription | undefined>;
+  /** Marks authorized prescriptions whose end date has passed as expired; returns the ones changed. */
+  expireDuePrescriptions(now: Date): Promise<Prescription[]>;
+  addPrescriptionEvent(prescriptionId: string, actorUserId: string | null, event: string): Promise<void>;
+  getPrescriptionEvents(prescriptionId: string): Promise<PrescriptionEvent[]>;
+
+  getReminderByMedication(medicationId: string): Promise<MedicationReminder | undefined>;
+  getRemindersByPatient(patientUserId: string): Promise<MedicationReminder[]>;
+  upsertReminder(data: InsertMedicationReminder): Promise<MedicationReminder>;
+  deleteReminderByMedication(medicationId: string, patientUserId: string): Promise<boolean>;
+  /** Enabled reminders for tracked, still-active medicines with an authorized, unexpired prescription. */
+  getDispatchableReminders(): Promise<{ reminder: MedicationReminder; medicationName: string; email: string; language: string }[]>;
+  /** Inserts the delivery row; true only for the caller that created it (so only one sender ever acts). */
+  claimReminderDelivery(reminderId: string, dueAt: Date, channel: string): Promise<string | null>;
+  finishReminderDelivery(id: string, status: "sent" | "failed", errorCode?: string): Promise<void>;
+  recordJobRun(job: string, now: Date, result: Record<string, unknown>): Promise<void>;
+  getJobRun(job: string): Promise<{ lastRunAt: Date; lastResult: Record<string, unknown> } | undefined>;
+  createNotification(data: InsertNotification): Promise<Notification>;
+  getNotificationsForUser(userId: string, limit: number): Promise<Notification[]>;
+  countUnreadNotifications(userId: string): Promise<number>;
+  markNotificationsRead(userId: string, ids?: string[]): Promise<void>;
   incrementPrescriptionRefills(id: string): Promise<Prescription | undefined>;
 
   createMedication(data: InsertMedication): Promise<Medication>;
@@ -265,6 +309,11 @@ export class DbStorage implements IStorage {
     return db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(limit);
   }
 
+  async updateUserLanguage(userId: string, language: string): Promise<User | undefined> {
+    const [user] = await db.update(users).set({ language }).where(eq(users.id, userId)).returning();
+    return user;
+  }
+
   async createDoctorApplication(data: InsertDoctorApplication): Promise<DoctorApplication> {
     const [application] = await db.insert(doctorApplications).values(data).returning();
     return application;
@@ -275,79 +324,159 @@ export class DbStorage implements IStorage {
     return application;
   }
 
+  async getDoctorApplicationByUserId(userId: string): Promise<DoctorApplication | undefined> {
+    const [application] = await db.select().from(doctorApplications).where(eq(doctorApplications.userId, userId));
+    return application;
+  }
+
   async getDoctorApplicationByEmail(email: string): Promise<DoctorApplication | undefined> {
     const [application] = await db.select().from(doctorApplications).where(eq(doctorApplications.email, email));
     return application;
   }
 
-  async getPendingDoctorApplications(): Promise<DoctorApplication[]> {
+  async listDoctorApplications(statuses: string[]): Promise<DoctorApplication[]> {
+    if (!statuses.length) return [];
     return db
       .select()
       .from(doctorApplications)
-      .where(eq(doctorApplications.status, "pending"))
+      .where(inArray(doctorApplications.status, statuses))
       .orderBy(desc(doctorApplications.createdAt));
   }
 
-  async updateDoctorApplicationStatus(
-    id: string,
-    status: "approved" | "rejected",
-    reviewedByUserId: string,
-    reviewerNotes?: string,
-  ): Promise<DoctorApplication | undefined> {
+  async countDoctorApplicationsByStatus(): Promise<Record<string, number>> {
+    const rows = await db
+      .select({ status: doctorApplications.status, n: sqlOp<number>`count(*)::int` })
+      .from(doctorApplications)
+      .groupBy(doctorApplications.status);
+    return Object.fromEntries(rows.map((r) => [r.status, r.n]));
+  }
+
+  async registerDoctor(user: InsertUser, language: string) {
+    return db.transaction(async (tx) => {
+      // Role is fixed here, never taken from request input.
+      const [created] = await tx.insert(users).values({ ...user, role: "doctor", language }).returning();
+      const [application] = await tx
+        .insert(doctorApplications)
+        .values({ userId: created.id, name: created.name, email: created.email, status: "incomplete" })
+        .returning();
+      return { user: created, application };
+    });
+  }
+
+  async saveDoctorApplicationDraft(id: string, fields: Partial<InsertDoctorApplication>) {
     const [application] = await db
       .update(doctorApplications)
-      .set({ status, reviewedByUserId, reviewedAt: new Date(), reviewerNotes: reviewerNotes ?? null })
-      .where(eq(doctorApplications.id, id))
+      .set(fields)
+      .where(and(eq(doctorApplications.id, id), inArray(doctorApplications.status, ["incomplete", "needs_info"])))
+      .returning();
+    return application;
+  }
+
+  async submitDoctorApplication(id: string) {
+    const [application] = await db
+      .update(doctorApplications)
+      .set({ status: "pending", submittedAt: new Date(), infoRequest: null })
+      .where(and(eq(doctorApplications.id, id), inArray(doctorApplications.status, ["incomplete", "needs_info"])))
+      .returning();
+    return application;
+  }
+
+  async requestDoctorApplicationInfo(id: string, reviewerUserId: string, message: string) {
+    const [application] = await db
+      .update(doctorApplications)
+      .set({ status: "needs_info", infoRequest: message, reviewedByUserId: reviewerUserId, reviewedAt: new Date() })
+      .where(and(eq(doctorApplications.id, id), eq(doctorApplications.status, "pending")))
+      .returning();
+    return application;
+  }
+
+  async rejectDoctorApplication(id: string, reviewerUserId: string, reason?: string) {
+    const [application] = await db
+      .update(doctorApplications)
+      .set({ status: "rejected", reviewedByUserId: reviewerUserId, reviewedAt: new Date(), reviewerNotes: reason ?? null })
+      .where(and(eq(doctorApplications.id, id), inArray(doctorApplications.status, ["pending", "needs_info"])))
       .returning();
     return application;
   }
 
   async approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string) {
-    try {
-      return await db.transaction(async (tx) => {
-        const [application] = await tx
-          .update(doctorApplications)
-          .set({ status: "approved", reviewedByUserId: reviewerUserId, reviewedAt: new Date() })
-          .where(and(eq(doctorApplications.id, applicationId), eq(doctorApplications.status, "pending")))
-          .returning();
-        if (!application) return { ok: false, reason: "already_reviewed" } as const;
+    return db.transaction(async (tx) => {
+      const [application] = await tx
+        .update(doctorApplications)
+        .set({ status: "approved", reviewedByUserId: reviewerUserId, reviewedAt: new Date(), infoRequest: null })
+        .where(and(eq(doctorApplications.id, applicationId), eq(doctorApplications.status, "pending")))
+        .returning();
+      if (!application || !application.userId) return { ok: false, reason: "not_reviewable" } as const;
 
-        // Role is fixed here, never taken from request input.
-        const [user] = await tx
-          .insert(users)
-          .values({
-            name: application.name,
-            email: application.email.trim().toLowerCase(),
-            passwordHash: application.passwordHash,
-            role: "doctor",
-            state: application.licensedStates[0] || null,
-            phone: application.phone,
-            deactivatedAt: null,
-            emailVerifiedAt: null,
-          })
-          .returning();
-        const [profile] = await tx
-          .insert(doctorProfiles)
-          .values({
-            userId: user.id,
-            name: application.name,
-            specialty: application.specialty,
-            state: application.licensedStates[0],
-            licenseNumber: application.licenseNumber,
-            npiNumber: application.npiNumber,
-            phone: application.phone,
-            bio: application.bio,
-            active: true,
-            source: "application",
-            timezone,
-          })
-          .returning();
-        return { ok: true, user, profile, application } as const;
-      });
-    } catch (err: any) {
-      if (err?.code === "23505" || err?.cause?.code === "23505") return { ok: false, reason: "email_taken" } as const;
+      const state = application.licensedStates?.[0];
+      if (!application.specialty || !application.licenseNumber || !application.phone || !state) {
+        // Submission validates these, so this only guards against a row edited by hand.
+        tx.rollback();
+        return { ok: false, reason: "incomplete_application" } as const;
+      }
+      const [profile] = await tx
+        .insert(doctorProfiles)
+        .values({
+          userId: application.userId,
+          name: application.displayName?.trim() || application.name,
+          specialty: application.specialty,
+          state,
+          licenseNumber: application.licenseNumber,
+          npiNumber: application.npiNumber,
+          phone: application.phone,
+          bio: application.bio,
+          active: true,
+          source: "application",
+          timezone,
+          languages: application.languages ?? [],
+          modalities: application.modalities ?? ["phone"],
+          clinic: application.clinic,
+          qualifications: application.qualifications,
+          yearsExperience: application.yearsExperience,
+          licensingBody: application.licensingBody,
+          professionalRole: application.professionalRole,
+          verifiedAt: new Date(),
+          verifiedByUserId: reviewerUserId,
+        })
+        .returning();
+      await tx.update(users).set({ state, phone: application.phone }).where(eq(users.id, application.userId));
+      return { ok: true, profile, application } as const;
+    }).catch((err) => {
+      if (err?.name === "TransactionRollbackError") return { ok: false, reason: "incomplete_application" } as const;
       throw err;
-    }
+    });
+  }
+
+  async suspendDoctor(applicationId: string, reviewerUserId: string, reason?: string) {
+    return db.transaction(async (tx) => {
+      const [application] = await tx
+        .update(doctorApplications)
+        .set({ status: "suspended", reviewedByUserId: reviewerUserId, reviewedAt: new Date(), reviewerNotes: reason ?? null })
+        .where(and(eq(doctorApplications.id, applicationId), eq(doctorApplications.status, "approved")))
+        .returning();
+      if (!application?.userId) return undefined;
+      await tx.update(doctorProfiles).set({ active: false }).where(eq(doctorProfiles.userId, application.userId));
+      await tx.update(userDevices).set({ revokedAt: new Date() }).where(and(eq(userDevices.userId, application.userId), isNull(userDevices.revokedAt)));
+      return application;
+    });
+  }
+
+  async reinstateDoctor(applicationId: string, reviewerUserId: string) {
+    return db.transaction(async (tx) => {
+      const [application] = await tx
+        .update(doctorApplications)
+        .set({ status: "approved", reviewedByUserId: reviewerUserId, reviewedAt: new Date(), reviewerNotes: null })
+        .where(and(eq(doctorApplications.id, applicationId), eq(doctorApplications.status, "suspended")))
+        .returning();
+      if (!application?.userId) return undefined;
+      await tx.update(doctorProfiles).set({ active: true }).where(eq(doctorProfiles.userId, application.userId));
+      return application;
+    });
+  }
+
+  async updateDoctorProfileSelf(profileId: string, fields: Partial<Pick<DoctorProfile, "bio" | "languages" | "modalities" | "clinic" | "phone">>) {
+    const [profile] = await db.update(doctorProfiles).set(fields).where(eq(doctorProfiles.id, profileId)).returning();
+    return profile;
   }
 
   async createDoctorProfile(data: InsertDoctorProfile): Promise<DoctorProfile> {
@@ -528,11 +657,12 @@ export class DbStorage implements IStorage {
     return prescription;
   }
 
+  // Drafts are the doctor's working copy and are never shown to the patient.
   async getPrescriptionsByPatient(patientUserId: string): Promise<Prescription[]> {
     return db
       .select()
       .from(prescriptions)
-      .where(eq(prescriptions.patientUserId, patientUserId))
+      .where(and(eq(prescriptions.patientUserId, patientUserId), sqlOp`${prescriptions.status} <> 'draft'`))
       .orderBy(desc(prescriptions.createdAt));
   }
 
@@ -547,6 +677,168 @@ export class DbStorage implements IStorage {
   async updatePrescriptionStatus(id: string, status: "active" | "completed" | "cancelled"): Promise<Prescription | undefined> {
     const [prescription] = await db.update(prescriptions).set({ status }).where(eq(prescriptions.id, id)).returning();
     return prescription;
+  }
+
+  async updatePrescriptionDraft(id: string, fields: Partial<InsertPrescription>) {
+    const [prescription] = await db
+      .update(prescriptions)
+      .set(fields)
+      .where(and(eq(prescriptions.id, id), eq(prescriptions.status, "draft")))
+      .returning();
+    return prescription;
+  }
+
+  async authorizePrescription(id: string, authorizedByUserId: string, now: Date) {
+    return db.transaction(async (tx) => {
+      const [current] = await tx.select().from(prescriptions).where(and(eq(prescriptions.id, id), eq(prescriptions.status, "draft")));
+      if (!current) return undefined;
+      // The course starts when it is authorized, not when it was first drafted.
+      const endDate = current.durationDays ? new Date(now.getTime() + current.durationDays * 86_400_000) : null;
+      const [prescription] = await tx
+        .update(prescriptions)
+        .set({ status: "active", authorizedAt: now, issuedAt: now, authorizedByUserId, startDate: now, endDate })
+        .where(and(eq(prescriptions.id, id), eq(prescriptions.status, "draft")))
+        .returning();
+      return prescription;
+    });
+  }
+
+  async cancelPrescription(id: string) {
+    const [prescription] = await db
+      .update(prescriptions)
+      .set({ status: "cancelled" })
+      .where(and(eq(prescriptions.id, id), inArray(prescriptions.status, ["draft", "active"])))
+      .returning();
+    return prescription;
+  }
+
+  async expireDuePrescriptions(now: Date) {
+    return db
+      .update(prescriptions)
+      .set({ status: "expired" })
+      .where(and(eq(prescriptions.status, "active"), sqlOp`${prescriptions.endDate} IS NOT NULL AND ${prescriptions.endDate} < ${now}`))
+      .returning();
+  }
+
+  async addPrescriptionEvent(prescriptionId: string, actorUserId: string | null, event: string) {
+    await db.insert(prescriptionEvents).values({ prescriptionId, actorUserId, event });
+  }
+
+  async getPrescriptionEvents(prescriptionId: string) {
+    return db.select().from(prescriptionEvents).where(eq(prescriptionEvents.prescriptionId, prescriptionId)).orderBy(prescriptionEvents.createdAt);
+  }
+
+  async getReminderByMedication(medicationId: string) {
+    const [row] = await db.select().from(medicationReminders).where(eq(medicationReminders.medicationId, medicationId));
+    return row;
+  }
+
+  async getRemindersByPatient(patientUserId: string) {
+    return db.select().from(medicationReminders).where(eq(medicationReminders.patientUserId, patientUserId));
+  }
+
+  async upsertReminder(data: InsertMedicationReminder) {
+    const [row] = await db
+      .insert(medicationReminders)
+      .values(data)
+      .onConflictDoUpdate({
+        target: medicationReminders.medicationId,
+        set: {
+          times: data.times,
+          weekdays: data.weekdays,
+          timezone: data.timezone,
+          endDate: data.endDate ?? null,
+          enabled: data.enabled,
+          emailEnabled: data.emailEnabled,
+          showMedicationName: data.showMedicationName,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteReminderByMedication(medicationId: string, patientUserId: string) {
+    const rows = await db
+      .delete(medicationReminders)
+      .where(and(eq(medicationReminders.medicationId, medicationId), eq(medicationReminders.patientUserId, patientUserId)))
+      .returning();
+    return rows.length > 0;
+  }
+
+  async getDispatchableReminders() {
+    const rows = await db
+      .select({
+        reminder: medicationReminders,
+        medicationName: medications.name,
+        email: users.email,
+        language: users.language,
+      })
+      .from(medicationReminders)
+      .innerJoin(medications, eq(medications.id, medicationReminders.medicationId))
+      .innerJoin(prescriptions, eq(prescriptions.id, medications.prescriptionId))
+      .innerJoin(users, eq(users.id, medicationReminders.patientUserId))
+      .where(
+        and(
+          eq(medicationReminders.enabled, true),
+          eq(medications.active, true),
+          eq(prescriptions.status, "active"),
+          isNull(users.deactivatedAt),
+        ),
+      );
+    return rows;
+  }
+
+  async claimReminderDelivery(reminderId: string, dueAt: Date, channel: string) {
+    const [row] = await db
+      .insert(reminderDeliveries)
+      .values({ reminderId, dueAt, channel })
+      .onConflictDoNothing()
+      .returning({ id: reminderDeliveries.id });
+    return row?.id ?? null;
+  }
+
+  async finishReminderDelivery(id: string, status: "sent" | "failed", errorCode?: string) {
+    await db
+      .update(reminderDeliveries)
+      .set({ status, errorCode: errorCode ?? null, sentAt: status === "sent" ? new Date() : null })
+      .where(eq(reminderDeliveries.id, id));
+  }
+
+  async recordJobRun(job: string, now: Date, result: Record<string, unknown>) {
+    await db
+      .insert(jobRuns)
+      .values({ job, lastRunAt: now, lastResult: result })
+      .onConflictDoUpdate({ target: jobRuns.job, set: { lastRunAt: now, lastResult: result } });
+  }
+
+  async getJobRun(job: string) {
+    const [row] = await db.select().from(jobRuns).where(eq(jobRuns.job, job));
+    return row ? { lastRunAt: row.lastRunAt, lastResult: row.lastResult } : undefined;
+  }
+
+  async createNotification(data: InsertNotification) {
+    const [row] = await db.insert(notifications).values(data).returning();
+    return row;
+  }
+
+  async getNotificationsForUser(userId: string, limit: number) {
+    return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(limit);
+  }
+
+  async countUnreadNotifications(userId: string) {
+    const [row] = await db
+      .select({ n: sqlOp<number>`count(*)::int` })
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+    return row?.n ?? 0;
+  }
+
+  async markNotificationsRead(userId: string, ids?: string[]) {
+    const where = ids?.length
+      ? and(eq(notifications.userId, userId), isNull(notifications.readAt), inArray(notifications.id, ids))
+      : and(eq(notifications.userId, userId), isNull(notifications.readAt));
+    await db.update(notifications).set({ readAt: new Date() }).where(where);
   }
 
   async incrementPrescriptionRefills(id: string): Promise<Prescription | undefined> {

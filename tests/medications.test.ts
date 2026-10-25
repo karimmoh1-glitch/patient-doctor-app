@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { getApp, signupPatient, createDoctor, connect, auth, type TestUser } from "./helpers";
+import { getApp, signupPatient, createDoctor, connect, auth, type TestUser, issuePrescription } from "./helpers";
 import { dateKeyInZone, clockInZone, isValidZone } from "../server/lib/localTime";
 
 let app: Express;
@@ -31,10 +31,7 @@ async function patientWithMedication(): Promise<{ patient: TestUser; medicationI
   const patient = await signupPatient();
   const doctor = await createDoctor();
   const { pairingId } = await connect(patient, doctor);
-  const rx = await request(app)
-    .post("/api/prescriptions")
-    .set(auth(doctor.token))
-    .send({ pairingRequestId: pairingId, medicationName: "Demo Tablet", instructions: "One with water", frequencyPerDay: 1 });
+  const rx = { body: await issuePrescription(doctor, pairingId, { instructions: "One with water" }) };
   const tracked = await request(app).post(`/api/prescriptions/${rx.body.id}/track`).set(auth(patient.token));
   expect(tracked.status).toBe(201);
   return { patient, medicationId: tracked.body.id };

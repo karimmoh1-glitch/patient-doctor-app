@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
+import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
 
@@ -93,7 +94,7 @@ router.delete("/:doctorProfileId", requireAuth, requireRole("patient"), async (r
   res.json(updated);
 });
 
-router.get("/shared-with-me", requireAuth, requireRole("doctor"), async (req, res) => {
+router.get("/shared-with-me", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   if (!doctorProfile) return res.status(404).json({ message: "No doctor profile for this account" });

@@ -61,12 +61,35 @@ export const prescriptions = pgTable("prescriptions", {
   refillsAllowed: integer("refills_allowed").notNull().default(0),
   refillsUsed: integer("refills_used").notNull().default(0),
   notes: text("notes"),
-  status: varchar("status").notNull().default("active"), // active | completed | cancelled
+  activeIngredient: text("active_ingredient"),
+  strength: text("strength"),
+  formulation: text("formulation"),
+  dose: text("dose"),
+  route: text("route"),
+  warnings: text("warnings"),
+  // draft | active (= authorized) | completed | expired | cancelled
+  status: varchar("status").notNull().default("active"),
   startDate: timestamp("start_date").notNull().defaultNow(),
   endDate: timestamp("end_date"),
+  issuedAt: timestamp("issued_at"),
+  authorizedAt: timestamp("authorized_at"),
+  authorizedByUserId: varchar("authorized_by_user_id").references(() => users.id),
+  // not_sent until a real pharmacy integration confirms otherwise.
+  transmission: varchar("transmission").notNull().default("not_sent"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_prescriptions_patient").on(table.patientUserId, table.createdAt),
+]);
+
+// Append-only record of what happened to a prescription and who did it.
+export const prescriptionEvents = pgTable("prescription_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  prescriptionId: varchar("prescription_id").notNull().references(() => prescriptions.id),
+  actorUserId: varchar("actor_user_id").references(() => users.id),
+  event: varchar("event").notNull(), // drafted | edited | authorized | cancelled | expired
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_prescription_events_rx").on(table.prescriptionId, table.createdAt),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -247,7 +270,8 @@ export const insertAiMessageSchema = createInsertSchema(aiMessages).omit({ id: t
 export type Appointment = typeof appointments.$inferSelect;
 export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
 export type Prescription = typeof prescriptions.$inferSelect;
-export type InsertPrescription = z.infer<typeof insertPrescriptionSchema>;
+export type PrescriptionEvent = typeof prescriptionEvents.$inferSelect;
+export type InsertPrescription = typeof prescriptions.$inferInsert;
 export type Medication = typeof medications.$inferSelect;
 export type InsertMedication = z.infer<typeof insertMedicationSchema>;
 export type MedicationLog = typeof medicationLogs.$inferSelect;

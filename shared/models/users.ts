@@ -14,6 +14,8 @@ export const users = pgTable("users", {
   // *practicing* state lives on doctorProfiles, not here.
   state: varchar("state"),
   phone: varchar("phone"),
+  // Interface and message language the person chose (en | ar | es).
+  language: varchar("language").notNull().default("en"),
   // IANA zone (e.g. "America/Chicago"), learned from the person's browser.
   timezone: varchar("timezone"),
   // Optional patient-entered emergency profile, shown on the SOS page.

@@ -128,3 +128,27 @@ export async function connect(patient: TestUser, doctor: TestDoctor, opts: { acc
   }
   return { pairingId: pairing.body.id as string, symptomReportId: report.body.id as string };
 }
+
+/** A complete, valid prescription body; override fields as needed. */
+export function prescriptionBody(pairingRequestId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    pairingRequestId,
+    medicationName: "Demo Tablet",
+    dose: "1 tablet",
+    route: "oral",
+    frequencyPerDay: 1,
+    instructions: "One daily with water",
+    controlledSubstance: false,
+    ...overrides,
+  };
+}
+
+/** Drafts and then authorizes a prescription as the doctor; returns the authorized record. */
+export async function issuePrescription(doctor: TestUser, pairingRequestId: string, overrides: Record<string, unknown> = {}) {
+  const app = await getApp();
+  const draft = await request(app).post("/api/prescriptions").set(auth(doctor.token)).send(prescriptionBody(pairingRequestId, overrides));
+  if (draft.status !== 201) throw new Error(`draft failed: ${draft.status} ${JSON.stringify(draft.body)}`);
+  const authorized = await request(app).post(`/api/prescriptions/${draft.body.id}/authorize`).set(auth(doctor.token)).send({ confirm: true });
+  if (authorized.status !== 200) throw new Error(`authorize failed: ${authorized.status} ${JSON.stringify(authorized.body)}`);
+  return authorized.body as { id: string; status: string; [k: string]: any };
+}

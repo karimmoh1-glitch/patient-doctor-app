@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { storage } from "../storage";
+import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { clockInZone, dateKeyInZone, resolvePatientTimezone } from "../lib/localTime";
 
@@ -78,7 +79,7 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
   });
 });
 
-router.get("/doctor", requireAuth, requireRole("doctor"), async (req, res) => {
+router.get("/doctor", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   if (!doctorProfile) return res.status(404).json({ message: "No doctor profile for this account" });

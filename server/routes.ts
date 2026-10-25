@@ -20,6 +20,9 @@ import careCircleRoutes from "./routes/careCircle";
 import emergencyRoutes from "./routes/emergency";
 import healthSummaryRoutes from "./routes/healthSummary";
 import auditRoutes from "./routes/audit";
+import reminderRoutes from "./routes/reminders";
+import notificationRoutes from "./routes/notifications";
+import cronRoutes from "./routes/cron";
 import configRoutes from "./routes/config";
 
 export async function registerRoutes(_httpServer: Server, app: Express): Promise<void> {
@@ -44,4 +47,7 @@ export async function registerRoutes(_httpServer: Server, app: Express): Promise
   app.use("/api/health-summary", healthSummaryRoutes);
   app.use("/api/audit-log", auditRoutes);
   app.use("/api/config", configRoutes);
+  app.use("/api/reminders", reminderRoutes);
+  app.use("/api/notifications", notificationRoutes);
+  app.use("/api/cron", cronRoutes);
 }

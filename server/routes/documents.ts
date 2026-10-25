@@ -160,7 +160,7 @@ router.get("/:id/file", requireAuth, async (req, res) => {
   let authorized = document.patientUserId === userId;
   if (!authorized && role === "doctor") {
     const doctorProfile = await storage.getDoctorProfileByUserId(userId);
-    if (doctorProfile) {
+    if (doctorProfile?.active) {
       // A grant only counts while the doctor is still connected to the patient.
       const connections = await storage.getAcceptedPairingsByPatient(document.patientUserId);
       const stillConnected = connections.some((c) => c.doctorProfileId === doctorProfile.id);

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, connect, auth } from "./helpers";
+import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, connect, auth, issuePrescription } from "./helpers";
 import { storage } from "../server/storage";
 
 let app: Express;
@@ -222,7 +222,7 @@ describe("what a doctor can read about a patient beyond the visit", () => {
     const { pairingId } = await connect(patient, doctor);
     const { pairingId: otherPairing } = await connect(patient, other);
     // A medicine, a document, and a visit with the OTHER doctor.
-    const rx = await request(app).post("/api/prescriptions").set(auth(other.token)).send({ pairingRequestId: otherPairing, medicationName: "Demo Heart Tablet", instructions: "Daily", frequencyPerDay: 1 });
+    const rx = { body: await issuePrescription(other, otherPairing, { medicationName: "Demo Heart Tablet", instructions: "Daily" }) };
     await request(app).post(`/api/prescriptions/${rx.body.id}/track`).set(auth(patient.token));
     await request(app).post("/api/documents").set(auth(patient.token)).field("title", "Blood test results");
     await storage.createAppointment({

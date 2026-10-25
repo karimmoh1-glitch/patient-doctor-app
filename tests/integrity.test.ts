@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { getApp, signupPatient, createDoctor, createAdmin, connect, auth, uniqueEmail, PASSWORD } from "./helpers";
+import { getApp, signupPatient, createDoctor, createAdmin, connect, auth, uniqueEmail, PASSWORD, issuePrescription } from "./helpers";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { users, followUpTasks } from "@shared/schema";
@@ -75,11 +75,7 @@ describe("refills", () => {
     const patient = await signupPatient();
     const doctor = await createDoctor();
     const { pairingId } = await connect(patient, doctor);
-    const rx = await request(app)
-      .post("/api/prescriptions")
-      .set(auth(doctor.token))
-      .send({ pairingRequestId: pairingId, medicationName: "Demo Tablet", instructions: "One daily", frequencyPerDay: 1, refillsAllowed: 1 });
-    expect(rx.status).toBe(201);
+    const rx = { body: await issuePrescription(doctor, pairingId, { refillsAllowed: 1 }) };
 
     const results = await Promise.all(Array.from({ length: 5 }, () => request(app).post(`/api/prescriptions/${rx.body.id}/refill`).set(auth(patient.token))));
     expect(results.filter((r) => r.status === 200)).toHaveLength(1);
@@ -96,10 +92,7 @@ describe("pharmacy orders", () => {
     const patient = await signupPatient();
     const doctor = await createDoctor();
     const { pairingId } = await connect(patient, doctor);
-    const rx = await request(app)
-      .post("/api/prescriptions")
-      .set(auth(doctor.token))
-      .send({ pairingRequestId: pairingId, medicationName: "Demo Tablet", instructions: "One daily", frequencyPerDay: 1 });
+    const rx = { body: await issuePrescription(doctor, pairingId) };
     const pharmacy = await storage.createPharmacy({
       name: "Test Pharmacy", address: "1 Main St", city: "Town", state: "CA", zip: "90000", phone: "+15550002222",
       hoursText: null, deliveryAvailable: true, pickupAvailable: true, isMailOrder: false, distanceMiles: 2,
@@ -109,52 +102,5 @@ describe("pharmacy orders", () => {
     const results = await Promise.all([place(), place(), place()]);
     expect(results.filter((r) => r.status === 201)).toHaveLength(1);
     expect(results.filter((r) => r.status === 409)).toHaveLength(2);
-  });
-});
-
-describe("doctor applications", () => {
-  async function apply() {
-    const email = uniqueEmail("applicant");
-    const res = await request(app).post("/api/doctors/applications").send({
-      name: "Dr. Applicant", email: email.toUpperCase(), password: PASSWORD, licenseNumber: "L-123", licensedStates: ["TX"],
-      specialty: "Cardiology", phone: "+15550003333", bio: "Hello",
-    });
-    expect(res.status).toBe(201);
-    return { id: res.body.id as string, email };
-  }
-
-  it("is approved atomically: one doctor account with a profile in the right time zone, role fixed server-side", async () => {
-    const admin = await createAdmin();
-    const { id, email } = await apply();
-    const approve = await request(app).post(`/api/admin/doctor-applications/${id}/approve`).set(auth(admin.token));
-    expect(approve.status).toBe(200);
-
-    const user = await storage.getUserByEmail(email);
-    expect(user!.role).toBe("doctor");
-    const profile = await storage.getDoctorProfileByUserId(user!.id);
-    expect(profile!.timezone).toBe("America/Chicago");
-    expect(profile!.state).toBe("TX");
-
-    // The new doctor can sign in with the password they applied with.
-    expect((await request(app).post("/api/auth/login").send({ email, password: PASSWORD })).status).toBe(200);
-  });
-
-  it("creates exactly one account when two admins approve at once", async () => {
-    const a1 = await createAdmin();
-    const a2 = await createAdmin();
-    const { id, email } = await apply();
-    const [r1, r2] = await Promise.all([
-      request(app).post(`/api/admin/doctor-applications/${id}/approve`).set(auth(a1.token)),
-      request(app).post(`/api/admin/doctor-applications/${id}/approve`).set(auth(a2.token)),
-    ]);
-    expect([r1.status, r2.status].filter((s) => s === 200)).toHaveLength(1);
-    const rows = await db.select().from(users).where(eq(users.email, email));
-    expect(rows).toHaveLength(1);
-  });
-
-  it("is not available to patients", async () => {
-    const patient = await signupPatient();
-    const { id } = await apply();
-    expect((await request(app).post(`/api/admin/doctor-applications/${id}/approve`).set(auth(patient.token))).status).toBe(403);
   });
 });

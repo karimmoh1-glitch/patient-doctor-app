@@ -172,6 +172,36 @@ export async function sendDoctorApplicationRejectedEmail(email: string, name: st
   });
 }
 
+export async function sendDoctorInfoRequestedEmail(email: string, name: string, message: string): Promise<void> {
+  const html = emailWrapper(
+    "We need a little more information",
+    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
+     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">The Avela team reviewing your application asked for more information:</p>
+     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">${message}</p>
+     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Sign in, update your application and send it again.</p>`
+  );
+  await sendEmail({
+    to: email,
+    subject: "More information needed for your Avela application",
+    body: `Hi ${name}, the team reviewing your Avela application asked for more information: ${message} Sign in, update your application and send it again.`,
+    html,
+  });
+}
+
+export async function sendDoctorSuspendedEmail(email: string, name: string): Promise<void> {
+  const html = emailWrapper(
+    "Your Avela doctor account was suspended",
+    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
+     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Your doctor account has been suspended and is not shown to patients. Sign in to see the reason or contact the Avela team.</p>`
+  );
+  await sendEmail({
+    to: email,
+    subject: "Your Avela doctor account was suspended",
+    body: `Hi ${name}, your Avela doctor account has been suspended. Sign in to see the reason or contact the team.`,
+    html,
+  });
+}
+
 export async function sendPasswordResetEmail(email: string, name: string, resetLink: string): Promise<void> {
   const html = emailWrapper(
     "Reset your password",

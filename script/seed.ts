@@ -11,6 +11,24 @@ import { replaceAvailability } from "../server/services/schedulingService";
 
 const DEMO_PASSWORD = "DemoPass123!";
 
+// Languages and contact methods below are invented demonstration data for fake
+// doctors; they exist so the language filter and Arabic profiles can be
+// exercised. A real doctor lists their own.
+const DEMO_LANGUAGES: Record<string, string[]> = {
+  "Dr. Emily Chen": ["en", "zh"],
+  "Dr. Marcus Reed": ["en"],
+  "Dr. Priya Nair": ["en", "hi"],
+  "Dr. James Okafor": ["en", "ar"],
+  "Dr. Lena Petrova": ["en", "ru"],
+  "Dr. Samuel Osei": ["en"],
+  "Dr. Grace Kim": ["en", "ko"],
+  "Dr. Daniel Ruiz": ["en", "es"],
+  "Dr. Fatima Malik": ["en", "ar", "ur"],
+  "Dr. Robert Hayes": ["en"],
+  "Dr. Nina Volkov": ["en", "ru"],
+  "Dr. Tomás Alvarez": ["en", "es"],
+};
+
 const DEMO_DOCTORS: { name: string; specialty: string; state: string; phone: string; bio: string }[] = [
   { name: "Dr. Emily Chen", specialty: "Family Medicine", state: "CA", phone: "+15551230001", bio: "General family medicine, 12 years of practice." },
   { name: "Dr. Marcus Reed", specialty: "Cardiology", state: "CA", phone: "+15551230002", bio: "Board-certified cardiologist focused on preventive care." },
@@ -131,6 +149,8 @@ async function main() {
     bio: DEMO_DOCTORS[0].bio,
     active: true,
     source: "seed",
+    languages: DEMO_LANGUAGES[DEMO_DOCTORS[0].name],
+    modalities: ["phone", "messaging"],
   });
   await publishDemoHours(firstProfile.id, firstProfile.timezone);
   console.log(`Doctor (with login): ${doctorUser.email} / ${DEMO_PASSWORD} (${DEMO_DOCTORS[0].state})`);
@@ -149,6 +169,8 @@ async function main() {
       bio: d.bio,
       active: true,
       source: "seed",
+      languages: DEMO_LANGUAGES[d.name] ?? ["en"],
+      modalities: ["phone", "messaging"],
     });
     await publishDemoHours(profile.id, profile.timezone);
     otherProfilesByName.set(d.name, profile);

@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { makeLimiter, emailKey } from "../middleware/rateLimit";
 import { storage } from "../storage";
+import { doctorStatusFor } from "../services/doctorStatus";
 import { signToken, createDeviceForLogin, requireAuth } from "../middleware/auth";
 import { insertUserSchema } from "@shared/schema";
 import { US_STATES } from "@shared/specialties";
@@ -42,12 +43,28 @@ const loginAccountLimiter = makeLimiter({
   message: "Too many incorrect attempts for this account. Please wait 15 minutes, or reset your password.",
 });
 
+// What the client is told about the signed-in person. doctorStatus is how the
+// interface knows whether to show the clinician workspace or the verification
+// screen; the server enforces it independently on every clinical route.
+async function sessionUser(user: { id: string; name: string; email: string; role: string; state: string | null; language: string }) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    state: user.state,
+    language: user.language,
+    ...(user.role === "doctor" ? { doctorStatus: await doctorStatusFor(user.id) } : {}),
+  };
+}
+
 const signupBodySchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(8).max(200),
   state: z.enum(US_STATES),
   phone: z.string().optional(),
+  language: z.enum(["en", "ar", "es"]).optional(),
 });
 
 router.post("/signup", authLimiter, async (req, res) => {
@@ -55,7 +72,7 @@ router.post("/signup", authLimiter, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid signup details" });
   }
-  const { name, email, password, state, phone } = parsed.data;
+  const { name, email, password, state, phone, language } = parsed.data;
 
   const existing = await storage.getUserByEmail(email);
   if (existing) {
@@ -72,6 +89,7 @@ router.post("/signup", authLimiter, async (req, res) => {
       role: "patient",
       state,
       phone: phone || null,
+      language: language ?? "en",
       deactivatedAt: null,
       emailVerifiedAt: null,
     });
@@ -88,10 +106,7 @@ router.post("/signup", authLimiter, async (req, res) => {
   const deviceId = await createDeviceForLogin(user.id, req);
   const token = signToken(user.id, user.role, deviceId);
 
-  res.status(201).json({
-    token,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state },
-  });
+  res.status(201).json({ token, user: await sessionUser(user) });
 });
 
 const loginBodySchema = z.object({
@@ -123,10 +138,7 @@ router.post("/login", loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const deviceId = await createDeviceForLogin(user.id, req);
   const token = signToken(user.id, user.role, deviceId);
 
-  res.json({
-    token,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state },
-  });
+  res.json({ token, user: await sessionUser(user) });
 });
 
 // One-tap sign-in to the seeded demo accounts. It exists only in demo mode
@@ -146,7 +158,7 @@ router.post("/demo-login", authLimiter, async (req, res) => {
   }
   const deviceId = await createDeviceForLogin(user.id, req);
   const token = signToken(user.id, user.role, deviceId);
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state } });
+  res.json({ token, user: await sessionUser(user) });
 });
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
@@ -222,7 +234,17 @@ router.get("/me", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
   const user = await storage.getUser(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role, state: user.state });
+  res.json(await sessionUser(user));
+});
+
+// The person's own preferences. Language drives the interface and any
+// notification text sent to them.
+router.patch("/me/preferences", requireAuth, async (req, res) => {
+  const parsed = z.object({ language: z.enum(["en", "ar", "es"]) }).strict().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Choose English, Arabic or Spanish" });
+  const user = await storage.updateUserLanguage((req as any).userId as string, parsed.data.language);
+  if (!user) return res.status(404).json({ message: "User not found" });
+  res.json(await sessionUser(user));
 });
 
 export default router;

@@ -3,6 +3,7 @@ import { makeLimiter, userKey } from "../middleware/rateLimit";
 import { isDemoMode } from "../config";
 import { z } from "zod";
 import { storage } from "../storage";
+import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit, logAuditStrict } from "../services/auditService";
 import { sendPairingRequestedEmail, sendPairingAcceptedEmail } from "../services/emailService";
@@ -99,7 +100,7 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
   res.json(results);
 });
 
-router.get("/doctor", requireAuth, requireRole("doctor"), async (req, res) => {
+router.get("/doctor", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   if (!doctorProfile) {
@@ -126,7 +127,7 @@ router.get("/doctor", requireAuth, requireRole("doctor"), async (req, res) => {
 
 // A doctor opening a paired patient's symptom report — an audited
 // PHI-access point, logged every time it's fetched.
-router.get("/:id/symptom-report", requireAuth, requireRole("doctor"), async (req, res) => {
+router.get("/:id/symptom-report", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   const pairing = await storage.getPairingRequest(req.params.id);
@@ -162,7 +163,7 @@ router.get("/:id/symptom-report", requireAuth, requireRole("doctor"), async (req
 // share: only the categories the patient has granted, only while the
 // connection is live, and every read is recorded in the patient's access log.
 // Visit reasons and notes from OTHER doctors are never included.
-router.get("/:id/shared-records", requireAuth, requireRole("doctor"), async (req, res) => {
+router.get("/:id/shared-records", requireAuth, requireApprovedDoctor, async (req, res) => {
   const userId = (req as any).userId as string;
   const doctorProfile = await storage.getDoctorProfileByUserId(userId);
   const pairing = await storage.getPairingRequest(req.params.id);
@@ -287,8 +288,8 @@ router.patch("/:id/relationship-label", requireAuth, requireRole("patient"), asy
   res.json(updated);
 });
 
-router.patch("/:id/accept", requireAuth, requireRole("doctor"), (req, res) => respondToPairing(req, res, "accepted"));
-router.patch("/:id/decline", requireAuth, requireRole("doctor"), (req, res) => respondToPairing(req, res, "declined"));
+router.patch("/:id/accept", requireAuth, requireApprovedDoctor, (req, res) => respondToPairing(req, res, "accepted"));
+router.patch("/:id/decline", requireAuth, requireApprovedDoctor, (req, res) => respondToPairing(req, res, "declined"));
 
 // Chat is only ever available to the two parties on an accepted pairing —
 // resolved here from the live userId/role, not a client-supplied claim.
@@ -300,7 +301,7 @@ async function getAuthorizedPairing(req: any) {
   if (role === "patient" && pairing.patientUserId === userId) return pairing;
   if (role === "doctor") {
     const doctorProfile = await storage.getDoctorProfileByUserId(userId);
-    if (doctorProfile && pairing.doctorProfileId === doctorProfile.id) return pairing;
+    if (doctorProfile?.active && pairing.doctorProfileId === doctorProfile.id) return pairing;
   }
   return null;
 }

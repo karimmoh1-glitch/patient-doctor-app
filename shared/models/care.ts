@@ -11,21 +11,37 @@ import { users } from "./users";
 // registry (that's a legal/business process, not something code can do).
 export const doctorApplications = pgTable("doctor_applications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // The doctor's account. Exists from registration, but confers no clinical
+  // access until this application is approved.
+  userId: varchar("user_id").references(() => users.id),
   name: text("name").notNull(),
+  displayName: text("display_name"),
   email: varchar("email").notNull(),
-  passwordHash: varchar("password_hash").notNull(),
-  licenseNumber: varchar("license_number").notNull(),
+  // Legacy: new registrations keep the password only on the user row.
+  passwordHash: varchar("password_hash"),
+  professionalRole: varchar("professional_role"),
+  licenseNumber: varchar("license_number"),
+  licensingBody: text("licensing_body"),
   // Captured as an array for future multi-state support, though v1
   // matching only ever uses doctorProfiles.state (the primary state).
-  licensedStates: jsonb("licensed_states").$type<string[]>().notNull(),
+  licensedStates: jsonb("licensed_states").$type<string[]>(),
   npiNumber: varchar("npi_number"),
-  specialty: varchar("specialty").notNull(),
-  phone: varchar("phone").notNull(),
+  specialty: varchar("specialty"),
+  qualifications: text("qualifications"),
+  languages: jsonb("languages").$type<string[]>().notNull().default([]),
+  yearsExperience: integer("years_experience"),
+  clinic: text("clinic"),
+  modalities: jsonb("modalities").$type<string[]>().notNull().default(["phone"]),
+  phone: varchar("phone"),
   bio: text("bio"),
-  status: varchar("status").notNull().default("pending"), // pending | approved | rejected
+  // incomplete | pending | needs_info | approved | rejected | suspended
+  status: varchar("status").notNull().default("pending"),
+  // What the reviewer asked the applicant to supply (status needs_info).
+  infoRequest: text("info_request"),
   reviewerNotes: text("reviewer_notes"),
   reviewedByUserId: varchar("reviewed_by_user_id").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
+  submittedAt: timestamp("submitted_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_doctor_applications_status").on(table.status),
@@ -56,6 +72,16 @@ export const doctorProfiles = pgTable("doctor_profiles", {
   // is interpreted (so daylight-saving changes move the UTC time, not the
   // doctor's working hours).
   timezone: varchar("timezone").notNull().default("America/New_York"),
+  languages: jsonb("languages").$type<string[]>().notNull().default([]),
+  modalities: jsonb("modalities").$type<string[]>().notNull().default(["phone"]),
+  clinic: text("clinic"),
+  qualifications: text("qualifications"),
+  yearsExperience: integer("years_experience"),
+  licensingBody: text("licensing_body"),
+  professionalRole: varchar("professional_role"),
+  // Set only when an administrator approved the profile.
+  verifiedAt: timestamp("verified_at"),
+  verifiedByUserId: varchar("verified_by_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_doctor_profiles_state_specialty").on(table.state, table.specialty),
@@ -139,18 +165,15 @@ export const insertMessageSchema = createInsertSchema(messages).omit({ id: true,
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
-export const insertDoctorApplicationSchema = createInsertSchema(doctorApplications, {
-  licensedStates: z.array(z.string()),
-}).omit({ id: true, createdAt: true, reviewedAt: true, reviewedByUserId: true, status: true });
 export const insertDoctorProfileSchema = createInsertSchema(doctorProfiles).omit({ id: true, createdAt: true });
 export const insertSymptomReportSchema = createInsertSchema(symptomReports).omit({ id: true, createdAt: true });
 export const insertPairingRequestSchema = createInsertSchema(pairingRequests).omit({ id: true, requestedAt: true, respondedAt: true, status: true });
 
 export type DoctorApplication = typeof doctorApplications.$inferSelect;
-export type InsertDoctorApplication = z.infer<typeof insertDoctorApplicationSchema>;
+export type InsertDoctorApplication = typeof doctorApplications.$inferInsert;
 export type DoctorAvailability = typeof doctorAvailability.$inferSelect;
 export type DoctorProfile = typeof doctorProfiles.$inferSelect;
-export type InsertDoctorProfile = z.infer<typeof insertDoctorProfileSchema>;
+export type InsertDoctorProfile = typeof doctorProfiles.$inferInsert;
 export type SymptomReport = typeof symptomReports.$inferSelect;
 export type InsertSymptomReport = z.infer<typeof insertSymptomReportSchema>;
 export type PairingRequest = typeof pairingRequests.$inferSelect;

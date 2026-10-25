@@ -2,6 +2,7 @@ import { Router } from "express";
 import { isDemoMode } from "../config";
 import { videoAvailable } from "../services/videoService";
 import { DOCUMENT_UPLOADS_ENABLED } from "./documents";
+import { reminderDeliveryStatus } from "../services/reminderService";
 
 const router = Router();
 
@@ -9,7 +10,7 @@ const router = Router();
 // so the interface can say so plainly instead of implying capabilities that
 // aren't configured (a fake "online" agent, a video button that goes nowhere).
 // Nothing here is a secret or identifies a person.
-router.get("/", (_req, res) => {
+router.get("/", async (_req, res) => {
   res.json({
     demoMode: isDemoMode(),
     features: {
@@ -23,6 +24,9 @@ router.get("/", (_req, res) => {
       voiceInput: isDemoMode() && process.env.NODE_ENV !== "production",
       voiceInputIsDemo: !process.env.STT_PROVIDER,
       documentUploads: DOCUMENT_UPLOADS_ENABLED,
+      // "active" only if the scheduler has actually run recently; otherwise the
+      // interface says reminders are saved but not being delivered.
+      reminderDelivery: await reminderDeliveryStatus(),
       smsReminders: false,
       liveSupportChat: false,
       aiAssistant: !!process.env.OPENAI_API_KEY && process.env.AI_PHI_PROCESSING_CONFIRMED === "true",
