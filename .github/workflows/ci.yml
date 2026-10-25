@@ -24,6 +24,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/patient_doctor_app_test
       E2E_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/patient_doctor_app_e2e_test
+      PROD_SMOKE_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/patient_doctor_app_prodsmoke_test
       JWT_SECRET: ci-only-secret
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +41,8 @@ jobs:
         run: npm run build
       - name: Install browser
         run: npx playwright install --with-deps chromium
+      - name: Production-build smoke test (the built app, production CSP, every role signs in)
+        run: npm run test:prod
       - name: End-to-end and accessibility tests
         run: npm run test:e2e
       - name: Keep failure evidence
