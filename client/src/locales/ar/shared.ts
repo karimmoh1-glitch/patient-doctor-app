@@ -59,5 +59,7 @@ const t: Partial<Record<Key, string>> = {
   "routetitle.login": "تسجيل الدخول",
   "routetitle.signup": "إنشاء حساب",
   "routetitle.apply": "التقديم بصفة طبيب",
+  "routetitle.getStarted": "ابدأ",
+  "routetitle.welcome": "أهلًا بك",
 };
 export default t;

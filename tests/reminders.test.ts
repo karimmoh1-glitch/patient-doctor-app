@@ -3,7 +3,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { getApp, signupPatient, createDoctor, createCaregiverAccount, connect, auth, issuePrescription } from "./helpers";
 import { storage } from "../server/storage";
-import { dispatchDueReminders, nextOccurrence, occurrencesInWindow, type ReminderSchedule } from "../server/services/reminderService";
+import { dispatchAppointmentReminders, dispatchDueReminders, nextOccurrence, occurrencesInWindow, type ReminderSchedule } from "../server/services/reminderService";
 
 let app: Express;
 beforeAll(async () => {
@@ -211,5 +211,57 @@ describe("notifications", () => {
     expect((await request(app).get("/api/notifications").set(auth(a.token))).body.unread).toBe(1);
     await request(app).post("/api/notifications/read").set(auth(a.token)).send({ ids: [n.id] });
     expect((await request(app).get("/api/notifications").set(auth(a.token))).body.unread).toBe(0);
+  });
+});
+
+describe("appointment notices and message notices", () => {
+  async function confirmedVisit(hoursAhead: number) {
+    const patient = await signupPatient();
+    const doctor = await createDoctor({ name: "Dr. Notice" });
+    const { pairingId } = await connect(patient, doctor);
+    const appt = await storage.createAppointment({
+      pairingRequestId: pairingId, patientUserId: patient.id, doctorProfileId: doctor.profileId, type: "Phone Call",
+      reason: "SECRET REASON", scheduledAt: new Date(Date.now() + hoursAhead * 3_600_000), durationMinutes: 30, questionsForDoctor: [],
+    });
+    await request(app).patch(`/api/appointments/${appt.id}/confirm`).set(auth(doctor.token));
+    return { patient, doctor, appt, pairingId };
+  }
+  const notices = async (userId: string) => (await storage.getNotificationsForUser(userId, 20)).filter((n) => n.kind === "appointment.soon");
+
+  it("tells the patient once, in the 24 hours before a confirmed visit, without saying why they're going", async () => {
+    const { patient } = await confirmedVisit(5);
+    await Promise.all([dispatchAppointmentReminders(new Date()), dispatchAppointmentReminders(new Date())]);
+    await dispatchAppointmentReminders(new Date());
+    const mine = await notices(patient.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0].params).toMatchObject({ doctorName: "Dr. Notice" });
+    expect(JSON.stringify(mine)).not.toMatch(/SECRET REASON/);
+  });
+
+  it("does not remind about visits that are far off, unconfirmed or cancelled", async () => {
+    const far = await confirmedVisit(72);
+    await dispatchAppointmentReminders(new Date());
+    expect(await notices(far.patient.id)).toHaveLength(0);
+
+    const cancelled = await confirmedVisit(5);
+    await request(app).patch(`/api/appointments/${cancelled.appt.id}/cancel`).set(auth(cancelled.patient.token));
+    await dispatchAppointmentReminders(new Date());
+    expect(await notices(cancelled.patient.id)).toHaveLength(0);
+  });
+
+  it("tells the other person about a new message, once until they have seen it, and never includes the text", async () => {
+    const patient = await signupPatient({ name: "Nora Patient" });
+    const doctor = await createDoctor({ name: "Dr. Reader" });
+    const { pairingId } = await connect(patient, doctor);
+    for (const body of ["PRIVATE words one", "PRIVATE words two"]) {
+      expect((await request(app).post(`/api/pairings/${pairingId}/messages`).set(auth(patient.token)).send({ body })).status).toBe(201);
+    }
+    const forDoctor = (await storage.getNotificationsForUser(doctor.id, 10)).filter((n) => n.kind === "message.new");
+    expect(forDoctor).toHaveLength(1);
+    expect(forDoctor[0].params).toEqual({ name: "Nora Patient" });
+    expect(JSON.stringify(forDoctor)).not.toMatch(/PRIVATE/);
+    // And the patient is told when the doctor replies.
+    await request(app).post(`/api/pairings/${pairingId}/messages`).set(auth(doctor.token)).send({ body: "reply" });
+    expect((await storage.getNotificationsForUser(patient.id, 10)).filter((n) => n.kind === "message.new")).toHaveLength(1);
   });
 });

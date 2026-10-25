@@ -7,7 +7,7 @@ import PageHeader from "@/components/page-header";
 import QueryState, { EmptyBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { timeAgo } from "@/lib/format";
+import { formatRelativeDay, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface Item { id: string; kind: string; params: Record<string, string | number>; link: string | null; createdAt: string; read: boolean }
@@ -20,7 +20,9 @@ function messageFor(t: (k: MessageKey, v?: Record<string, string | number>) => s
     return n.params.medicationName ? t("notif.reminder.dueNamed", n.params) : t("notif.reminder.due", n.params);
   }
   const key = `notif.${n.kind}` as MessageKey;
-  const text = t(key, n.params);
+  // A time arrives as an instant and is shown in the reader's language and zone.
+  const params = n.params.when ? { ...n.params, when: formatRelativeDay(String(n.params.when)) } : n.params;
+  const text = t(key, params);
   return text === key ? t("notif.generic") : text;
 }
 

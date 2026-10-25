@@ -29,6 +29,8 @@ export const appointments = pgTable("appointments", {
   doctorNotes: text("doctor_notes"),
   followUpInstructions: text("follow_up_instructions"),
   followUpDate: timestamp("follow_up_date"),
+  // Set once the "visit coming up" notice has gone out; cleared if the visit is moved.
+  reminderSentAt: timestamp("reminder_sent_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_appointments_patient").on(table.patientUserId, table.scheduledAt),

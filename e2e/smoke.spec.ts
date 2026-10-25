@@ -26,3 +26,22 @@ test("browsing doctors needs no account, and connecting says so up front", async
   await expect(page.getByRole("heading", { level: 2, name: "Dr. Emily Chen" })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 2, name: "Dr. Fatima Malik" })).toBeVisible();
 });
+
+test("every public page names itself in the browser tab, in English and in Arabic", async ({ page }) => {
+  const titles: [string, string, string][] = [
+    ["/find-doctors", "Find a doctor · Avela", "ابحث عن طبيب · أفيلا"],
+    ["/join/doctor", "Apply as a doctor · Avela", "التقديم كطبيب · أفيلا"],
+    ["/privacy", "Privacy · Avela", "الخصوصية · أفيلا"],
+    ["/get-started", "Get started · Avela", "ابدأ · أفيلا"],
+  ];
+  for (const [path, en, ar] of titles) {
+    await page.goto(path);
+    await page.evaluate(() => localStorage.setItem("pdapp_locale", "en"));
+    await page.reload();
+    await expect(page).toHaveTitle(en);
+    await page.evaluate(() => localStorage.setItem("pdapp_locale", "ar"));
+    await page.reload();
+    await expect(page).toHaveTitle(ar);
+    await page.evaluate(() => localStorage.setItem("pdapp_locale", "en"));
+  }
+});

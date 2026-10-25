@@ -57,4 +57,6 @@ export default {
   "routetitle.login": "Sign in",
   "routetitle.signup": "Create an account",
   "routetitle.apply": "Apply as a doctor",
+  "routetitle.getStarted": "Get started",
+  "routetitle.welcome": "Welcome",
 } as const;

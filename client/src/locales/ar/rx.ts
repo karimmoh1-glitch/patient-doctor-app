@@ -151,5 +151,7 @@ const t: Partial<Record<Key, string>> = {
   "rx.form.saveDraft": "حفظ المسودة",
   "rx.form.savedDraft": "تم حفظ المسودة",
   "rx.form.savedDraftBody": "لا يستطيع المريض رؤيتها بعد. راجعها واعتمدها عندما تكون جاهزًا.",
+  "notif.message.new": "رسالة جديدة من {name}",
+  "notif.appointment.soon": "زيارتك مع {doctorName} قريبة: {when}",
 };
 export default t;

@@ -133,6 +133,26 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
+/**
+ * One "your visit is coming up" notice per confirmed appointment in the next
+ * 24 hours. The marker column is claimed in a single UPDATE, so overlapping
+ * runs cannot send it twice. The notice carries only a kind, the doctor's
+ * name and the time: nothing about why the visit is happening.
+ */
+export async function dispatchAppointmentReminders(now: Date, hours = 24): Promise<number> {
+  const due = await storage.claimDueAppointmentReminders(now, hours);
+  for (const a of due) {
+    const doctor = await storage.getDoctorProfile(a.doctorProfileId);
+    await storage.createNotification({
+      userId: a.patientUserId,
+      kind: "appointment.soon",
+      params: { doctorName: doctor?.name ?? "", when: new Date(a.scheduledAt).toISOString() },
+      link: `/appointments/${a.id}`,
+    });
+  }
+  return due.length;
+}
+
 export const REMINDER_JOB = "reminders";
 
 /** Whether automatic delivery is really running: "active" only if a run happened recently. */

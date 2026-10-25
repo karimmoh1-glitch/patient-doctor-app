@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
-import { dispatchDueReminders, REMINDER_JOB } from "../services/reminderService";
+import { dispatchAppointmentReminders, dispatchDueReminders, REMINDER_JOB } from "../services/reminderService";
 
 const router = Router();
 
@@ -23,8 +23,9 @@ async function runReminders(req: any, res: any) {
   const now = new Date();
   const expired = await storage.expireDuePrescriptions(now);
   const result = await dispatchDueReminders(now, { emailEnabled: !!process.env.RESEND_API_KEY });
-  await storage.recordJobRun(REMINDER_JOB, now, { ...result, expiredPrescriptions: expired.length });
-  res.json({ ok: true, ...result, expiredPrescriptions: expired.length });
+  const appointmentNotices = await dispatchAppointmentReminders(now);
+  await storage.recordJobRun(REMINDER_JOB, now, { ...result, expiredPrescriptions: expired.length, appointmentNotices });
+  res.json({ ok: true, ...result, expiredPrescriptions: expired.length, appointmentNotices });
 }
 
 router.get("/reminders", runReminders);

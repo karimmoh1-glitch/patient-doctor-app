@@ -149,6 +149,9 @@ export interface IStorage {
   finishReminderDelivery(id: string, status: "sent" | "failed", errorCode?: string): Promise<void>;
   recordJobRun(job: string, now: Date, result: Record<string, unknown>): Promise<void>;
   getJobRun(job: string): Promise<{ lastRunAt: Date; lastResult: Record<string, unknown> } | undefined>;
+  /** Atomically marks and returns confirmed visits starting within `hours` whose notice hasn't gone out. */
+  claimDueAppointmentReminders(now: Date, hours: number): Promise<Appointment[]>;
+  hasUnreadNotification(userId: string, kind: string, link: string): Promise<boolean>;
   createNotification(data: InsertNotification): Promise<Notification>;
   getNotificationsForUser(userId: string, limit: number): Promise<Notification[]>;
   countUnreadNotifications(userId: string): Promise<number>;
@@ -815,6 +818,29 @@ export class DbStorage implements IStorage {
   async getJobRun(job: string) {
     const [row] = await db.select().from(jobRuns).where(eq(jobRuns.job, job));
     return row ? { lastRunAt: row.lastRunAt, lastResult: row.lastResult } : undefined;
+  }
+
+  async claimDueAppointmentReminders(now: Date, hours: number) {
+    const until = new Date(now.getTime() + hours * 3_600_000);
+    return db
+      .update(appointments)
+      .set({ reminderSentAt: now })
+      .where(and(
+        eq(appointments.status, "confirmed"),
+        isNull(appointments.reminderSentAt),
+        sqlOp`${appointments.scheduledAt} > ${now}`,
+        sqlOp`${appointments.scheduledAt} <= ${until}`,
+      ))
+      .returning();
+  }
+
+  async hasUnreadNotification(userId: string, kind: string, link: string) {
+    const [row] = await db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.kind, kind), eq(notifications.link, link), isNull(notifications.readAt)))
+      .limit(1);
+    return !!row;
   }
 
   async createNotification(data: InsertNotification) {

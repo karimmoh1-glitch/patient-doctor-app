@@ -331,6 +331,16 @@ router.post("/:id/messages", requireAuth, messageLimiter, async (req, res) => {
   }
   const userId = (req as any).userId as string;
   const message = await storage.createMessage({ pairingRequestId: pairing.id, senderUserId: userId, body: parsed.data.body });
+  // Tell the other person in-app, once until they've seen it (no message text, ever).
+  const doctorProfile = await storage.getDoctorProfile(pairing.doctorProfileId);
+  const recipientId = userId === pairing.patientUserId ? doctorProfile?.userId : pairing.patientUserId;
+  if (recipientId) {
+    const senderName = userId === pairing.patientUserId ? (await storage.getUser(userId))?.name ?? "" : doctorProfile?.name ?? "";
+    const link = `/chat/${pairing.id}?with=${encodeURIComponent(senderName)}`;
+    if (!(await storage.hasUnreadNotification(recipientId, "message.new", link))) {
+      await storage.createNotification({ userId: recipientId, kind: "message.new", params: { name: senderName }, link });
+    }
+  }
   res.status(201).json({ id: message.id, senderUserId: message.senderUserId, body: message.body, createdAt: message.createdAt });
 });
 

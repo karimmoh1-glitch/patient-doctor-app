@@ -149,4 +149,6 @@ export default {
   "rx.form.saveDraft": "Save draft",
   "rx.form.savedDraft": "Draft saved",
   "rx.form.savedDraftBody": "The patient can't see it yet. Review it and authorize it when you're ready.",
+  "notif.message.new": "New message from {name}",
+  "notif.appointment.soon": "Your visit with {doctorName} is coming up: {when}",
 } as const;

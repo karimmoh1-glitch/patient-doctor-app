@@ -170,7 +170,7 @@ export async function bookSlot(input: {
         // Moving a visit means the doctor has not agreed to the new time yet.
         const [moved] = await tx
           .update(appointments)
-          .set({ scheduledAt: input.start, status: "requested" })
+          .set({ scheduledAt: input.start, status: "requested", reminderSentAt: null })
           .where(and(eq(appointments.id, input.rescheduleAppointmentId), inArray(appointments.status, [...LIVE_STATUSES])))
           .returning();
         if (!moved) return { ok: false, reason: "slot_unavailable" } as const;
