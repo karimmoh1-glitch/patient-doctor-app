@@ -4,6 +4,7 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
+import { normalizeLang } from "../services/serverText";
 import {
   sendDoctorApplicationApprovedEmail,
   sendDoctorApplicationRejectedEmail,
@@ -18,6 +19,11 @@ const router = Router();
 const adminOnly = [requireAuth, requireRole("admin")] as const;
 
 type Application = NonNullable<Awaited<ReturnType<typeof storage.getDoctorApplication>>>;
+
+// Emails go out in the language the applicant chose for their account.
+async function applicantLang(a: Application) {
+  return normalizeLang(a.userId ? (await storage.getUser(a.userId))?.language : undefined);
+}
 
 // Licence numbers, NPIs and contact details are sensitive, so the list is
 // audited and carries only what a reviewer needs.
@@ -89,7 +95,7 @@ router.post("/doctor-applications/:id/approve", ...adminOnly, async (req, res) =
     });
   }
   await logAudit({ actorUserId: reviewerId, action: "doctor_application.approved", targetType: "doctor_application", targetId: application.id, subjectUserId: null });
-  sendDoctorApplicationApprovedEmail(application.email, application.name).catch(() => {});
+  sendDoctorApplicationApprovedEmail(application.email, application.name, await applicantLang(application)).catch(() => {});
   res.json({ id: application.id, status: "approved" });
 });
 
@@ -103,7 +109,7 @@ router.post("/doctor-applications/:id/request-info", ...adminOnly, async (req, r
   const updated = await storage.requestDoctorApplicationInfo(req.params.id, reviewerId, parsed.data.message);
   if (!updated) return res.status(409).json({ message: "This application is not waiting for review." });
   await logAudit({ actorUserId: reviewerId, action: "doctor_application.info_requested", targetType: "doctor_application", targetId: updated.id, subjectUserId: null });
-  sendDoctorInfoRequestedEmail(updated.email, updated.name, parsed.data.message).catch(() => {});
+  sendDoctorInfoRequestedEmail(updated.email, updated.name, parsed.data.message, await applicantLang(updated)).catch(() => {});
   res.json({ id: updated.id, status: "needs_info" });
 });
 
@@ -114,7 +120,7 @@ router.post("/doctor-applications/:id/reject", ...adminOnly, async (req, res) =>
   const updated = await storage.rejectDoctorApplication(req.params.id, reviewerId, reason);
   if (!updated) return res.status(409).json({ message: "This application is not waiting for review." });
   await logAudit({ actorUserId: reviewerId, action: "doctor_application.rejected", targetType: "doctor_application", targetId: updated.id, subjectUserId: null });
-  sendDoctorApplicationRejectedEmail(updated.email, updated.name, reason).catch(() => {});
+  sendDoctorApplicationRejectedEmail(updated.email, updated.name, reason, await applicantLang(updated)).catch(() => {});
   res.json({ id: updated.id, status: "rejected" });
 });
 
@@ -125,7 +131,7 @@ router.post("/doctor-applications/:id/suspend", ...adminOnly, async (req, res) =
   const updated = await storage.suspendDoctor(req.params.id, reviewerId, reason);
   if (!updated) return res.status(409).json({ message: "Only an approved doctor can be suspended." });
   await logAudit({ actorUserId: reviewerId, action: "doctor.suspended", targetType: "doctor_application", targetId: updated.id, subjectUserId: null });
-  sendDoctorSuspendedEmail(updated.email, updated.name).catch(() => {});
+  sendDoctorSuspendedEmail(updated.email, updated.name, await applicantLang(updated)).catch(() => {});
   res.json({ id: updated.id, status: "suspended" });
 });
 

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireApprovedDoctor } from "../middleware/doctor";
+import { getAvailability } from "../services/schedulingService";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { clockInZone, dateKeyInZone, resolvePatientTimezone } from "../lib/localTime";
 
@@ -101,12 +102,30 @@ router.get("/doctor", requireAuth, requireApprovedDoctor, async (req, res) => {
     }
   }
 
+  // Upcoming = the next seven days after today, soonest first.
+  const upcoming = [];
+  const horizon = Date.now() + 7 * 86_400_000;
+  for (const a of appointments.sort((x, y) => new Date(x.scheduledAt).getTime() - new Date(y.scheduledAt).getTime())) {
+    const at = new Date(a.scheduledAt).getTime();
+    if ((a.status === "requested" || a.status === "confirmed") && at > Date.now() && at <= horizon && dateKeyInZone(new Date(a.scheduledAt), tz) !== today) {
+      const patient = await storage.getUser(a.patientUserId);
+      upcoming.push({ ...a, patientName: patient?.name || "Patient" });
+      if (upcoming.length >= 8) break;
+    }
+  }
+  const hours = await getAvailability(doctorProfile.id);
+
   res.json({
     todaysAppointments: todaysAppointments.sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
+    upcomingAppointments: upcoming,
     pendingConnectionRequests: pairings.filter((p) => p.status === "requested").length,
     pendingAppointmentConfirmations: appointments.filter((a) => a.status === "requested").length,
     activePatients: pairings.filter((p) => p.status === "accepted").length,
     activePrescriptionsWritten: prescriptions.filter((p) => p.status === "active").length,
+    // Drafts the doctor started but has not reviewed and authorized yet.
+    draftPrescriptions: prescriptions.filter((p) => p.status === "draft").length,
+    // Without published hours, nobody can book this doctor, and the page says so.
+    hasPublishedHours: hours.length > 0,
   });
 });
 

@@ -27,6 +27,25 @@ command, which also applies pending migrations (needs `DATABASE_URL` at build ti
   titles and notes still save. Rate limits are per warm instance, not global.
 - Voice input is off in production until a speech provider is implemented.
 
+## Scheduled jobs
+
+Reminders (and the daily expiry of finished prescriptions) run when something calls `GET /api/cron/reminders` with
+`Authorization: Bearer $CRON_SECRET`. With no `CRON_SECRET` the endpoint answers 503 and the app tells patients that
+automatic reminders are off. Vercel Cron (see `vercel.json`) sends the header itself, but the free plan allows only
+a daily run; `.github/workflows/reminders.yml` calls it every five minutes once `AVELA_URL` and `CRON_SECRET` are
+repository secrets. The app counts delivery as "active" only if a run completed in the last two hours.
+
+## Administrators
+
+`ADMIN_EMAIL=… ADMIN_NAME=… ADMIN_PASSWORD='(12+ characters)' npm run admin:create` creates one; it never changes
+an existing account. Suspending a doctor from the admin screen signs them out immediately.
+
+## Verifying a deployment
+
+After every deploy: `npm run build && npm run test:prod` (the built app with the production CSP), then open the live
+URL, check `GET /api/health`, `GET /api/config`, sign in as each role, and reload a nested route. A development-server
+pass is not evidence the deployed bundle works.
+
 ## Backups and recovery (to be arranged by the operator)
 
 Use the database host's managed backups with point-in-time recovery; write down the restore time objective and

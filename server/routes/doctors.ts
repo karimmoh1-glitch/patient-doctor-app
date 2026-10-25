@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, createDeviceForLogin, signToken } from "../middleware/auth";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { doctorStatusFor } from "../services/doctorStatus";
+import { normalizeLang } from "../services/serverText";
 import { isDemoMode } from "../config";
 import { logAudit } from "../services/auditService";
 import { getAvailability, getOpenSlots, isValidTimezone, replaceAvailability, validateAvailabilityWindows } from "../services/schedulingService";
@@ -263,7 +264,7 @@ router.post("/me/application/submit", requireAuth, requireRole("doctor"), applyL
   if (!submitted) return res.status(409).json({ message: "Your application can't be submitted in its current state." });
 
   await logAudit({ actorUserId: userId, action: "doctor_application.submitted", targetType: "doctor_application", targetId: submitted.id, subjectUserId: null });
-  sendDoctorApplicationReceivedEmail(submitted.email, submitted.name).catch(() => {});
+  sendDoctorApplicationReceivedEmail(submitted.email, submitted.name, normalizeLang((await storage.getUser(userId))?.language)).catch(() => {});
   for (const adminEmail of getAdminNotificationEmails()) {
     sendNewDoctorApplicationAdminEmail(adminEmail, submitted.name, submitted.specialty ?? "").catch(() => {});
   }

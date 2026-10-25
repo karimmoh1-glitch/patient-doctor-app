@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
+import { normalizeLang, st, stDateTime, stWord } from "../services/serverText";
+import { patientTimezoneById } from "../lib/localTime";
 
 const router = Router();
 
@@ -16,6 +18,8 @@ interface TimelineEvent {
 // separate materialized timeline table — one source of truth per event
 // type, no sync bugs between "the record" and "the timeline entry for it".
 async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
+  const lang = normalizeLang((await storage.getUser(patientUserId))?.language);
+  const zone = await patientTimezoneById(patientUserId);
   const [appointments, prescriptions, medications, pharmacyOrders, documents, followUps, pairings] = await Promise.all([
     storage.getAppointmentsByPatient(patientUserId),
     storage.getPrescriptionsByPatient(patientUserId),
@@ -30,7 +34,7 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
   async function doctorName(id: string): Promise<string> {
     if (!doctorNameCache.has(id)) {
       const d = await storage.getDoctorProfile(id);
-      doctorNameCache.set(id, d?.name || "your doctor");
+      doctorNameCache.set(id, d?.name || st(lang, "yourDoctor"));
     }
     return doctorNameCache.get(id)!;
   }
@@ -42,20 +46,16 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
     events.push({
       date: (a.createdAt || a.scheduledAt) as unknown as string,
       kind: "appointment",
-      title:
-        a.status === "completed" ? `Appointment with ${name} completed`
-        : a.status === "confirmed" ? `Appointment confirmed with ${name}`
-        : a.status === "cancelled" ? `Appointment with ${name} cancelled`
-        : `Appointment requested with ${name}`,
-      subtitle: `${a.type} · ${new Date(a.scheduledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`,
+      title: st(lang, a.status === "completed" ? "tl.appt.completed" : a.status === "confirmed" ? "tl.appt.confirmed" : a.status === "cancelled" ? "tl.appt.cancelled" : "tl.appt.requested", { name }),
+      subtitle: `${stWord(lang, "type", a.type)} · ${stDateTime(lang, a.scheduledAt, zone)}`,
       link: `/appointments/${a.id}`,
     });
     if (a.status === "completed" && a.doctorNotes) {
       events.push({
         date: a.scheduledAt as unknown as string,
         kind: "appointment",
-        title: `Visit summary from ${name}`,
-        subtitle: a.followUpInstructions ? "Follow-up instructions included" : undefined,
+        title: st(lang, "tl.visitSummary", { name }),
+        subtitle: a.followUpInstructions ? st(lang, "tl.followUpIncluded") : undefined,
         link: `/appointments/${a.id}`,
       });
     }
@@ -66,8 +66,8 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
     events.push({
       date: p.createdAt as unknown as string,
       kind: "prescription",
-      title: `New prescription: ${p.medicationName}`,
-      subtitle: `Prescribed by ${name} (demo)`,
+      title: st(lang, "tl.rx.new", { med: p.medicationName }),
+      subtitle: st(lang, "tl.rx.by", { name }),
       link: "/prescriptions",
     });
   }
@@ -76,8 +76,8 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
     events.push({
       date: m.createdAt as unknown as string,
       kind: "medication",
-      title: `Started tracking ${m.name}`,
-      subtitle: `${m.scheduleTimes.length}x daily`,
+      title: st(lang, "tl.med.started", { med: m.name }),
+      subtitle: st(lang, "tl.med.daily", { count: m.scheduleTimes.length }),
       link: "/medications",
     });
   }
@@ -87,8 +87,8 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
       events.push({
         date: h.at,
         kind: "pharmacy",
-        title: `Pharmacy order ${h.status.replace(/_/g, " ")}`,
-        subtitle: o.fulfillmentType === "delivery" ? "Home delivery (demo)" : "Pickup (demo)",
+        title: st(lang, "tl.pharm", { status: stWord(lang, "status", h.status) }),
+        subtitle: o.fulfillmentType === "delivery" ? st(lang, "tl.pharm.delivery") : st(lang, "tl.pharm.pickup"),
         link: "/pharmacy",
       });
     }
@@ -98,8 +98,8 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
     events.push({
       date: d.createdAt as unknown as string,
       kind: "document",
-      title: `Document added: ${d.title}`,
-      subtitle: d.category,
+      title: st(lang, "tl.doc.added", { title: d.title }),
+      subtitle: stWord(lang, "cat", d.category),
       link: "/documents",
     });
   }
@@ -109,7 +109,7 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
       date: f.createdAt as unknown as string,
       kind: "follow_up",
       title: f.title,
-      subtitle: f.status === "done" ? "Completed" : "Follow-up task",
+      subtitle: f.status === "done" ? st(lang, "tl.followUp.done") : st(lang, "tl.followUp.task"),
       link: "/follow-ups",
     });
   }
@@ -120,8 +120,8 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
       events.push({
         date: p.respondedAt as unknown as string,
         kind: "message",
-        title: `Connected with ${name}`,
-        subtitle: "Added to your care team",
+        title: st(lang, "tl.connected", { name }),
+        subtitle: st(lang, "tl.careTeam"),
         link: "/care-team",
       });
     }

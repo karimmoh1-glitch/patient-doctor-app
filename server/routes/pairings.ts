@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit, logAuditStrict } from "../services/auditService";
+import { normalizeLang } from "../services/serverText";
 import { sendPairingRequestedEmail, sendPairingAcceptedEmail } from "../services/emailService";
 
 const router = Router();
@@ -63,7 +64,7 @@ router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req
     const doctorUser = await storage.getUser(doctor.userId);
     const patientUser = await storage.getUser(patientUserId);
     if (doctorUser && patientUser) {
-      sendPairingRequestedEmail(doctorUser.email, doctor.name, patientUser.name).catch(() => {});
+      sendPairingRequestedEmail(doctorUser.email, doctor.name, patientUser.name, normalizeLang(doctorUser.language)).catch(() => {});
     }
   }
 
@@ -231,7 +232,7 @@ async function respondToPairing(req: any, res: any, status: "accepted" | "declin
   if (status === "accepted") {
     const patient = await storage.getUser(pairing.patientUserId);
     if (patient) {
-      sendPairingAcceptedEmail(patient.email, patient.name, doctorProfile.name).catch(() => {});
+      sendPairingAcceptedEmail(patient.email, patient.name, doctorProfile.name, normalizeLang(patient.language)).catch(() => {});
     }
   }
 

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { makeLimiter, emailKey } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { doctorStatusFor } from "../services/doctorStatus";
+import { normalizeLang } from "../services/serverText";
 import { signToken, createDeviceForLogin, requireAuth } from "../middleware/auth";
 import { insertUserSchema } from "@shared/schema";
 import { US_STATES } from "@shared/specialties";
@@ -180,7 +181,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
     const appUrl = process.env.APP_URL || "http://localhost:3001";
     const resetLink = `${appUrl}/reset-password?token=${token}`;
-    sendPasswordResetEmail(user.email, user.name, resetLink).catch(() => {});
+    sendPasswordResetEmail(user.email, user.name, resetLink, normalizeLang(user.language)).catch(() => {});
   }
 
   res.json({ message: "If an account with that email exists, we've sent a password reset link." });

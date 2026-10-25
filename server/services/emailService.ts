@@ -57,22 +57,27 @@ function getResendClient(): { client: Resend; fromEmail: string } | null {
   };
 }
 
-function emailWrapper(title: string, body: string): string {
+type Lang = "en" | "ar";
+
+function emailWrapper(title: string, body: string, lang: Lang = "en"): string {
+  const rtl = lang === "ar";
+  const footer = rtl ? "هذه رسالة آلية من أفيلا. يُرجى عدم الرد عليها مباشرة." : "This is an automated message from Avela. Please do not reply directly.";
+  const brand = rtl ? "أفيلا" : "Avela";
   return `<!DOCTYPE html>
-<html>
+<html lang="${lang}" dir="${rtl ? "rtl" : "ltr"}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif">
+<body style="margin:0;padding:0;background:#f4f1ea;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Tahoma,Arial,sans-serif">
 <div style="max-width:560px;margin:0 auto;padding:32px 16px">
-<div style="background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden">
-<div style="background:linear-gradient(135deg,#0F766E 0%,#0d5f58 100%);padding:24px 28px">
-<h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.3px">Avela</h1>
+<div style="background:#fff;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden">
+<div style="background:#0E5A4F;padding:22px 28px">
+<h1 style="margin:0;color:#fff;font-size:24px;font-weight:700">${brand}</h1>
 </div>
 <div style="padding:28px">
-<h2 style="margin:0 0 16px;color:#1a1a2e;font-size:19px;font-weight:600;line-height:1.4">${title}</h2>
+<h2 style="margin:0 0 16px;color:#16211F;font-size:20px;font-weight:600;line-height:1.4">${title}</h2>
 ${body}
 </div>
-<div style="padding:16px 28px;background:#fafafa;border-top:1px solid #f0f0f0">
-<p style="margin:0;color:#a1a1aa;font-size:12px;line-height:1.5">This is an automated message from Avela. Please do not reply directly.</p>
+<div style="padding:16px 28px;background:#fbfaf6;border-top:1px solid #eee">
+<p style="margin:0;color:#6b7370;font-size:13px;line-height:1.5">${footer}</p>
 </div>
 </div>
 </div>
@@ -117,145 +122,97 @@ export async function sendEmail(msg: EmailMessage): Promise<boolean> {
   }
 }
 
-export async function sendDoctorApplicationReceivedEmail(email: string, name: string): Promise<void> {
-  const html = emailWrapper(
-    "We've received your application",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Thanks for applying to join Avela as a doctor. An admin will review your license and specialty information and follow up by email.</p>`
-  );
-  await sendEmail({
-    to: email,
-    subject: "Your Avela doctor application was received",
-    body: `Hi ${name}, thanks for applying to join Avela as a doctor. An admin will review your application and follow up by email.`,
-    html,
-  });
+// ---------------------------------------------------------------------------
+// Messages. Each one exists in English and Arabic and is sent in the language
+// the recipient chose. Subjects are deliberately generic: they never include
+// medicine names, conditions or a doctor's decision details.
+// ---------------------------------------------------------------------------
+interface Spec { subject: string; heading: string; paragraphs: string[]; cta?: { label: string; href: string } }
+interface Message { subject: string; heading: string; p: readonly string[]; cta?: { label: string; href: string } }
+
+const T = {
+  en: {
+    hi: (n: string) => `Hi ${n},`,
+    received: { subject: "Your Avela doctor application was received", heading: "We've received your application", p: ["Thanks for applying to join Avela as a doctor. A person on our team will review your details and follow up by email."] } as Message,
+    approved: { subject: "Your Avela doctor application was approved", heading: "Your application was approved", p: ["Your Avela doctor application was approved. You can now sign in; your profile is visible to matching patients."] } as Message,
+    rejected: (reason?: string): Message => ({ subject: "Update on your Avela doctor application", heading: "Update on your application", p: [`Your Avela doctor application wasn't approved${reason ? `: ${reason}` : "."}`] }),
+    info: (message: string): Message => ({ subject: "More information needed for your Avela application", heading: "We need a little more information", p: ["The team reviewing your application asked for more information:", message, "Sign in, update your application and send it again."] }),
+    suspended: { subject: "Your Avela doctor account was suspended", heading: "Your doctor account was suspended", p: ["Your doctor account has been suspended and is not shown to patients. Sign in to see the reason, or contact the Avela team."] } as Message,
+    reset: (link: string): Message => ({ subject: "Reset your Avela password", heading: "Reset your password", p: ["We received a request to reset your Avela password. This link expires in 1 hour. If you didn't request this, you can safely ignore this email."], cta: { label: "Reset password", href: link } }),
+    pairingRequested: (patient: string): Message => ({ subject: "You have a new request on Avela", heading: "New patient connection request", p: [`${patient} would like to connect with you on Avela. Review the request from your dashboard.`] }),
+    pairingAccepted: (doctor: string): Message => ({ subject: "An update on your Avela request", heading: "You're connected", p: [`${doctor} accepted your connection request. You can now call them from Avela.`] }),
+    invite: (patient: string, link: string): Message => ({ subject: `${patient} invited you to their Care Circle on Avela`, heading: "You've been invited to a Care Circle", p: [`${patient} has invited you to join their Care Circle on Avela, a way to stay informed on the parts of their care they've chosen to share with you.`], cta: { label: "Accept invitation", href: link } }),
+  },
+  ar: {
+    hi: (n: string) => `مرحبًا ${n}،`,
+    received: { subject: "تم استلام طلبك للانضمام إلى أفيلا كطبيب", heading: "استلمنا طلبك", p: ["شكرًا لتقديمك طلب الانضمام إلى أفيلا كطبيب. سيراجع أحد أعضاء فريقنا بياناتك ويتواصل معك عبر البريد الإلكتروني."] } as Message,
+    approved: { subject: "تمت الموافقة على طلبك في أفيلا", heading: "تمت الموافقة على طلبك", p: ["تمت الموافقة على طلبك للانضمام إلى أفيلا كطبيب. يمكنك الآن تسجيل الدخول، وسيظهر ملفك للمرضى المناسبين."] } as Message,
+    rejected: (reason?: string): Message => ({ subject: "مستجدات بشأن طلبك في أفيلا", heading: "مستجدات بشأن طلبك", p: [`لم تتم الموافقة على طلبك للانضمام إلى أفيلا كطبيب${reason ? `: ${reason}` : "."}`] }),
+    info: (message: string): Message => ({ subject: "نحتاج إلى معلومات إضافية لطلبك في أفيلا", heading: "نحتاج إلى مزيد من المعلومات", p: ["طلب الفريق الذي يراجع طلبك معلومات إضافية:", message, "سجّل الدخول وحدّث طلبك ثم أرسله مرة أخرى."] }),
+    suspended: { subject: "تم إيقاف حسابك كطبيب في أفيلا", heading: "تم إيقاف حسابك كطبيب", p: ["تم إيقاف حسابك كطبيب ولم يعد ظاهرًا للمرضى. سجّل الدخول لمعرفة السبب، أو تواصل مع فريق أفيلا."] } as Message,
+    reset: (link: string): Message => ({ subject: "إعادة تعيين كلمة المرور في أفيلا", heading: "إعادة تعيين كلمة المرور", p: ["تلقينا طلبًا لإعادة تعيين كلمة مرورك في أفيلا. ينتهي هذا الرابط خلال ساعة واحدة. إذا لم تطلب ذلك، فيمكنك تجاهل هذه الرسالة بأمان."], cta: { label: "إعادة تعيين كلمة المرور", href: link } }),
+    pairingRequested: (patient: string): Message => ({ subject: "لديك طلب جديد في أفيلا", heading: "طلب تواصل جديد من مريض", p: [`يود ${patient} التواصل معك في أفيلا. راجع الطلب من لوحتك.`] }),
+    pairingAccepted: (doctor: string): Message => ({ subject: "مستجدات بشأن طلبك في أفيلا", heading: "تم الاتصال", p: [`قبل ${doctor} طلب التواصل. يمكنك الآن الاتصال به من أفيلا.`] }),
+    invite: (patient: string, link: string): Message => ({ subject: `دعاك ${patient} إلى دائرة رعايته في أفيلا`, heading: "تمت دعوتك إلى دائرة رعاية", p: [`دعاك ${patient} للانضمام إلى دائرة رعايته في أفيلا، وهي وسيلة لتبقى على اطلاع على ما اختار مشاركته معك من رعايته.`], cta: { label: "قبول الدعوة", href: link } }),
+  },
+};
+
+const toSpec = (m: Message): Spec => ({ subject: m.subject, heading: m.heading, paragraphs: [...m.p], cta: m.cta });
+
+// Every value placed in the HTML is escaped, so a name or a reviewer's message
+// can never become a working link or markup in someone's inbox.
+async function deliver(to: string, lang: Lang, name: string | null, spec: Spec): Promise<boolean> {
+  const hi = name ? T[lang].hi(name) : "";
+  const intro = hi ? `<p style="margin:0 0 12px;color:#3f3f46;font-size:16px;line-height:1.7">${escapeHtml(hi)}</p>` : "";
+  const paras = spec.paragraphs.map((p) => `<p style="margin:0 0 12px;color:#3f3f46;font-size:16px;line-height:1.7">${escapeHtml(p)}</p>`).join("");
+  const cta = spec.cta
+    ? `<p style="margin:16px 0 0"><a href="${escapeHtml(spec.cta.href)}" style="display:inline-block;background:#0E5A4F;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-size:16px;font-weight:600">${escapeHtml(spec.cta.label)}</a></p>`
+    : "";
+  const html = emailWrapper(escapeHtml(spec.heading), intro + paras + cta, lang);
+  const text = [hi, ...spec.paragraphs, spec.cta ? `${spec.cta.label}: ${spec.cta.href}` : ""].filter(Boolean).join("\n\n");
+  return sendEmail({ to, subject: spec.subject, body: text, html });
+}
+
+export async function sendDoctorApplicationReceivedEmail(email: string, name: string, lang: Lang = "en"): Promise<void> {
+  await deliver(email, lang, name, toSpec(T[lang].received));
 }
 
 export async function sendNewDoctorApplicationAdminEmail(adminEmail: string, applicantName: string, specialty: string): Promise<void> {
-  const html = emailWrapper(
-    "New doctor application",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">${applicantName} applied to join as a ${specialty} doctor. Review it from the admin dashboard.</p>`
-  );
-  await sendEmail({
-    to: adminEmail,
+  await deliver(adminEmail, "en", null, {
     subject: `New doctor application: ${applicantName}`,
-    body: `${applicantName} applied to join Avela as a ${specialty} doctor. Review it from the admin dashboard.`,
-    html,
+    heading: "New doctor application",
+    paragraphs: [`${applicantName} applied to join as a ${specialty} doctor. Review it from the admin dashboard.`],
   });
 }
 
-export async function sendDoctorApplicationApprovedEmail(email: string, name: string): Promise<void> {
-  const html = emailWrapper(
-    "Your application was approved",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Your Avela doctor application was approved. You can now log in and your profile is visible to matching patients.</p>`
-  );
-  await sendEmail({
-    to: email,
-    subject: "Your Avela doctor application was approved",
-    body: `Hi ${name}, your Avela doctor application was approved. You can now log in.`,
-    html,
-  });
+export async function sendDoctorApplicationApprovedEmail(email: string, name: string, lang: Lang = "en"): Promise<void> {
+  await deliver(email, lang, name, toSpec(T[lang].approved));
 }
 
-export async function sendDoctorApplicationRejectedEmail(email: string, name: string, reason?: string): Promise<void> {
-  const html = emailWrapper(
-    "Update on your application",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Your Avela doctor application wasn't approved${reason ? `: ${reason}` : "."}</p>`
-  );
-  await sendEmail({
-    to: email,
-    subject: "Update on your Avela doctor application",
-    body: `Hi ${name}, your Avela doctor application wasn't approved${reason ? `: ${reason}` : "."}`,
-    html,
-  });
+export async function sendDoctorApplicationRejectedEmail(email: string, name: string, reason?: string, lang: Lang = "en"): Promise<void> {
+  await deliver(email, lang, name, toSpec(T[lang].rejected(reason)));
 }
 
-export async function sendDoctorInfoRequestedEmail(email: string, name: string, message: string): Promise<void> {
-  const html = emailWrapper(
-    "We need a little more information",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">The Avela team reviewing your application asked for more information:</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">${message}</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Sign in, update your application and send it again.</p>`
-  );
-  await sendEmail({
-    to: email,
-    subject: "More information needed for your Avela application",
-    body: `Hi ${name}, the team reviewing your Avela application asked for more information: ${message} Sign in, update your application and send it again.`,
-    html,
-  });
+export async function sendDoctorInfoRequestedEmail(email: string, name: string, message: string, lang: Lang = "en"): Promise<void> {
+  await deliver(email, lang, name, toSpec(T[lang].info(message)));
 }
 
-export async function sendDoctorSuspendedEmail(email: string, name: string): Promise<void> {
-  const html = emailWrapper(
-    "Your Avela doctor account was suspended",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Your doctor account has been suspended and is not shown to patients. Sign in to see the reason or contact the Avela team.</p>`
-  );
-  await sendEmail({
-    to: email,
-    subject: "Your Avela doctor account was suspended",
-    body: `Hi ${name}, your Avela doctor account has been suspended. Sign in to see the reason or contact the team.`,
-    html,
-  });
+export async function sendDoctorSuspendedEmail(email: string, name: string, lang: Lang = "en"): Promise<void> {
+  await deliver(email, lang, name, toSpec(T[lang].suspended));
 }
 
-export async function sendPasswordResetEmail(email: string, name: string, resetLink: string): Promise<void> {
-  const html = emailWrapper(
-    "Reset your password",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${name},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">We received a request to reset your Avela password. This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
-     <p style="margin:0"><a href="${resetLink}" style="display:inline-block;background:#0F766E;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600">Reset password</a></p>`
-  );
-  await sendEmail({
-    to: email,
-    subject: "Reset your Avela password",
-    body: `Reset your Avela password: ${resetLink} (expires in 1 hour, ignore if you didn't request this)`,
-    html,
-  });
+export async function sendPasswordResetEmail(email: string, name: string, resetLink: string, lang: Lang = "en"): Promise<void> {
+  await deliver(email, lang, name, toSpec(T[lang].reset(resetLink)));
 }
 
-export async function sendPairingRequestedEmail(doctorEmail: string, doctorName: string, patientName: string): Promise<void> {
-  const html = emailWrapper(
-    "New patient connection request",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${doctorName},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">${patientName} would like to connect with you on Avela. Review the request from your dashboard.</p>`
-  );
-  await sendEmail({
-    to: doctorEmail,
-    subject: "You have a new request on Avela",
-    body: `${patientName} would like to connect with you on Avela. Review the request from your dashboard.`,
-    html,
-  });
+export async function sendPairingRequestedEmail(doctorEmail: string, doctorName: string, patientName: string, lang: Lang = "en"): Promise<void> {
+  await deliver(doctorEmail, lang, doctorName, toSpec(T[lang].pairingRequested(patientName)));
 }
 
-export async function sendCareCircleInviteEmail(inviteeEmail: string, inviteeName: string, patientName: string, inviteLink: string): Promise<boolean> {
-  const html = emailWrapper(
-    "You've been invited to a Care Circle",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${inviteeName},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">${patientName} has invited you to join their Care Circle on Avela — a way to stay informed on the parts of their care they've chosen to share with you.</p>
-     <p style="margin:0"><a href="${inviteLink}" style="display:inline-block;background:#0F766E;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600">Accept invitation</a></p>`
-  );
-  return sendEmail({
-    to: inviteeEmail,
-    subject: `${patientName} invited you to their Care Circle on Avela`,
-    body: `${patientName} invited you to join their Care Circle on Avela. Accept here: ${inviteLink}`,
-    html,
-  });
+export async function sendPairingAcceptedEmail(patientEmail: string, patientName: string, doctorName: string, lang: Lang = "en"): Promise<void> {
+  await deliver(patientEmail, lang, patientName, toSpec(T[lang].pairingAccepted(doctorName)));
 }
 
-export async function sendPairingAcceptedEmail(patientEmail: string, patientName: string, doctorName: string): Promise<void> {
-  const html = emailWrapper(
-    "You're connected",
-    h`<p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Hi ${patientName},</p>
-     <p style="margin:0 0 12px;color:#3f3f46;font-size:15px;line-height:1.6">Dr. ${doctorName} accepted your connection request. You can now call them from your Avela pairings page.</p>`
-  );
-  await sendEmail({
-    to: patientEmail,
-    subject: "An update on your Avela request",
-    body: `Dr. ${doctorName} accepted your connection request. You can now call them from your Avela pairings page.`,
-    html,
-  });
+export async function sendCareCircleInviteEmail(inviteeEmail: string, inviteeName: string, patientName: string, inviteLink: string, lang: Lang = "en"): Promise<boolean> {
+  return deliver(inviteeEmail, lang, inviteeName, toSpec(T[lang].invite(patientName, inviteLink)));
 }

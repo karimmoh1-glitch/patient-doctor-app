@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { storage } from "../storage";
 import { requireAuth, requireRole, signToken, createDeviceForLogin } from "../middleware/auth";
 import { generateSecureToken, hashToken } from "../services/tokenService";
+import { normalizeLang } from "../services/serverText";
 import { sendCareCircleInviteEmail } from "../services/emailService";
 import { logAudit, logAuditStrict } from "../services/auditService";
 import { clockInZone, dateKeyInZone, patientTimezoneById } from "../lib/localTime";
@@ -81,7 +82,7 @@ router.post("/", requireAuth, requireRole("patient"), inviteSendLimiter, async (
 
   const appUrl = process.env.APP_URL || "http://localhost:3001";
   const inviteLink = `${appUrl}/care-circle/accept?token=${token}`;
-  const emailSent = await sendCareCircleInviteEmail(parsed.data.inviteEmail, parsed.data.name, patient.name, inviteLink).catch(() => false);
+  const emailSent = await sendCareCircleInviteEmail(parsed.data.inviteEmail, parsed.data.name, patient.name, inviteLink, normalizeLang(patient.language)).catch(() => false);
 
   await logAudit({ actorUserId: patientUserId, action: "care_circle.invited", targetType: "care_circle_member", targetId: member.id });
 

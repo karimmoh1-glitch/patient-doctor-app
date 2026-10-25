@@ -22,10 +22,29 @@ compliance; it implements controls that such programmes usually require.
 - Prescriptions are recorded notes, not a regulated e-prescribing channel; the refill request is a message to a
   doctor, not an order. Language says so.
 
+## Needs clinical and pharmacy-regulation review (prescriptions)
+
+- Avela records prescriptions; it does not issue legally valid ones. Whether "authorized in Avela" has any legal
+  standing depends on the jurisdiction. Nothing is transmitted to a pharmacy, and the interface says so each time.
+- Controlled substances are refused in code. A doctor who answers "yes" is sent to their jurisdiction's system.
+- Avela does not check doses, interactions, allergies or duplicates. A pharmacist or clinical-safety review should
+  decide whether to add checks before any claim of clinical decision support.
+- The list of prescription routes, the 0-4 times-a-day limit and the wording of warnings need clinician sign-off.
+
+## Doctor verification
+
+- Approval is a person reading what the applicant typed. It is **not** independent verification and the interface
+  never calls it that ("Reviewed by the Avela team", with a note that licences are not checked against a register).
+  Real launch needs a defined process per jurisdiction: registry lookups, document checks, re-verification.
+- Who the reviewers are, how they are trained and audited, and how long applications may wait are operational decisions.
+
 ## Needs language review
 
-- Spanish strings in `client/src/lib/i18n.tsx` are first drafts, shown in the picker as "translation awaiting
-  review". They need a fluent healthcare translator before anyone relies on them.
+- Arabic strings in `client/src/locales/ar/` are first drafts and the language picker says "translation awaiting
+  review". Phrasing was chosen for plain, gender-neutral wording and Western digits (0-9) so doses and times
+  read the same against pharmacy labels; both choices need confirming with Arabic-speaking patients and clinicians.
+  Emergency, prescription and consent wording especially must be reviewed before anyone relies on it.
+- Doctor-written text is never translated by Avela. A patient reading Arabic sees the doctor's words as written.
 
 ## Known security gaps
 

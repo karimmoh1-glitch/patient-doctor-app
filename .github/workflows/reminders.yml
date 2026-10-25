@@ -1,0 +1,30 @@
+name: Deliver reminders
+
+# Vercel's free plan can only run a scheduled job once a day, which is too
+# coarse for medication reminders. This workflow calls the reminder endpoint
+# every five minutes instead. GitHub runs scheduled workflows on a best-effort
+# basis, so a run can start a few minutes late; Avela's own status (in the app)
+# only says reminders are "being sent" after a run has really happened.
+#
+# Set two repository secrets: AVELA_URL (e.g. https://avela-taupe.vercel.app)
+# and CRON_SECRET (the same value as the CRON_SECRET environment variable on
+# the host). Without them this workflow does nothing.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    env:
+      AVELA_URL: ${{ secrets.AVELA_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Call the reminder endpoint
+        if: ${{ env.AVELA_URL != '' && env.CRON_SECRET != '' }}
+        run: |
+          curl --fail --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AVELA_URL%/}/api/cron/reminders"

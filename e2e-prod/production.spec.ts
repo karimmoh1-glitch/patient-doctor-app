@@ -56,7 +56,7 @@ test.describe("the built application", () => {
     { email: "patient@avela.dev", name: "patient", heading: /Good (morning|afternoon|evening), Margaret/i, deep: "/appointments", deepHeading: /Appointments/i },
     { email: "doctor@avela.dev", name: "doctor", heading: /Good (morning|afternoon|evening), Dr\. Chen/i, deep: "/doctor/availability", deepHeading: /My hours/i },
     { email: "caregiver@avela.dev", name: "caregiver", heading: /Hello, Sarah/i, deep: "/caregiver", deepHeading: /Hello, Sarah/i },
-    { email: "admin@avela.dev", name: "admin", heading: /Doctor applications/i, deep: "/admin", deepHeading: /Doctor applications/i },
+    { email: "admin@avela.dev", name: "admin", heading: /Doctor applications/i, deep: "/admin/activity", deepHeading: /Activity/i },
   ];
 
   for (const role of ROLES) {
@@ -76,12 +76,51 @@ test.describe("the built application", () => {
     });
   }
 
-  test("Arabic and English: the chosen language survives navigation and reload", async ({ page }) => {
+  test("Arabic: the chosen language survives navigation and reload, and the page turns right-to-left", async ({ page }) => {
+    const problems = watch(page);
     await page.goto("/");
-    await page.evaluate(() => localStorage.setItem("pdapp_locale", "es"));
+    await page.getByRole("radio", { name: "العربية" }).first().click();
+    await expect(page.locator("html")).toHaveAttribute("lang", "ar");
+    await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("رعاية صحية، أقرب إليك.");
     await page.reload();
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await page.goto("/login");
-    await expect(page.locator("html")).toHaveAttribute("lang", "es");
+    await expect(page.locator("html")).toHaveAttribute("lang", "ar");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("تسجيل الدخول");
+    expect(problems).toEqual([]);
+  });
+
+  test("the self-hosted fonts load under the production content-security policy", async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate(() => document.fonts.ready);
+    const loaded = await page.evaluate(() => [...document.fonts].filter((f) => f.status === "loaded").map((f) => f.family));
+    expect(loaded.join(",")).toContain("Fraunces");
+    expect(loaded.join(",")).toContain("Figtree");
+  });
+
+  test("public pages render in production: doctor search, sign-up choice, privacy", async ({ page }) => {
+    const problems = watch(page);
+    await page.goto("/find-doctors");
+    await expect(page.getByRole("heading", { level: 2, name: "Dr. Emily Chen" })).toBeVisible();
+    await page.goto("/get-started");
+    await expect(page.getByRole("link", { name: /I'm a Doctor/ })).toBeVisible();
+    await page.goto("/privacy");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy");
+    expect(problems).toEqual([]);
+  });
+
+  test("a new doctor can register and reach only the application in the built app", async ({ page }) => {
+    const problems = watch(page);
+    const email = `prod-${Date.now().toString(36)}@e2e.example`;
+    await page.goto("/join/doctor");
+    await page.getByLabel("Your full name").fill("Dr. Prod Smoke");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
+    await page.getByRole("button", { name: "Create my doctor account" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application");
+    await page.goto("/doctor/requests");
+    await expect(page).toHaveURL(/\/doctor\/application/);
+    expect(problems).toEqual([]);
   });
 });

@@ -104,3 +104,32 @@ caregiver/another patient is provably denied" — server constraint + tests + ac
 - Whether OpenAI may receive PHI at all (needs a signed BAA/zero-retention agreement).
 - Which languages launch first; who reviews clinical translations.
 - Which clinics/hospitals are real partners — nothing here fabricates them.
+
+
+## 9. Release 2 checklist: Avela product transformation
+
+Status key: `[x]` done and verified by tests, `[~]` partial, `[ ]` not built.
+
+- [x] Production-build smoke suite in CI (landing, all chunks, fonts under production CSP, four roles, nested refresh, Arabic)
+- [x] Premium design system: Avela wordmark and mark, deep teal / warm white tokens, self-hosted Figtree + Fraunces + Noto Sans Arabic
+- [x] Landing page: hero, two account paths, how it works, honest feature list, trust, "not yet available", footer with language switcher
+- [x] Account-type choice drives separate registration and workspaces
+- [x] Patient sign-up (short, language, state with reason) and skippable welcome
+- [x] Doctor registration, multi-step profile, explicit verification states, server-enforced access, admin review (approve / ask for more / reject / suspend / reinstate / activity log)
+- [x] Admin provisioning only from a trusted shell
+- [x] Doctor discovery on real records (specialty, language, modality, state, availability); public browse
+- [x] Appointments (real slots, time zone, no double booking); video can no longer be booked
+- [x] Prescription lifecycle: draft / authorize / cancel / expire, history, controlled substances refused, never "sent"
+- [x] Patient prescription view with honest transmission wording; doctor's private note hidden
+- [x] Reminders: persisted schedule, time zones and DST, idempotent dispatcher, cron endpoint, in-app + optional email, truthful delivery status
+- [x] In-app notifications; no medicine names unless the patient chooses
+- [x] Doctor dashboard: attention list, today, week ahead, drafts, missing hours
+- [x] Arabic across registration, login, discovery, appointments, prescriptions, reminders, settings, privacy; RTL layout; localized emails and server-written text
+- [x] Accessibility scans (axe) of public and signed-in screens in English and Arabic
+- [~] Caregivers cannot set reminders (read-only by design); family-managed reminders are not built
+- [~] Messaging: persisted, authorized, no unread indicators or delivery states beyond sent/failed; no attachments
+- [~] Doctor profile photo, insurance and document upload are not collected
+- [ ] Real video, SMS/push, pharmacy transmission, registry verification (external services)
+- [ ] Row-level security in the database (authorization is enforced in the application layer and tested there)
+- [ ] Data export / deletion, MFA, retention policy
+- [ ] Review of Arabic by fluent speakers and clinicians; legal review of privacy and terms
