@@ -22,16 +22,10 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        // Vendor code changes far less often than app code, so splitting it
-        // lets a returning visitor on a slow connection re-download only the
-        // small app chunks after an update.
-        manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "react";
-          if (id.includes("@radix-ui")) return "radix";
-          if (id.includes("@tanstack")) return "query";
-          return "vendor";
-        },
+        // Deliberately no manualChunks: a hand-made "react" / "vendor" split
+        // produced a circular import between the two chunks and a blank page
+        // in production builds. Route-level lazy loading (App.tsx) already
+        // keeps the first download small.
       },
     },
   },
