@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { storage } from "../storage";
 import { isDemoMode } from "../config";
+import { clearSessionCookie, cookieRequestAllowed, isWebClient, readSessionCookie, setSessionCookie } from "./session";
 
 // The insecure fallback secret is only ever allowed in an explicit local
 // development or test run. Any other environment — including one where
@@ -62,13 +63,51 @@ export async function createDeviceForLogin(userId: string, req: Request): Promis
   return deviceId;
 }
 
+/**
+ * Starts a session for a user who just proved who they are. The web app (which announces itself with
+ * X-Avela-Client: web) gets an HttpOnly cookie and NO token in the body, so no script can ever read
+ * its credential; any other client gets the token in the body as before.
+ */
+export async function issueSession(
+  req: Request,
+  res: Response,
+  user: { id: string; role: string },
+  body: Record<string, unknown>,
+  status = 200,
+): Promise<void> {
+  const deviceId = await createDeviceForLogin(user.id, req);
+  const token = signToken(user.id, user.role, deviceId);
+  if (isWebClient(req)) {
+    setSessionCookie(req, res, token);
+    res.status(status).json(body);
+  } else {
+    res.status(status).json({ token, ...body });
+  }
+}
+
+export { clearSessionCookie };
+
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // An explicit bearer token wins; otherwise the browser's HttpOnly session cookie.
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  let token: string | null = null;
+  let viaCookie = false;
+  if (authHeader) {
+    if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ message: "Authentication required" });
+    token = authHeader.split(" ")[1] ?? null;
+  } else {
+    token = readSessionCookie(req);
+    viaCookie = !!token;
+  }
+  if (!token) {
     return res.status(401).json({ message: "Authentication required" });
   }
+  // Cookies are attached by the browser on its own, so a cookie-authenticated change must
+  // prove it came from our pages (custom header, same-site origin). Bearer tokens are not ambient.
+  if (viaCookie && !cookieRequestAllowed(req)) {
+    return res.status(403).json({ message: "This request was blocked for your safety. Please reload the page and try again." });
+  }
   try {
-    const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string; deviceId?: string };
 
     // Every token this server issues carries a deviceId, so a token without

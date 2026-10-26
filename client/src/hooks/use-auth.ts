@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { parseErrorMessage } from "@/lib/api-error";
 import { queryClient, SESSION_EXPIRED_EVENT } from "@/lib/queryClient";
+import { CLIENT_HEADERS, readStoredUser, storeUser } from "@/lib/session";
 import type { DoctorStatus } from "@shared/languages";
 
 export const SESSION_NOTICE_KEY = "pdapp_session_notice";
@@ -17,21 +18,16 @@ export interface AuthUser {
   doctorStatus?: DoctorStatus;
 }
 
-interface AuthState {
-  token: string;
-  user: AuthUser;
-}
+const JSON_HEADERS = { "Content-Type": "application/json", ...CLIENT_HEADERS };
 
+/**
+ * Who is signed in. The session itself is an HttpOnly cookie that only the server can read or
+ * write; this hook holds just the person's profile summary, so screens can render at once.
+ */
 export function useAuth() {
-  const [auth, setAuth] = useState<AuthState | null>(() => {
-    try {
-      const stored = localStorage.getItem("pdapp_auth");
-      const parsed = stored ? JSON.parse(stored) : null;
-      return parsed?.token && parsed?.user ? parsed : null;
-    } catch {
-      // Corrupt or inaccessible storage: start signed out instead of white-screening.
-      return null;
-    }
+  const [auth, setAuth] = useState<AuthUser | null>(() => {
+    const stored = readStoredUser<AuthUser>();
+    return stored?.id && stored?.role ? stored : null;
   });
 
   // The server said our token is no longer valid (expired, signed out
@@ -52,59 +48,53 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
-    if (auth) {
-      localStorage.setItem("pdapp_auth", JSON.stringify(auth));
-    } else {
-      localStorage.removeItem("pdapp_auth");
-    }
+    storeUser(auth);
   }, [auth]);
 
-  const persistAuth = useCallback((state: AuthState) => {
+  const persistAuth = useCallback((user: AuthUser) => {
     // Never let the previous person's cached screens show for the next one.
     queryClient.clear();
-    localStorage.setItem("pdapp_auth", JSON.stringify(state));
-    setAuth(state);
+    storeUser(user);
+    setAuth(user);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
       throw new Error(await parseErrorMessage(res, "Login failed"));
     }
     const data = await res.json();
-    const state: AuthState = { token: data.token, user: data.user };
-    persistAuth(state);
-    return state.user;
+    persistAuth(data.user);
+    return data.user as AuthUser;
   }, [persistAuth]);
 
   const demoLogin = useCallback(async (role: "patient" | "doctor") => {
     const res = await fetch("/api/auth/demo-login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ role }),
     });
     if (!res.ok) throw new Error(await parseErrorMessage(res, "Demo sign-in isn't available"));
     const data = await res.json();
-    persistAuth({ token: data.token, user: data.user });
+    persistAuth(data.user);
   }, [persistAuth]);
 
   const signup = useCallback(async (fields: { name: string; email: string; password: string; state: string; phone?: string; language: string }) => {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify(fields),
     });
     if (!res.ok) {
       throw new Error(await parseErrorMessage(res, "Signup failed"));
     }
     const data = await res.json();
-    const authState: AuthState = { token: data.token, user: data.user };
-    persistAuth(authState);
-    return authState.user;
+    persistAuth(data.user);
+    return data.user as AuthUser;
   }, [persistAuth]);
 
   // A doctor gets an account straight away but no clinical access until an
@@ -112,62 +102,52 @@ export function useAuth() {
   const registerDoctor = useCallback(async (fields: { name: string; email: string; password: string; language: string }) => {
     const res = await fetch("/api/doctors/register", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify(fields),
     });
     if (!res.ok) {
       throw new Error(await parseErrorMessage(res, "Registration failed"));
     }
     const data = await res.json();
-    persistAuth({ token: data.token, user: data.user });
+    persistAuth(data.user);
     return data.user as AuthUser;
   }, [persistAuth]);
 
   // Re-reads who the server says this person is: how a doctor learns they were
   // approved (or suspended) without signing out and back in.
   const refreshUser = useCallback(async () => {
-    const stored = localStorage.getItem("pdapp_auth");
-    const token = stored ? JSON.parse(stored)?.token : null;
-    if (!token) return;
-    const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch("/api/auth/me", { headers: CLIENT_HEADERS });
     if (!res.ok) return;
     const user = (await res.json()) as AuthUser;
-    setAuth((current) => (current ? { ...current, user: { ...current.user, ...user } } : current));
+    setAuth((current) => (current ? { ...current, ...user } : current));
   }, []);
 
   const acceptCareCircleInvite = useCallback(async (inviteToken: string, password: string) => {
     const res = await fetch(`/api/care-circle/invitations/accept/${inviteToken}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ password }),
     });
     if (!res.ok) {
       throw new Error(await parseErrorMessage(res, "Couldn't accept invitation"));
     }
     const data = await res.json();
-    const state: AuthState = { token: data.token, user: data.user };
-    persistAuth(state);
-    return state.user;
+    persistAuth(data.user);
+    return data.user as AuthUser;
   }, [persistAuth]);
 
   const signOut = useCallback(() => {
-    // Best-effort: revoke the device server-side so the token can't be
-    // reused after sign-out. Local sign-out proceeds regardless — a
-    // failed revoke shouldn't trap the user in a logged-in UI.
-    if (auth?.token) {
-      fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${auth.token}` },
-      }).catch(() => {});
-    }
+    // Best-effort: end the session on the server (which also clears the cookie) so a copied
+    // cookie can't be reused. Local sign-out proceeds regardless: a failed request
+    // shouldn't trap the person in a signed-in screen.
+    fetch("/api/auth/logout", { method: "POST", headers: CLIENT_HEADERS }).catch(() => {});
     queryClient.clear();
     setAuth(null);
-    localStorage.removeItem("pdapp_auth");
-  }, [auth]);
+    storeUser(null);
+  }, []);
 
   return {
-    user: auth?.user ?? null,
-    token: auth?.token ?? null,
+    user: auth,
     isAuthenticated: !!auth,
     login,
     demoLogin,

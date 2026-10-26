@@ -3,7 +3,7 @@ import { makeLimiter } from "../middleware/rateLimit";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { storage } from "../storage";
-import { requireAuth, requireRole, signToken, createDeviceForLogin } from "../middleware/auth";
+import { requireAuth, requireRole, issueSession } from "../middleware/auth";
 import { generateSecureToken, hashToken } from "../services/tokenService";
 import { weakPasswordReason } from "../lib/password";
 import { normalizeLang } from "../services/serverText";
@@ -205,9 +205,7 @@ router.post("/invitations/accept/:token", inviteRedeemLimiter, async (req, res) 
   await storage.acceptCareCircleInvite(member.id, user.id);
   await logAudit({ actorUserId: user.id, action: "care_circle.accepted", targetType: "care_circle_member", targetId: member.id });
 
-  const deviceId = await createDeviceForLogin(user.id, req);
-  const token = signToken(user.id, user.role, deviceId);
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state } });
+  await issueSession(req, res, user, { user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state } });
 });
 
 // --- Caregiver-facing view ---

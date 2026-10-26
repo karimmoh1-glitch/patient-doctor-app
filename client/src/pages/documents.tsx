@@ -12,6 +12,7 @@ import { apiRequest, SESSION_EXPIRED_EVENT } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
 import { useAppConfig } from "@/hooks/use-app-config";
+import { CLIENT_HEADERS } from "@/lib/session";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 
 interface Document {
@@ -32,15 +33,7 @@ const CATEGORIES: { value: string; labelKey: MessageKey }[] = [
   { value: "Other", labelKey: "docs.category.other" },
 ];
 
-function authHeaders(): Record<string, string> {
-  try {
-    const stored = localStorage.getItem("pdapp_auth");
-    if (stored) return { Authorization: `Bearer ${JSON.parse(stored).token}` };
-  } catch {
-    // treated as signed out
-  }
-  return {};
-}
+const authHeaders = () => CLIENT_HEADERS;
 
 export default function Documents() {
   const { toast } = useToast();

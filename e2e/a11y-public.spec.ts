@@ -49,7 +49,7 @@ test.describe("signed-in screens added in this release", () => {
     await signInAs(page, "doctor@avela.dev");
     await page.goto("/doctor");
     await scan(page, "doctor home");
-    const pairings = await (await page.request.get("/api/pairings/doctor", { headers: { Authorization: `Bearer ${await page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token)}` } })).json();
+    const pairings = await (await page.request.get("/api/pairings/doctor")).json();
     const margaret = pairings.find((p: any) => p.patientName === "Margaret Johnson" && p.status === "accepted");
     await page.goto(`/doctor/patients/${margaret.id}`);
     await page.getByRole("tab", { name: "Prescriptions" }).click();

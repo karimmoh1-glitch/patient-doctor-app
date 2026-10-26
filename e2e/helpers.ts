@@ -5,16 +5,23 @@ export const PASSWORD = "DemoPass123!";
 // What test-created accounts use.
 export const NEW_PASSWORD = "seven green umbrellas";
 
-/** Signs in through the API and stores the session the way the app itself does. */
+/** What the web app sends with every request. Needed for a cookie-authenticated change made from a test. */
+export const WEB = { "X-Avela-Client": "web" };
+
+/**
+ * Signs in the way the app does: a session cookie in the browser (HttpOnly, so no script can read it) and the
+ * profile summary in storage. A second, token-mode sign-in is also made so a test can call the API as this
+ * person from another context (`session.token`, a separate device).
+ */
 export async function signInAs(page: Page, email: string, password = PASSWORD) {
-  const res = await page.request.post("/api/auth/login", { data: { email, password } });
-  expect(res.ok(), `login for ${email}`).toBeTruthy();
-  const body = await res.json();
+  const api = await page.request.post("/api/auth/login", { data: { email, password } });
+  expect(api.ok(), `login for ${email}`).toBeTruthy();
+  const body = await api.json();
+  const web = await page.request.post("/api/auth/login", { headers: WEB, data: { email, password } });
+  expect(web.ok(), `web login for ${email}`).toBeTruthy();
+  const { user } = await web.json();
   await page.goto("/login");
-  await page.evaluate(
-    ([token, user]) => localStorage.setItem("pdapp_auth", JSON.stringify({ token, user })),
-    [body.token, body.user] as const,
-  );
+  await page.evaluate((u) => localStorage.setItem("pdapp_user", JSON.stringify(u)), user);
   await page.goto("/");
   return body as { token: string; user: { id: string; name: string; role: string } };
 }
@@ -58,7 +65,7 @@ const COMPLETE_APPLICATION = {
 export async function registerDoctorViaApi(page: Page, name: string, email: string, overrides: Record<string, unknown> = {}) {
   const reg = await page.request.post("/api/doctors/register", { data: { name, email, password: NEW_PASSWORD } });
   expect(reg.status()).toBe(201);
-  const token = (await reg.json()).token as string;
+  const token = (await reg.json()).token as string; // API sign-up (no X-Avela-Client), so the token is in the body
   const headers = { Authorization: `Bearer ${token}` };
   const save = await page.request.put("/api/doctors/me/application", { headers, data: { ...COMPLETE_APPLICATION, displayName: name, ...overrides } });
   expect(save.status()).toBe(200);

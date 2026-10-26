@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { signInAs, newSession, signUpPatient, uniqueEmail, NEW_PASSWORD } from "./helpers";
+import { signInAs, newSession, signUpPatient, uniqueEmail, NEW_PASSWORD, WEB } from "./helpers";
 
 test.describe("when things go wrong, the patient is told the truth and can recover", () => {
   test("going offline shows a clear message and a way back — never a blank screen", async ({ page, context }) => {
@@ -36,12 +36,13 @@ test.describe("when things go wrong, the patient is told the truth and can recov
   });
 
   test("a session that ended elsewhere sends the person to sign in, with a plain explanation", async ({ page, browser }) => {
-    const { token } = await signInAs(page, "patient@avela.dev");
+    await signInAs(page, "patient@avela.dev");
     await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 
-    // Signed out from another device.
+    // Signed out from another device (which holds a copy of this session's cookie).
+    const cookie = (await page.context().cookies()).find((c) => /avela_session/.test(c.name))!;
     const other = await browser.newContext();
-    const res = await other.request.post("/api/auth/logout", { headers: { Authorization: `Bearer ${token}` }, baseURL: "http://localhost:3101" });
+    const res = await other.request.post("/api/auth/logout", { headers: { Cookie: `${cookie.name}=${cookie.value}`, ...WEB }, baseURL: "http://localhost:3101" });
     expect(res.ok()).toBeTruthy();
     await other.close();
 
@@ -66,7 +67,7 @@ test.describe("when things go wrong, the patient is told the truth and can recov
     await expect(page.getByRole("heading", { name: "Appointments" })).toBeVisible();
     await expect(page.getByText("Two-week follow-up on headaches")).toHaveCount(0);
     await expect(page.getByText("Dr. Emily Chen")).toHaveCount(0);
-    const stored = await page.evaluate(() => localStorage.getItem("pdapp_auth"));
+    const stored = await page.evaluate(() => localStorage.getItem("pdapp_user"));
     expect(stored).not.toContain("Margaret");
   });
 });
@@ -122,7 +123,13 @@ test.describe("account controls in Settings", () => {
   test("sign out everywhere really ends the other session, and closing an account asks for the password again", async ({ page, browser }) => {
     const email = uniqueEmail("controls");
     await signUpPatient(page, "Nadia Controls", email);
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token as string);
+    // The session is an HttpOnly cookie: no script on the page can see it, and nothing credential-like is in storage.
+    expect(await page.evaluate(() => document.cookie)).not.toContain("avela_session");
+    expect(await page.evaluate(() => localStorage.getItem("pdapp_auth"))).toBeNull();
+    const cookie = (await page.context().cookies()).find((c) => /avela_session/.test(c.name))!;
+    expect(cookie.httpOnly).toBe(true);
+    expect(cookie.sameSite).toBe("Strict");
+    const stolen = { Cookie: `${cookie.name}=${cookie.value}` }; // what an attacker with a copy of the cookie would send
 
     // The same person is signed in on a second device.
     const other = await browser.newContext();
@@ -136,7 +143,7 @@ test.describe("account controls in Settings", () => {
     await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign out everywhere" }).click();
     await expect(page.getByRole("link", { name: "Create an account" }).first()).toBeVisible();
     expect((await second.request.get("/api/auth/me", { headers: { Authorization: `Bearer ${secondToken}` } })).status()).toBe(401);
-    expect((await second.request.get("/api/auth/me", { headers: { Authorization: `Bearer ${stored}` } })).status()).toBe(401);
+    expect((await second.request.get("/api/auth/me", { headers: stolen })).status()).toBe(401); // a copied cookie is dead too
     await other.close();
 
     // Closing an account: a wrong password changes nothing.

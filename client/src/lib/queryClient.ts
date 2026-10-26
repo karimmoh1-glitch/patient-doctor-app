@@ -1,7 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getLocale, translate } from "@/lib/i18n";
+import { CLIENT_HEADERS, hasStoredSession } from "@/lib/session";
 
-/** Fired when a request that carried a login token comes back 401: the session ended. */
+/** Fired when a request made while signed in comes back 401: the session ended. */
 export const SESSION_EXPIRED_EVENT = "pdapp:session-expired";
 
 /**
@@ -30,28 +31,22 @@ function timezoneHeader(): Record<string, string> {
   }
 }
 
+// Every request names the web app (the server then reads the session cookie) and carries the
+// browser's time zone. There is no token to attach: the cookie travels by itself and no script can read it.
 function getAuthHeaders(): Record<string, string> {
-  try {
-    const stored = localStorage.getItem("pdapp_auth");
-    if (stored) {
-      const auth = JSON.parse(stored);
-      if (auth?.token) return { Authorization: `Bearer ${auth.token}`, ...timezoneHeader() };
-    }
-  } catch {
-    // Corrupt or inaccessible storage: behave as signed out rather than crash.
-  }
-  return {};
+  return { ...CLIENT_HEADERS, ...timezoneHeader() };
 }
 
 async function request(url: string, init: RequestInit): Promise<Response> {
-  const hadToken = !!(init.headers as Record<string, string> | undefined)?.Authorization;
+  // A 401 only means "your session ended" if there was a session to end.
+  const hadSession = hasStoredSession();
   let res: Response;
   try {
     res = await fetch(url, init);
   } catch {
     throw new NetworkError();
   }
-  if (res.status === 401 && hadToken) {
+  if (res.status === 401 && hadSession) {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
   return res;

@@ -31,7 +31,7 @@ test.describe("Arabic and right-to-left", () => {
     // The choice is remembered on this device and saved to the account.
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("lang", "ar");
-    const me = await page.request.get("/api/auth/me", { headers: { Authorization: `Bearer ${await page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token)}` } });
+    const me = await page.request.get("/api/auth/me");
     expect((await me.json()).language).toBe("ar");
   });
 

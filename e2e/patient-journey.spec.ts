@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { newSession, signUpPatient, uniqueEmail } from "./helpers";
+import { newSession, signUpPatient, uniqueEmail, WEB } from "./helpers";
 
 test.describe("an older patient's first week", () => {
   test("creates an account and lands on a home screen that says what to do next", async ({ page }) => {
@@ -104,8 +104,7 @@ test.describe("an older patient's first week", () => {
     await signUpPatient(page, name, uniqueEmail("ines"));
     const res = await page.request.get("/api/doctors");
     const emily = (await res.json()).find((d: any) => d.name === "Dr. Emily Chen");
-    const token = JSON.parse(await page.evaluate(() => localStorage.getItem("pdapp_auth")!)).token;
-    const pairing = await page.request.post("/api/pairings", { headers: { Authorization: `Bearer ${token}` }, data: { doctorProfileId: emily.id } });
+    const pairing = await page.request.post("/api/pairings", { headers: WEB, data: { doctorProfileId: emily.id } });
     expect(pairing.status()).toBe(201);
 
     const doctor = await newSession(browser, "doctor@avela.dev");

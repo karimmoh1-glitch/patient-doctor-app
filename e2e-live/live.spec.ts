@@ -17,7 +17,6 @@ async function demoSignIn(page: Page, who: "patient" | "doctor") {
   await page.getByRole("button", { name: who === "patient" ? "Demo patient" : "Demo doctor" }).click();
   await expect(page).not.toHaveURL(/\/login/);
 }
-const token = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token as string);
 
 test.describe("the deployed build", () => {
   test("is the commit that was meant to ship, and says what it is", async ({ request }) => {
@@ -79,7 +78,8 @@ test.describe("a patient, signed in through the demo button", () => {
       await expect(page.locator("#main")).not.toBeEmpty();
     }
     // The server, not the page, refuses what a patient may not do.
-    const h = { Authorization: `Bearer ${await token(page)}` };
+    // Reads are authenticated by the browser's own HttpOnly cookie.
+    const h = {};
     for (const path of ["/api/admin/audit", "/api/admin/reminders/status", "/api/pairings/doctor", "/api/prescriptions/doctor", "/api/doctors/me/profile"]) {
       expect((await page.request.get(path, { headers: h })).status(), path).toBe(403);
     }
@@ -110,7 +110,9 @@ test.describe("a patient, signed in through the demo button", () => {
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign me out" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare, closer to you.");
+    expect(await page.evaluate(() => localStorage.getItem("pdapp_user"))).toBeNull();
     expect(await page.evaluate(() => localStorage.getItem("pdapp_auth"))).toBeNull();
+    expect((await page.context().cookies()).filter((c) => /avela_session/.test(c.name) && c.value)).toHaveLength(0);
     await page.goto("/appointments");
     await expect(page).toHaveURL(/\/login/);
   });
@@ -126,7 +128,7 @@ test.describe("a doctor, signed in through the demo button", () => {
       await page.reload();
       await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
     }
-    const h = { Authorization: `Bearer ${await token(page)}` };
+    const h = {};
     const pairings = await (await page.request.get("/api/pairings/doctor", { headers: h })).json();
     const margaret = pairings.find((p: any) => p.patientName === "Margaret Johnson" && p.status === "accepted");
     await page.goto(`/doctor/patients/${margaret.id}`);

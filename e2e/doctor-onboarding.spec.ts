@@ -49,8 +49,7 @@ test.describe("becoming a doctor on Avela", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application is being reviewed");
 
     // Still locked out of everything clinical, including the API.
-    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token as string);
-    const blocked = await page.request.get("/api/pairings/doctor", { headers: { Authorization: `Bearer ${stored}` } });
+    const blocked = await page.request.get("/api/pairings/doctor"); // authenticated by the browser's own cookie
     expect(blocked.status()).toBe(403);
 
     // 6. A reviewer opens the queue, sees the details, and asks for more.
@@ -112,7 +111,7 @@ test.describe("becoming a doctor on Avela", () => {
     await card.getByRole("button", { name: /^Suspend/ }).click();
     await admin.page.getByLabel(/Reason/).fill("Credentials under investigation");
     await admin.page.getByRole("button", { name: "Suspend doctor" }).click();
-    await expect(admin.page.getByText("Doctor suspended")).toBeVisible();
+    await expect(admin.page.getByText("Doctor suspended").first()).toBeVisible();
     await admin.context.close();
 
     const after = await page.request.get("/api/pairings/doctor", { headers });

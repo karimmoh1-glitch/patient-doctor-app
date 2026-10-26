@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { makeLimiter } from "../middleware/rateLimit";
 import { z } from "zod";
 import { storage } from "../storage";
-import { requireAuth, requireRole, createDeviceForLogin, signToken } from "../middleware/auth";
+import { requireAuth, requireRole, issueSession } from "../middleware/auth";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { doctorStatusFor } from "../services/doctorStatus";
 import { weakPasswordReason } from "../lib/password";
@@ -162,13 +162,10 @@ router.post("/register", applyLimiter, async (req, res) => {
     }
     throw err;
   }
-  const deviceId = await createDeviceForLogin(created.user.id, req);
-  const token = signToken(created.user.id, "doctor", deviceId);
   await logAudit({ actorUserId: created.user.id, action: "doctor.registered", targetType: "doctor_application", targetId: created.application.id, subjectUserId: null });
-  res.status(201).json({
-    token,
+  await issueSession(req, res, { id: created.user.id, role: "doctor" }, {
     user: { id: created.user.id, name: created.user.name, email: created.user.email, role: "doctor", state: null, language: created.user.language, doctorStatus: "incomplete" },
-  });
+  }, 201);
 });
 
 const optionalText = (max: number) =>

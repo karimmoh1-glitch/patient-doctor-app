@@ -6,7 +6,8 @@ import { doctorStatusFor } from "../services/doctorStatus";
 import { weakPasswordReason } from "../lib/password";
 import { logAudit } from "../services/auditService";
 import { normalizeLang } from "../services/serverText";
-import { signToken, createDeviceForLogin, requireAuth } from "../middleware/auth";
+import { signToken, issueSession, clearSessionCookie, requireAuth } from "../middleware/auth";
+import { isWebClient, setSessionCookie } from "../middleware/session";
 import { insertUserSchema } from "@shared/schema";
 import { US_STATES } from "@shared/specialties";
 import { generateSecureToken, hashToken } from "../services/tokenService";
@@ -108,10 +109,7 @@ router.post("/signup", authLimiter, async (req, res) => {
     throw err;
   }
 
-  const deviceId = await createDeviceForLogin(user.id, req);
-  const token = signToken(user.id, user.role, deviceId);
-
-  res.status(201).json({ token, user: await sessionUser(user) });
+  await issueSession(req, res, user, { user: await sessionUser(user) }, 201);
 });
 
 const loginBodySchema = z.object({
@@ -142,10 +140,7 @@ router.post("/login", loginIpLimiter, loginAccountLimiter, async (req, res) => {
     return res.status(401).json({ message: "This account has been deactivated. Please contact support." });
   }
 
-  const deviceId = await createDeviceForLogin(user.id, req);
-  const token = signToken(user.id, user.role, deviceId);
-
-  res.json({ token, user: await sessionUser(user) });
+  await issueSession(req, res, user, { user: await sessionUser(user) });
 });
 
 // One-tap sign-in to the seeded demo accounts. It exists only in demo mode
@@ -163,9 +158,7 @@ router.post("/demo-login", authLimiter, async (req, res) => {
   if (!user || user.deactivatedAt) {
     return res.status(404).json({ message: "Demo accounts aren't set up. Run `npm run db:seed` first." });
   }
-  const deviceId = await createDeviceForLogin(user.id, req);
-  const token = signToken(user.id, user.role, deviceId);
-  res.json({ token, user: await sessionUser(user) });
+  await issueSession(req, res, user, { user: await sessionUser(user) });
 });
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
@@ -239,6 +232,7 @@ router.post("/logout", requireAuth, async (req, res) => {
   if (deviceId) {
     await storage.revokeUserDevice(deviceId);
   }
+  clearSessionCookie(req, res);
   res.json({ message: "Signed out" });
 });
 
@@ -248,7 +242,22 @@ router.post("/logout-all", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
   await storage.revokeAllUserDevices(userId);
   await logAudit({ actorUserId: userId, action: "account.signed_out_everywhere", targetType: "user", targetId: userId });
+  clearSessionCookie(req, res);
   res.json({ message: "Signed out everywhere" });
+});
+
+// Moves a browser that still holds a token in script-readable storage (from before sessions lived in a
+// cookie) onto the cookie. The old token is proof of an existing, live session; the page deletes it
+// from storage once this succeeds. Only the web app calls this.
+router.post("/session", requireAuth, async (req, res) => {
+  if (!isWebClient(req)) return res.status(400).json({ message: "Not available" });
+  if (!req.headers.authorization) return res.status(400).json({ message: "Not available" }); // already on a cookie
+  const userId = (req as any).userId as string;
+  const deviceId = (req as any).deviceId as string;
+  const user = await storage.getUser(userId);
+  if (!user) return res.status(401).json({ message: "Your session has ended. Please sign in again." });
+  setSessionCookie(req, res, signToken(user.id, user.role, deviceId));
+  res.json({ user: await sessionUser(user) });
 });
 
 router.get("/me", requireAuth, async (req, res) => {

@@ -3,6 +3,7 @@ import { Mic, Square, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMediaRecorder } from "@/hooks/use-media-recorder";
 import { useAppConfig } from "@/hooks/use-app-config";
+import { CLIENT_HEADERS } from "@/lib/session";
 import { useI18n } from "@/lib/i18n";
 
 // Captures audio in the browser and uploads it to the server for transcription
@@ -31,14 +32,7 @@ export default function SymptomVoiceInput({ onTranscribed }: { onTranscribed: (t
     try {
       const formData = new FormData();
       formData.append("audio", blob, "symptom.webm");
-      const headers: Record<string, string> = {};
-      try {
-        const stored = localStorage.getItem("pdapp_auth");
-        if (stored) headers.Authorization = `Bearer ${JSON.parse(stored).token}`;
-      } catch {
-        // Treated as signed out; the server will say so.
-      }
-      const res = await fetch("/api/speech/transcribe", { method: "POST", headers, body: formData });
+      const res = await fetch("/api/speech/transcribe", { method: "POST", headers: CLIENT_HEADERS, body: formData });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.message || t("pt.voice.failed"));
