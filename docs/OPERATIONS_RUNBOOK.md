@@ -57,12 +57,50 @@ deactivates accounts marked as fixtures, revokes their sessions, hides seeded do
 Never run `drizzle-kit push` against a real database; add a numbered, idempotent SQL file to `migrations/` instead.
 A new required variable (for example `MFA_ENCRYPTION_KEY`) must be set **before** deploying the release that requires it.
 
-## 5. Backups and restore (to be rehearsed)
+## 3a. Creating the first administrator **[owner]**
 
-Use the host's managed backups with point-in-time recovery. A backup that has not been restored is not a backup.
-Rehearsal: restore into a scratch database/branch, run `npm run db:migrate` (a no-op), run `npm run verify:production`
-against it with the scratch URL, count rows in `users`, `messages`, `audit_logs`, record how long it took. Uploaded document
-files are not in the database; uploads are disabled on Vercel.
+There is no public route, default account or hidden backdoor to become an administrator; this is the only way. Do it on a trusted machine, by the
+person who will hold the account.
+
+1. Pull the owner connection string for this one command only (`vercel env pull` to a file in a private folder, or paste it into the shell for the
+   session). The script ignores `APP_DATABASE_URL`: it must run as the owner. Plain TCP to Neon may be blocked from some networks; the Neon WebSocket
+   driver pattern in the scratch notes works around it.
+2. Choose a password of at least 12 characters that you have not used anywhere else. Pass it through the environment, not on the command line:
+   `ADMIN_EMAIL=you@example.org ADMIN_NAME='Your Name' ADMIN_PASSWORD="$(read -s p; echo $p)" npm run admin:create` (or export it for one session and `unset` it).
+3. The script refuses if the address already has an account, never changes an existing account, and writes an `admin.bootstrapped` audit entry (operator,
+   host, no password). Check it: `SELECT action, created_at FROM audit_logs WHERE action = 'admin.bootstrapped'`.
+4. Sign in on the live site. You are asked to set up an authenticator app and shown recovery codes **once**: store them offline.
+5. Delete any local copy of the connection string. Verify: `npm run verify:production` shows `admin` PASS.
+6. Rollback: `UPDATE users SET deactivated_at = now() WHERE email = '…' AND role = 'admin'` (and revoke the sessions in `user_devices`).
+
+Losing the administrator's authenticator **and** recovery codes: the operator runs `npm run mfa:reset -- --email=… --reason="…"` (audited, ends sessions).
+Losing `MFA_ENCRYPTION_KEY`: every stored second-factor secret becomes unreadable. Set a new key, then reset each clinician's, staff member's and
+administrator's second factor (`mfa:reset`, or the applications screen for non-administrators); everyone enrols again. Keep the key in the host's
+secret store **and** one offline copy.
+
+## 5. Backups and restore
+
+Use the host's managed backups with point-in-time recovery. **A backup that has not been restored is not a backup.** Never restore over production.
+
+**Local rehearsal (done, synthetic data):** `ops/restore-drill.sh` creates a throwaway source database (migrations + fixture people), takes a
+`pg_dump`, restores into an empty database, and checks migration records, row counts, the number of RLS-enabled tables, the number of guard
+triggers, that re-running `db:migrate` is a no-op, and that the restricted role sees nothing without an identity and the right rows with one.
+Result 2026-10-26: all checks pass. It proves the procedure and the schema's restorability; it does **not** prove the provider's backups or timing.
+
+**Provider drill (not yet done; the owner runs it):**
+1. In Neon, create a branch from a point in time (or restore a snapshot) into a **new** branch. Never the primary.
+2. Take that branch's owner URL. `DATABASE_URL=<branch owner url> npm run db:migrate` must print "No pending migrations."
+3. Roles are not part of a logical or branch-level copy on every provider: confirm `avela_runtime` exists and can log in; if not, `npm run db:create-app-role`.
+4. `DATABASE_URL=<branch owner url> npm run verify:production -- ` (database checks) and compare counts of `users`, `messages`, `audit_logs` with the source.
+5. Point a **preview** deployment at the branch with `APP_DATABASE_URL`/`DB_ENFORCE_RLS=on`; run `LIVE_URL=<preview> npm run test:live`.
+6. Record: when the restore point was, how long each step took, anything that differed. Delete the branch.
+
+**Failed migration:** the migrator runs each file in a transaction and records it in `schema_migrations`; a failure leaves earlier files applied and
+the failing one not. Fix forward with a new migration; do not edit an applied file. If the build step failed, the previous deployment keeps serving.
+**Accidentally revoked or rotated runtime credential:** the application stops serving (readiness 503). Fix: as the owner, `AVELA_RUNTIME_PASSWORD=<new> npm run db:create-app-role`,
+update `APP_DATABASE_URL`, redeploy. Do **not** fall back to the owner role to "make it work"; if an emergency forces it, set `ALLOW_OWNER_DATABASE_ROLE=true`
+knowingly, record why, and reverse it within the day.
+Uploaded document files are not in the database; uploads are disabled on Vercel.
 
 ## 6. Scheduler
 
@@ -70,6 +108,19 @@ Design, caller options and recovery are in `docs/SCHEDULER.md`. To start the rec
 `cd ops/scheduler-worker && npx wrangler login && npx wrangler secret put CRON_SECRET && npx wrangler deploy`. Then watch
 `GET /api/health/scheduler` and the "Reminder scheduler" row on `/admin/integrations`; it reads "Verified" only after seven days
 of dependable calls.
+
+### Health endpoints and monitoring
+
+| Endpoint | Answers | Use |
+| --- | --- | --- |
+| `GET /api/health` | 200 + commit and build time, no database call | "Is the process up, and which build?" |
+| `GET /api/health/ready` | 200 `{"ok":true,"database":"up"}` or 503 `{"ok":false,"database":"down"}`; no error text | Uptime monitor for database outages |
+| `GET /api/health/scheduler` | 200 only while the reminder job is really running; else 503 with a status word and an age | Uptime monitor / dead-man's switch for reminders |
+
+Set up (owner): an external monitor on the last two, `SCHEDULER_HEARTBEAT_URL` (pinged after each successful run), and `OPS_ALERT_EMAIL`.
+Alert payloads carry counts, status words and ages only; never names, addresses or medicines. **Drill before relying on it:** in a preview
+deployment pause the caller (or point `CRON_SECRET` at a wrong value), wait one interval, confirm an alert arrives at a monitored address,
+restore, confirm recovery. Do not disrupt production to test alerting.
 
 ## 7. Routine tasks
 
