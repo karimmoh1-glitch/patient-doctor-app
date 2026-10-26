@@ -7,18 +7,26 @@ compliance; it implements controls that such programmes usually require.
 
 - Launch jurisdiction(s) and applicable law (HIPAA, GDPR, state privacy and telehealth-licensure rules).
 - Business Associate / data-processing agreements: hosting, database, email, STT, video, AI provider.
-- Privacy policy, terms, consent wording, data retention and deletion policy (no export/delete UI exists yet).
-- Breach notification procedure and who is on call. A security incident runbook does not exist yet.
-- Whether doctors may be shown to patients at all without third-party licence verification. Today an admin
-  approves by hand; licence numbers are not looked up.
+- Privacy policy, terms, **the health-information consent wording** (`hp.consent.*`, versioned in `server/services/healthProfile.ts`),
+  and the data retention and deletion policy. Account download, closure and erasure exist (`npm run erase:user`); what they
+  keep (clinician-authored records, the audit log) is a legal decision documented in `server/services/erasure.ts`.
+- Breach notification procedure and who is on call (`docs/OPERATIONS_RUNBOOK.md` section 8 is a starting point only).
+- Whether clinicians may be shown at all without third-party licence verification. Today a reviewer records how a licence was
+  checked (document, public register, or confirmation from the issuer), what they saw and its expiry; Avela looks nothing up itself.
+- Whether organization staff (coordinators, schedulers) may see a patient's name and appointment times by default. The product
+  tells the patient and lets them switch it off per doctor; the default and the wording need legal review.
 
 ## Needs clinical review
 
-- Emergency wording (`help.*`, SOS page, strip text). The emergency number is configurable
-  (`VITE_EMERGENCY_NUMBER`, default 911) because the right number depends on the country; nothing is hardcoded
-  behind login. A clinician must confirm the symptom list and tone.
-- The AI assistant boundary: it organises the patient's own data and restates doctor instructions; it must never
-  diagnose or change doses. Review the prompts and the "urgent-sounding input → emergency page" rule.
+- Emergency wording (`help.*`, `emi.*`, the SOS page). **Emergency numbers are per country, chosen by the person (never inferred
+  from language, address or device), with their sources in `shared/emergency.ts`.** United States: 911 (FCC and 911.gov). Egypt:
+  123 ambulance, 122 police, 180 fire, taken from a United States government compilation because **no Egyptian official source
+  could be found**; numbers seen only on unofficial sites (112, 126, 125) are not shown. In production none of these is shown
+  until a person has compared them with the sources and set `EMERGENCY_DATA_REVIEWED_BY`. A clinician must confirm the
+  symptom list and tone.
+- Clinical content in health-information onboarding: Avela records what the patient or a clinician says, marks who said it and
+  whether a clinician checked it, never infers "no allergies" from an empty list, and never interprets medicine instructions.
+  Review the wording of the allergy and medicine screens.
 - Prescriptions are recorded notes, not a regulated e-prescribing channel; the refill request is a message to a
   doctor, not an order. Language says so.
 

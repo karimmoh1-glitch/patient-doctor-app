@@ -1,5 +1,10 @@
 # Architecture
 
+> **Historical snapshot (2026-10-24).** Written before the production transformation; several items here (demo mode,
+> simulated pharmacy, AI assistant, "no MFA", "no export/delete UI") no longer apply. The current state is in
+> [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) and [`OVERNIGHT_EXECUTION.md`](OVERNIGHT_EXECUTION.md).
+
+
 One Node process serves the JSON API and the single-page app. It is a modular monolith on purpose: a small
 team can run it, and each seam below is where something would be split out later.
 

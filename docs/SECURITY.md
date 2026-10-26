@@ -114,17 +114,24 @@ Risks of the switch: a code path not exercised by the tests would see no data (f
 slightly. Rehearse on a copy of production data in a non-production environment first.
 
 ## Known gaps and risks
-- **No multi-factor authentication.** Strongly recommended for doctors and administrators before any real data.
-- **Credentials are self-reported.** See `docs/REAL_PATIENT_READINESS.md`.
-- **Production is not yet running the restricted role** (rollout above). Until then the application layer plus the
-  triggers are the only defence for read access.
-- **Rate limits** fall back to per-instance memory if the shared store is unreachable (by design, so a database blip is
-  not an outage). A distributed attacker still gets one window per address, not per instance.
-- **Password reset timing**: the response is identical, but an existing account does a little more work (one database write).
-- **Dev-tool advisories**: four moderate advisories remain in `drizzle-kit`'s own copy of `esbuild` (a development
-  server issue in a development-only CLI that is not part of the deployed application or the tests).
+- **Production is not yet running the restricted role** (rollout above; `docs/OPERATIONS_RUNBOOK.md` section 2). Until then the
+  application layer plus the triggers are the only defence for read access. Every test that matters also passes as the
+  restricted role in CI.
+- **A second factor exists** (TOTP, encrypted secret, recovery codes, lock-out, replay refusal) for clinicians, organization
+  staff and administrators; **patients and caregivers are not required to use one.** Losing `MFA_ENCRYPTION_KEY` locks those accounts out.
+- **Credentials are checked by a person, not by a registry.** The record says how and when; nothing is looked up automatically.
+- **Organization staff work through server-side scoping, not row-level policies**, because a staff member has no relationship
+  row (a connection, a grant) that a policy could test. All of it lives in `server/services/orgs.ts` after a permission check
+  and is attacked from the outside by `tests/orgs.test.ts` (cross-organization, escalation, last owner, hidden patients).
+  Treat that file as security-critical when changing it.
+- **Rate limits** fall back to per-instance memory if the shared store is unreachable (by design). A distributed attacker
+  still gets one window per address, not per instance. Pairing-code and invitation guessing are additionally limited per person per day.
+- **Password reset timing**: identical response, a little more work for an existing account.
+- **Dev-tool advisories**: moderate advisories remain in `drizzle-kit`'s own copy of `esbuild` (development-only CLI).
 - **No malware scanning of uploads**; uploads are disabled on Vercel.
-- **Demo deployment**: the demo accounts and their published password exist on the live demo site by design. It must
-  never hold real data (`docs/OPERATIONS.md`). Retiring the demo has been rehearsed on a copy only.
-- Audit logging of reads is fail-closed for doctor and caregiver reads of patient data; other events are best-effort.
-- Email reminder sending is at-least-once if the email provider times out after accepting a message.
+- **Retired demonstration data** still sits in the live database until the cutover in the runbook is approved and run. Production
+  code refuses those accounts and hides those doctors regardless.
+- **No independent penetration test has been performed.**
+- Audit logging of reads is fail-closed for doctor, caregiver, clinician-assisted and staff-note reads; other events are best-effort.
+- E-mail reminder sending is at-least-once if the provider times out after accepting a message.
+- Secrets pulled to a developer machine during operations must be rotated before launch.

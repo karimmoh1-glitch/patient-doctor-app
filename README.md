@@ -1,116 +1,94 @@
 # Avela
 
-Healthcare, closer to you. Avela connects patients with doctors and keeps everyday care in one place: finding a
-doctor, booking a real time, messaging, prescription records and medication reminders. It is built for people who
-find health technology hard (older adults, Arabic readers, people with little access to care) and gives doctors
-a practical professional workspace.
+Healthcare communications and care coordination: find a doctor, connect, message, book real times, keep your own health
+information, and set reminders for medicines, appointments, bills and subscriptions. Built for people who find health
+technology hard (older adults, Arabic readers) and for the clinicians and clinics who look after them.
 
-**Status: a working, tested product prototype, not a launched clinical service.** Read
-[`docs/SAFETY_AND_COMPLIANCE.md`](docs/SAFETY_AND_COMPLIANCE.md) and [`docs/AUDIT.md`](docs/AUDIT.md) (what works,
-what is not built) before putting real patient data anywhere near it. Avela makes no HIPAA, GDPR or other
-compliance claim.
+**Status: a tested product, not a launched clinical service. Launch decision: NO-GO** (see
+[`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) for every gate and what closes it). Avela makes no HIPAA,
+GDPR or Egyptian-law compliance claim, is not an emergency service, and does not replace a hospital information system.
 
-## What works today
+## What works (and is tested)
 
-**Patients**
-- Browse doctors without an account (filter by specialty, **language**, how they see patients, state, and whether
-  they have times available), then create an account to connect.
-- Short sign-up, with a skippable welcome (text size, optional emergency contact, first doctor).
-- Real appointment booking in the patient's own time zone; the database makes double-booking impossible.
-- Secure messages with a connected doctor (not an emergency channel, and the app says so).
-- Prescriptions the doctor has **authorized**, with plain statements that they are records kept in Avela and are
-  **not sent to a pharmacy**. Add them to today's medicines and set **reminders** (times, days, on/pause).
-- A privacy page: what each doctor can see (all off until switched on) and a log of who looked.
-- Care Circle: a trusted person gets read-only, revocable, scoped access.
-- Emergency guidance on every screen (including before sign-in), a persistent Help button, text-size setting,
-  a Simple screen, and a short list of four main destinations.
-- **Arabic and English** throughout, with right-to-left layout, the language remembered on the device and the account.
+**Patients**: browse doctors without an account, with the reason each doctor appears; sign up; connect by asking a
+doctor or by a **code or QR** the doctor shows (the patient sees who it is from and must confirm); messages whose status
+says only what is known (*sent*, *delivered* when their app fetched it, *read* when they opened it and allow receipts),
+with search, report and block; real appointment booking in their own time zone with history; **health information**
+(allergies with an explicit "no known allergies" that is never inferred from an empty list, medicines they take, history,
+emergency contact) where every item says who entered it and whether a clinician checked it, with versioned consent and a
+time-limited, revocable grant before any clinician may help fill it in; **reminders** for medicines, appointments, tasks,
+bills and subscriptions (month ends, leap years, daylight saving handled), with or without a doctor; a Care Circle; a
+privacy page with who looked; an account download and closure. Arabic and English with right-to-left layout; the country
+(for emergency numbers) is chosen separately from the language.
 
-**Doctors**
-- Register an account, then complete professional details in a short guided form and send it for review.
-- **No clinical access until an administrator approves.** States: not sent, waiting for review, more information
-  requested, approved, rejected, suspended. Enforced by the server on every clinical route, not only hidden in the UI.
-- After approval: a workspace with what needs attention, today and the week ahead, requests, patients, weekly hours
-  (in the doctor's time zone), a profile, and a prescription workflow: **draft → review → authorize**, an
-  append-only history, and controlled substances refused.
+**Clinicians**: register, apply, and become visible only after an administrator records **how the licence was checked, what
+was seen and when it expires** (an expired check unlists them); a second factor is required. Connect patients by code,
+manage requests, hours, appointments, prescription records (draft, review, authorize; never sent anywhere), and help a
+patient fill in their health information when that patient has allowed it.
 
-**Administrators**
-- Review applications (approve, ask for more information, reject), suspend and reinstate doctors, and see an
-  activity log of who did what (never the contents of records). Administrators are created from a trusted shell
-  (`npm run admin:create`); there is no public admin sign-up.
+**Organizations and staff**: a clinic or hospital can be created, invite staff (coordinator, scheduler, auditor,
+administrator) by an e-mail-bound link, and keep follow-up tasks and internal notes. Roles and permissions come from one
+table (`shared/permissions.ts`). Staff see only patients connected to the organization's own clinicians who have not hidden
+themselves from staff, and only a name and appointment times; no role reads clinical records. Another organization's
+patients do not exist to them (`tests/orgs.test.ts`).
 
-## Deliberately not faked
+**Administrators**: review clinician applications and licences, organizations, message reports, integration status and
+activity. There is no public administrator sign-up (`npm run admin:create`).
 
-Video visits, SMS or push reminders, live support chat, real pharmacy ordering, payments, EHR sync and independent
-licence verification are **not built**. `GET /api/config` reports what is really configured and the interface hides
-or labels the rest. Reminders are saved and shown in the app, but are only *delivered* when a scheduler is calling the
-reminder endpoint; the app tells patients plainly when that is not happening. See
-[`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
+## Deliberately not built, and shown as such
 
-Demonstration-only features (example pharmacy, one-tap demo logins, seeded doctors who cannot reply) exist only
-while `DEMO_MODE` is on (automatic in development, a deliberate choice elsewhere), and a banner says so.
+Video visits, SMS, push notifications, pharmacy transmission, EHR/FHIR, licence-registry lookups, single sign-on,
+payments, and hospital modules (admissions, beds, laboratory, radiology, billing, pharmacy stock). `/admin/integrations`
+and `GET /api/config` report what is really configured and what has been *proven* (for example e-mail is "accepted" until the
+provider's signed webhook says "delivered"). See [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md).
 
 ## Tech stack
 
-React 19, TypeScript, Vite, Wouter, TanStack Query, Tailwind CSS v4, Radix primitives, self-hosted variable fonts
-(Figtree, Fraunces, Noto Sans Arabic) · Express 4, Drizzle ORM, PostgreSQL, JWT sessions with per-device revocation,
-luxon for time zones, Resend for email (logged in development when no key is set) · Vitest, Playwright, axe.
+React 19, TypeScript, Vite, Wouter, TanStack Query, Tailwind v4 (logical properties, RTL), Radix · Express 4, Drizzle ORM,
+PostgreSQL (hand-written idempotent migrations), session cookies and bearer tokens, TOTP second factor, luxon, Resend ·
+Vitest, Playwright, axe.
 
-## Getting started
+## Getting started (development)
 
 ```bash
 npm install
 cp .env.example .env        # set DATABASE_URL and JWT_SECRET at minimum
-npm run db:migrate          # applies migrations/*.sql
-npm run db:seed             # demo doctors, a demo patient, a caregiver, an admin (refuses to run in production)
+npm run db:migrate
+npm run db:seed             # development fixtures only; refused when NODE_ENV=production
 npm run dev
 ```
 
-Demo accounts (password `DemoPass123!`): `patient@avela.dev` (Margaret Johnson, CA), `doctor@avela.dev`
-(Dr. Emily Chen), `caregiver@avela.dev`, `admin@avela.dev`. In demo mode the sign-in page also has one-tap demo
-buttons. Create a real first administrator with `ADMIN_EMAIL=… ADMIN_NAME=… ADMIN_PASSWORD=… npm run admin:create`.
+Fixture accounts (development and tests only, password `DemoPass123!`, second-factor secret in `script/fixtures.ts`):
+`patient@avela.dev`, `doctor@avela.dev`, `caregiver@avela.dev`, `admin@avela.dev`. A production server refuses every account
+marked as a fixture and never lists fixture clinicians, whatever is in the database. Create the first real administrator with
+`ADMIN_EMAIL=… ADMIN_NAME=… ADMIN_PASSWORD=… npm run admin:create`.
 
 ## Testing
 
 | Command | What it runs |
 | --- | --- |
 | `npm run typecheck` | TypeScript, client and server |
-| `npm test` | Vitest against a real Postgres `*_test` database: authorization, concurrency, scheduling, doctor verification, prescriptions, reminders, privacy, audit, email, honesty, translations |
-| `npm run test:rls` | The same Vitest suite, but the application connects as the **restricted database role** with row-level security enforced (see `docs/SECURITY.md`) |
-| `npm run test:e2e` | Playwright (phone profile) with axe checks in English and Arabic, against the dev server on a throwaway database |
-| `npm run test:e2e:rls` | The same browser tests with the server connected as the restricted database role |
-| `LIVE_URL=… EXPECTED_COMMIT=$(git rev-parse HEAD) npm run test:live` | Read-only browser tests against a **deployed** site (landing, registration, sign-in, reloads, Arabic/RTL, the demo patient and doctor screens, what each role is refused, the commit that is running) |
-| `npm run build && npm run test:prod` | Playwright against the **built** app with the production content-security policy: landing page, every script chunk, fonts, sign-in and the signed-in screens for all four roles, nested-route refresh, Arabic/RTL |
+| `npm test` | Vitest against a real Postgres `*_test` database (authorization, tenant isolation, concurrency, scheduling, reminders, consent, messaging, credentials, e-mail evidence, emergency data, translations, production guards) |
+| `npm run test:rls` | The same suite with the application connected as the **restricted database role** and row-level security enforced |
+| `npm run test:e2e` / `npm run test:e2e:rls` | Playwright (phone profile) with axe checks in English and Arabic, as the owner and as the restricted role |
+| `npm run build && npm run test:prod` | Playwright against the **built** app with production configuration and the production content-security policy |
+| `LIVE_URL=… EXPECTED_COMMIT=$(git rev-parse HEAD) npm run test:live` | Read-only visitor checks of a **deployed** site and which commit is running |
 
-Test databases: `TEST_DATABASE_URL`, `E2E_DATABASE_URL`, `PROD_SMOKE_DATABASE_URL` (names must end in `_test`; the
-harness refuses to wipe anything else). CI (`.github/workflows/ci.yml`) runs all of the above against a Postgres service,
-including the two restricted-role runs and a production-dependency advisory gate. See `docs/TESTING.md` (including the
-investigation of intermittent slow test runs) and `docs/SCHEDULER.md` (how reminders are triggered, and what is and is
-not yet proven).
+Test databases: `TEST_DATABASE_URL`, `E2E_DATABASE_URL`, `PROD_SMOKE_DATABASE_URL` (names must end in `_test`).
+CI (`.github/workflows/ci.yml`) runs all of the above with a production-dependency advisory gate. See `docs/TESTING.md`.
 
 ## Scripts
 
-| Command | Description |
-| --- | --- |
-| `npm run dev` | API + Vite dev middleware |
-| `npm run build` / `npm start` | Production bundle / run it (start applies pending migrations) |
-| `npm run db:migrate` | Apply pending SQL migrations (never use `db:push` on a real database) |
-| `npm run db:seed` | Demo data |
-| `npm run admin:create` | Create an administrator from environment variables |
-| `npm run verify:production` | List the blockers that remain before real patients (exit code 1 while any exists) |
-| `npm run demo:retire` | Deactivate demonstration accounts without deleting anything (dry run unless `--apply`) |
-| `npm run erase:user -- <id>` | Carry out an account-deletion request (dry run unless `--apply`) |
+`npm run dev` · `npm run build` / `npm start` (start applies pending migrations) · `npm run db:migrate` · `npm run db:create-app-role`
+· `npm run admin:create` · `npm run mfa:reset` · `npm run verify:production` (lists launch blockers) · `npm run demo:retire`
+(dry run unless `--apply`) · `npm run erase:user -- <id>` (dry run unless `--apply`).
 
 ## Documentation
 
-[`AUDIT.md`](docs/AUDIT.md) findings and running checklist · [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·
-[`DATA_FLOW.md`](docs/DATA_FLOW.md) where information goes · [`INTEGRATIONS.md`](docs/INTEGRATIONS.md) ·
-[`SAFETY_AND_COMPLIANCE.md`](docs/SAFETY_AND_COMPLIANCE.md) decisions that need humans · [`SECURITY.md`](docs/SECURITY.md) boundaries and risks · [`REAL_PATIENT_READINESS.md`](docs/REAL_PATIENT_READINESS.md) the gate before real data · [`OPERATIONS.md`](docs/OPERATIONS.md)
-
-## Before real patients
-
-Everything in `SAFETY_AND_COMPLIANCE.md`, plus: object storage for uploaded documents (local disk is lost on
-redeploy), signed agreements with every provider that touches health information, legal and clinical review of
-emergency wording, privacy policy and terms, review of the Arabic translation by fluent speakers and clinicians,
-a real scheduler for reminders, an independent security test, and testing with real older adults and
-assistive-technology users.
+Start with [`PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) (what is true, what blocks launch) and
+[`OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md) (deploy, database role, cutover, backup, incidents).
+Then [`PRODUCT_ARCHITECTURE.md`](docs/PRODUCT_ARCHITECTURE.md) · [`SECURITY.md`](docs/SECURITY.md) ·
+[`THREAT_MODEL.md`](docs/THREAT_MODEL.md) · [`DATA_FLOW.md`](docs/DATA_FLOW.md) · [`INTEGRATIONS.md`](docs/INTEGRATIONS.md) ·
+[`SCHEDULER.md`](docs/SCHEDULER.md) · [`SAFETY_AND_COMPLIANCE.md`](docs/SAFETY_AND_COMPLIANCE.md) ·
+[`OVERNIGHT_EXECUTION.md`](docs/OVERNIGHT_EXECUTION.md) (the working queue with evidence). `AUDIT.md` and `ARCHITECTURE.md` are
+earlier snapshots, kept for history.

@@ -1,63 +1,51 @@
 # Integrations registry
 
-Every external service Avela can use, its real status, and what it takes to connect it. The same statuses are computed
-by the server and shown to administrators (`/admin/integrations`, `GET /api/admin/integrations`); this document is the
-human-readable version. Nothing is marked operational unless a real call or a real provider event proved it.
+Every external service Avela can use, its real status, and what it takes to connect it. The same statuses are computed by the
+server from its own records and shown to administrators at `/admin/integrations` (`GET /api/admin/integrations`,
+`server/services/integrations.ts`); this document is the human-readable version. Nothing is "verified" because a key is
+present: verification needs a real provider call or a signed provider event on record.
 
-Status vocabulary: **Verified** (a real provider call or event succeeded and is recorded) · **Configured, unverified** (keys
-present, nothing proved) · **Not configured** · **Unavailable** (nothing to configure: not implemented) · **Failed** (last
-check failed).
+Status vocabulary: **Verified** (evidence recorded) · **Set up, not yet proven** · **Not set up** · **Not available** (not built:
+nothing to configure) · **Failing** (the latest real attempts failed).
 
-| Integration | Status today | Purpose | Notes |
-| --- | --- | --- | --- |
-| E-mail (Resend) | **Not configured** | Password reset, invitations, reminders, notices | Code complete; no key, no sending domain |
-| E-mail delivery receipts (Resend webhook) | **Not configured** | Turn "provider accepted" into "provider reports delivered / bounced" | Endpoint with signature verification; needs the webhook secret |
-| Reminder scheduler caller | **Not verified** | Calls `/api/cron/reminders` | GitHub schedule has never fired here; Cloudflare Worker built, undeployed |
-| Heartbeat / uptime monitor | **Not configured** | Notices a scheduler that stops | `SCHEDULER_HEARTBEAT_URL`, uptime monitor on `/api/health/scheduler` |
-| Operator alert e-mail | **Not configured** | Failure and recovery e-mail | `OPS_ALERT_EMAIL` (needs e-mail provider) |
-| SMS | **Unavailable** | Reminders | Not implemented; no provider chosen |
-| Push notifications | **Unavailable** | Reminders, messages | Not implemented |
-| Video consultation | **Unavailable** | Visits | Not implemented; the interface offers no video option |
-| Clinician credential verification | **Unavailable** | Independent licence check | No registry integrated; verification is manual and is described as such |
-| Pharmacy transmission | **Unavailable** | Sending prescriptions | Not implemented. Prescription records say they are not sent anywhere |
-| EHR / FHIR | **Unavailable** | Interoperability | Not implemented; no FHIR compatibility is claimed |
-| Identity provider / SSO | **Unavailable** | Organization staff sign-in | Not implemented |
-| AI provider (OpenAI) | **Not configured** | Optional assistant | Off unless a key and `AI_PHI_PROCESSING_CONFIRMED=true` are set; no substitute responder is shown |
-| Speech-to-text | **Unavailable** | Voice symptom entry | Not implemented for production |
+| Integration | Status today | Evidence required to read "Verified" |
+| --- | --- | --- |
+| E-mail sending (Resend) | **Not set up** | At least one message the provider reported **delivered** (signed webhook) |
+| E-mail delivery reports (Resend webhook) | **Not set up** | At least one signed event received |
+| Reminder scheduler caller | **Not proven** | Seven days, each with ≥ 90% of the expected five-minute calls, from a caller other than GitHub Actions |
+| Heartbeat monitor | **Not set up** | A deliberate failure produced a received alert (a drill; recorded by the operator, not computable) |
+| Operator alert e-mail | **Not set up** | Same |
+| Video consultation | **Not available** | No provider is implemented; the interface offers no video option |
+| SMS | **Not available** | Not implemented |
+| Push notifications | **Not available** | Not implemented |
+| Pharmacy transmission | **Not available** | Not implemented; prescription records say they are not sent anywhere |
+| EHR / FHIR | **Not available** | Not implemented; no compatibility is claimed |
+| Licence registry lookup | **Not available** | Not implemented; a person records how each licence was checked |
+| Single sign-on for organizations | **Not available** | Not implemented; staff use accounts with a second factor |
 
-## Details for each integration that can be configured
+## What can be configured
 
 ### E-mail (Resend)
 - **Variables:** `RESEND_API_KEY`, `EMAIL_FROM` (a verified sending domain), `APP_URL` (https).
-- **Data sent to the vendor:** recipient address, subject, body. Reminder e-mails name no medicine unless the patient
-  chose that; subjects are generic. Nothing else.
-- **Timeout / retry:** each send is abandoned after 8 s (`EMAIL_TIMEOUT_MS`); a failed reminder e-mail is retried by later
-  scheduler runs, at most 3 attempts, only while the reminder is still useful (3 hours). A timed-out send may later turn out
-  to have been accepted, so e-mail is at-least-once in that case.
-- **Failure modes:** missing key (features report e-mail unavailable and nothing external is claimed), rejected sender,
-  provider outage, bounce.
-- **Verification evidence required:** one real message accepted in production **and** a delivery event received through the webhook.
-- **Privacy:** requires the provider's data-processing terms; confirm whether the provider will sign a business-associate-type
-  agreement before any health-related content is sent. Not done.
+- **Used for:** password reset, invitations (care circle, organization staff), clinician application notices, pairing notices, reminders.
+- **Data sent to the vendor:** recipient address, subject, body. Subjects are generic; reminder text names no medicine or title unless the patient chose it. A pairing code is never e-mailed.
+- **Timeout and retries:** each send is abandoned after 8 s (`EMAIL_TIMEOUT_MS`); a failed reminder e-mail is retried by later scheduler runs, at most 3 attempts, only while the reminder is still useful (3 hours). A timed-out send may later turn out to have been accepted, so e-mail is at-least-once in that case. Quiet hours hold reminder e-mail back for good.
+- **Failure modes:** missing key (features say e-mail is unavailable and nothing external is claimed), rejected sender, outage, bounce.
+- **Evidence recorded:** a row per accepted message in `email_deliveries` (provider message id, purpose, a keyed hash of the address; no address, no content).
+- **Privacy:** needs the provider's data-processing terms; whether it will sign a business-associate-type agreement for health-related mail is the owner's question. Not done.
 
-### E-mail delivery receipts (Resend webhook)
-- **Variables:** `RESEND_WEBHOOK_SECRET`. **Endpoint:** `POST /api/webhooks/resend`.
-- **Authentication:** Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`) verified with the secret; requests older
-  than 5 minutes or with a bad signature are refused.
-- **Effect:** records `delivered`, `bounced` or `complained` against the matching reminder delivery. Without a received event
-  Avela says only "accepted by the e-mail service".
+### E-mail delivery reports (Resend webhook)
+- **Variable:** `RESEND_WEBHOOK_SECRET`. **Endpoint:** `POST /api/webhooks/resend` (raw body).
+- **Authentication:** Svix signature (`svix-id`, `svix-timestamp`, `svix-signature`) over the exact bytes; older than five minutes or wrongly signed: refused; no secret configured: 503.
+- **Effect:** moves a message from *accepted* to *delivered*, *delayed*, *bounced*, *complained* or *failed*, never backwards, once per event id.
 
 ### Scheduler caller
-See `docs/SCHEDULER.md`. Options: Cloudflare Worker (`ops/scheduler-worker/`), GitHub Actions (best-effort; observed not to
-fire), Vercel Cron (once a day on the current plan). **Verification evidence required:** at least 7 consecutive days of calls in
-`job_run_history` from a dependable caller.
+See `docs/SCHEDULER.md`. Options: Cloudflare Worker (`ops/scheduler-worker/`, recommended; needs the operator's Cloudflare login), GitHub Actions (best-effort; **observed not to fire for this repository**), Vercel Cron (once a day on the current plan).
 
 ### Monitoring and alerting
-`SCHEDULER_HEARTBEAT_URL` (https; a successful run pings it, a failed run pings `<url>/fail`), `OPS_ALERT_EMAIL`, and an uptime
-monitor on `/api/health/scheduler`. **Verification evidence required:** a deliberate failure produced a received alert.
+`SCHEDULER_HEARTBEAT_URL` (https; a successful run pings it, a failed one pings `<url>/fail`), `OPS_ALERT_EMAIL`, and an uptime monitor on `/api/health/scheduler`.
 
-### Video, SMS, push, pharmacy, credential registry, EHR/FHIR, SSO
-Not implemented. Each requires, before any code: a chosen vendor or standard, an agreement covering health information, a
-data-flow description added here, an implemented adapter with a timeout and retry policy, authenticated webhooks where
-applicable, and tests with the vendor's sandbox. Until then the product shows the capability as unavailable. No mock adapter is
-ever substituted in production.
+## Not implemented
+Video, SMS, push, pharmacy, registry lookups, EHR/FHIR and single sign-on each require, before any code: a chosen vendor or standard, an
+agreement covering health information, a threat review, tests against a sandbox, and an operator runbook. The interface hides
+or labels what does not exist.

@@ -1,5 +1,10 @@
 # Avela — implementation audit & checklist
 
+> **Historical snapshot (2026-10-24).** Written before the production transformation; several items here (demo mode,
+> simulated pharmacy, AI assistant, "no MFA", "no export/delete UI") no longer apply. The current state is in
+> [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) and [`OVERNIGHT_EXECUTION.md`](OVERNIGHT_EXECUTION.md).
+
+
 Audited 2026-10-24 against the working tree (≈12.6k lines, 20 tables, 20 route files, 71 client files).
 This document is the running checklist: `[x]` done and verified, `[ ]` open, `[~]` partial.
 

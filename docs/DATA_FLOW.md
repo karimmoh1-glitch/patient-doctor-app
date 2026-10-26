@@ -1,34 +1,38 @@
 # Data-flow inventory
 
-Where health-related information goes. "PHI" here means anything about a person's health or care.
-Keep this current whenever an integration is added; a reviewer should be able to answer "who else can see this?"
+Where health-related information goes. "PHI" means anything about a person's health or care. Keep this current whenever an
+integration is added; a reviewer should be able to answer "who else can see this?"
 
 | Data | Collected in | Stored | Leaves our servers to | Controls |
 | --- | --- | --- | --- | --- |
-| Account (name, email, state, time zone, password hash) | Sign-up | Postgres `users` (bcrypt hash) | Resend (email address + name, for sign-in/reset/application mail) | Generic email subjects; links single-use and expiring |
-| Symptom description (typed) | Symptom entry | `symptom_reports` | Nobody. Matching is deterministic and local | Doctor can read only while a pairing is requested/accepted; each read is audited fail-closed |
-| Symptom description (spoken) | Symptom entry | Audio is **not stored** | Speech-to-text provider **if** `STT_PROVIDER` set; development uses a local mock | Production refuses voice input without a provider; no provider is implemented yet, so voice is off in production. Needs a BAA before enabling |
-| Messages patient↔doctor | Chat | `messages` | Nobody | Only the two parties on an accepted pairing; request logs never include bodies |
-| Appointments | Booking | `appointments` | Resend only in transactional mail without clinical detail | Role + ownership guards; DB uniqueness prevents double-booking |
-| Medications, dose logs | Medications | `medications`, `medication_logs` | Nobody | Doctor sees only with an explicit, revocable per-doctor grant and a live connection; caregiver only via care-circle grant |
-| Documents (files) | Documents | **Local disk** `uploads/documents` + metadata row | Nobody | Type allowlist, magic-byte check, never served statically, `nosniff` + sandbox CSP; per-request access check |
-| Emergency profile (contact, allergies) | Profile | `users` (emergency_* columns) | Nobody | Shown only to the patient unless they read it to someone |
-| AI assistant context | Assistant / Explain simply | Nothing stored beyond the reply | OpenAI **only if** `OPENAI_API_KEY` **and** `AI_PHI_PROCESSING_CONFIRMED=true`; otherwise a local deterministic responder | The two-key gate is checked in code, not docs |
-| Doctor credentials (professional role, licence number and body, qualifications, languages, clinic) | Doctor application | `doctor_applications`, then `doctor_profiles` on approval | Administrators who review them | Self-reported; no documents or photos are collected; the list view is audited; patients only see the approved profile and a "reviewed by Avela" note |
-| Prescriptions (drug, strength, dose, route, instructions, warnings) | Doctor | `prescriptions`, history in `prescription_events` | Nobody. Never sent to a pharmacy | Drafts visible only to the doctor of record; patient sees authorized records only; private doctor note never returned to the patient |
-| Reminder schedule (times, days, time zone) | Patient | `medication_reminders`, deliveries in `reminder_deliveries` | Resend (email), only if the patient chose email and a provider is configured; the message omits the medicine name unless the patient chose to show it | Cron endpoint needs `CRON_SECRET`; delivery is idempotent |
-| In-app notifications | System | `notifications` (kind + small parameters, no sentence text) | Nobody | Private to the recipient |
-| Language preference | Sign-up / settings | `users.language` | Used to pick the language of emails and server-written text | n/a |
-| Audit events | Every sensitive action | `audit_logs` (actor, subject, action, target) | Nobody | No PHI values stored; patient can view their own access log |
-| Server logs | Every request | Host log stream | Host's log service | Method, path pattern, status, duration only. No bodies, tokens, query strings, or DB error text |
-| Browser storage | Client | `localStorage`: session token, text size, language, simple-mode, return path after expiry | n/a | Cleared on sign-out; cache cleared on sign-in/out |
+| Account (name, e-mail, state, country, time zone, password hash) | Sign-up, profile | `users` (bcrypt hash) | The e-mail provider (address and name, for sign-in, reset, invitation and notice mail) | Generic subjects; links single-use and expiring |
+| Health information the patient enters (allergies, medicines, history, needs) | Health information screens | `health_entries` (+ `allergy_statements`, `health_entry_events`, `onboarding_sections`) | Nobody | Consent by version required; owner-only by row-level policy; a clinician only under the patient's time-limited grant; every read by a clinician audited; entries never edited in place; erased on closure unless a clinician wrote them |
+| Date of birth, preferred name, contact method, accessibility needs, emergency contact and relationship, care preferences | Health information screens | `users` columns | Nobody | Owner-only; erased on closure |
+| Symptom description (typed) | Symptom entry | `symptom_reports` | Nobody; matching is local | A doctor reads only while a request is open or a connection accepted; reads audited fail-closed |
+| Messages patient to doctor | Chat | `messages` | Nobody | Only the two parties of an accepted connection; never edited or deleted; bodies never logged; patient text erased on closure |
+| Message reports | Report dialog | `message_reports` | Nobody | The reporter chooses whether the message text is attached; administrators see only what was attached |
+| Appointments | Booking | `appointments` | The e-mail provider only in generic notices | Ownership guards; the database prevents double booking |
+| Appointment names and times seen by organization staff | Derived | Not copied | Organization staff, if the patient has not hidden themselves | Per-connection patient switch (`pairing_requests.org_staff_visible`); never the reason; scoped to the organization's own clinicians |
+| Prescription records | Doctor | `prescriptions`, `prescription_events` | Nobody; never sent to a pharmacy | Drafts visible only to the author; frozen after authorization |
+| Clinician medication reminders | Patient | `medication_reminders`, `reminder_deliveries` | The e-mail provider if the patient chose e-mail; no medicine name unless chosen | Owner-only |
+| Personal reminders (medicine, appointment, task, bill, subscription; amounts are notes) | Patient | `personal_reminders`, `personal_reminder_deliveries` | The e-mail provider if chosen; text is generic unless the patient chose to include the title | Owner-only; quiet hours hold e-mail back for good |
+| Care-circle membership and sharing grants | Patient | `care_circle_members`, `sharing_grants` | Nobody | Revocable; read access logged |
+| Documents | Documents screen | Local disk + metadata (disabled on Vercel) | Nobody | Type allowlist, magic-byte check, never served statically |
+| Pairing codes | Clinician | `pairing_invitations` (keyed hashes only) | Nobody | 15 minutes, single use, revocable; the QR holds a token only, in the URL fragment |
+| Clinician licence details and the checks made | Application, reviewer | `doctor_applications`, `doctor_credentials`, `credential_events` | Reviewers; a clinician sees their own check status | Self-reported until a reviewer records the check; evidence notes never shown to patients |
+| Organization staff, tasks, internal notes | Organization screens | `organizations`, `org_memberships`, `org_invitations`, `org_tasks`, `org_notes` | Nobody | Permission matrix; tenant scoping; notes append-only, never shown to patients; reads of notes audited |
+| E-mail delivery evidence | Provider webhook | `email_deliveries`, `email_webhook_events` | Nobody | Provider message id, purpose and a keyed hash of the address only: no address, no content |
+| Second-factor secrets and recovery codes | Enrolment | `user_mfa` (AES-256-GCM, bound to the user), `mfa_recovery_codes` (hashes) | Nobody | System-only tables |
+| Audit events | Every sensitive action | `audit_logs` | Nobody | Actor, subject, action, target; no record contents |
+| Server logs | Every request | Host log stream | The host's log service | Method, path pattern, status, duration only |
+| Browser storage | Client | Text size, language, chosen country for emergency numbers, a pending code or invitation for this tab only | n/a | Session lives in an `HttpOnly` cookie, not in storage |
 
 ## Not collected
 
-Analytics, advertising identifiers, location (the SOS "share location" control is explicit, opt-in, and only
-sent when the patient then sends an alert), device fingerprints beyond a revocable session label.
+Analytics, advertising identifiers, device fingerprints beyond a revocable session label, location (the SOS "share location"
+control is explicit and only sent if the patient then sends an alert).
 
-## Third parties (all optional; none is required to run)
+## Third parties (none is required to run; none is connected in production today)
 
-Resend (email), OpenAI (assistant), an STT provider (voice). Each needs a data-processing agreement / BAA
-appropriate to the launch jurisdiction **before** real patient data touches it. See `SAFETY_AND_COMPLIANCE.md`.
+The e-mail provider (Resend). Video, SMS, push, pharmacy, registry and single-sign-on providers do not exist in the code.
+Each provider needs a data-processing agreement appropriate to the launch jurisdiction **before** real patient data touches it.
