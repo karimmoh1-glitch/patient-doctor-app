@@ -12,7 +12,7 @@ or the owner's authorization to a production change.
 | # | Task | State | Evidence | Ext. |
 | --- | --- | --- | --- | --- |
 | P0-1 | No demo login, public credentials or fixture accounts in production | **Done in code.** Live database not yet cleaned | `tests/productionGuards.test.ts`, `tests/retireDemo.test.ts`, `npm run test:prod` | Cutover to a clean database needs owner approval (`OPERATIONS_RUNBOOK.md` §3) |
-| P0-2 | Cross-patient access impossible at the database | **Done in code and tests; not enforced in production** | `npm run test:rls`, `npm run test:e2e:rls` | Switching the live role needs owner approval (§2) |
+| P0-2 | Cross-patient access impossible at the database | **Done in code and tests; enforced in production since 2026-10-26** | `npm run test:rls`, `npm run test:e2e:rls`, live connections observed as `avela_runtime` | — |
 | P0-3 | Real second factor for clinicians, staff, administrators | **Done** | `tests/mfa.test.ts`, `tests/totp.test.ts`, `e2e/mfa.spec.ts` | `MFA_ENCRYPTION_KEY` must be set before deploying |
 | P0-4 | Nothing claims a capability that is not connected | **Done** | `tests/messaging.test.ts`, `tests/emailDeliveries.test.ts`, `tests/integrations.test.ts`, `e2e/integrations.spec.ts` | — |
 | P0-5 | No cross-organization access | **Done in code and tests** | `tests/orgs.test.ts` (both DB roles), `e2e/orgs.spec.ts` | Independent penetration test not done |
@@ -21,7 +21,7 @@ or the owner's authorization to a production change.
 
 | # | Task | State | Evidence | Ext. |
 | --- | --- | --- | --- | --- |
-| P1-1 | Production DB role + RLS enforced | **Prepared, not enabled** | Runbook §2, `npm run db:create-app-role`, readiness checks | Owner approval and run |
+| P1-1 | Production DB role + RLS enforced | **Done in production (2026-10-26)** | Runbook §2, `verify:production` role checks, `pg_stat_activity` shows `avela_runtime` | — |
 | P1-2 | Reminders on a schedule, proven repeatedly | **Blocked** | Code and tests done; **no dependable caller** (GitHub's schedule never fired; the Cloudflare Worker is built, not deployed) | `wrangler login` and deploy (§6), then 7 days of recorded calls |
 | P1-3 | E-mail with delivery evidence | **Code done; provider not configured** | `tests/emailDeliveries.test.ts` | Provider key, domain, webhook secret, agreement |
 | P1-4 | Clinician credential verification | **Done** (a person records source, evidence, expiry) | `tests/credentials.test.ts`, `e2e/credentials.spec.ts` | The review process itself is the owner's |
