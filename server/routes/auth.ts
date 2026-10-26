@@ -52,7 +52,7 @@ const loginAccountLimiter = makeLimiter({
 // What the client is told about the signed-in person. doctorStatus is how the
 // interface knows whether to show the clinician workspace or the verification
 // screen; the server enforces it independently on every clinical route.
-async function sessionUser(user: { id: string; name: string; email: string; role: string; state: string | null; language: string }) {
+async function sessionUser(user: { id: string; name: string; email: string; role: string; state: string | null; language: string; readReceipts?: boolean }) {
   return {
     id: user.id,
     name: user.name,
@@ -60,6 +60,7 @@ async function sessionUser(user: { id: string; name: string; email: string; role
     role: user.role,
     state: user.state,
     language: user.language,
+    readReceipts: user.readReceipts ?? true,
     ...(user.role === "doctor" ? { doctorStatus: await doctorStatusFor(user.id) } : {}),
   };
 }
@@ -328,9 +329,12 @@ router.get("/me", requireAuth, async (req, res) => {
 // The person's own preferences. Language drives the interface and any
 // notification text sent to them.
 router.patch("/me/preferences", requireAuth, async (req, res) => {
-  const parsed = z.object({ language: z.enum(["en", "ar"]) }).strict().safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: "Choose English or Arabic" });
-  const user = await storage.updateUserLanguage((req as any).userId as string, parsed.data.language);
+  const parsed = z.object({ language: z.enum(["en", "ar"]).optional(), readReceipts: z.boolean().optional() }).strict().safeParse(req.body);
+  if (!parsed.success || (parsed.data.language === undefined && parsed.data.readReceipts === undefined)) return res.status(400).json({ message: "Choose English or Arabic, or whether others see when you have read their messages" });
+  const userId = (req as any).userId as string;
+  if (parsed.data.readReceipts !== undefined) await storage.setReadReceipts(userId, parsed.data.readReceipts);
+  if (parsed.data.language !== undefined) await storage.updateUserLanguage(userId, parsed.data.language);
+  const user = await storage.getUser(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
   res.json(await sessionUser(user));
 });

@@ -36,6 +36,8 @@ const MATRIX: Record<string, string[]> = {
   "/api/doctors/me/profile": [D],
   "/api/pairings": [P],
   "/api/pairings/doctor": [D],
+  "/api/conversations": [P, D],
+  "/api/conversations/search": [P, D],
   "/api/pairings/x/symptom-report": [D],
   "/api/pairings/x/shared-records": [D],
   "/api/pairings/x/messages": EVERYONE, // 404 for everyone but the two people in that connection
@@ -43,6 +45,7 @@ const MATRIX: Record<string, string[]> = {
   "/api/admin/doctor-applications": [A],
   "/api/admin/audit": [A],
   "/api/admin/reminders/status": [A],
+  "/api/admin/message-reports": [A],
   "/api/appointments": [P],
   "/api/appointments/slots": [P],
   "/api/appointments/doctor": [D],

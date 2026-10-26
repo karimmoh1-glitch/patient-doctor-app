@@ -84,7 +84,8 @@ test.describe("becoming a doctor on Avela", () => {
 
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/Dr\. /);
-    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).getByRole("link")).toHaveCount(5);
+    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).getByRole("link")).toHaveCount(6); // includes Messages
+    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).getByRole("link", { name: "Messages" })).toBeVisible();
 
     // And patients can now find them, in their own language, with Avela's honest wording.
     await page.goto("/find-doctors");

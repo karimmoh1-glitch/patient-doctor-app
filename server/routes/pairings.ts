@@ -31,6 +31,10 @@ router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req
   if (!doctor) {
     return res.status(404).json({ message: "Doctor not found" });
   }
+  // Someone who has blocked, or been blocked by, this doctor cannot open a new connection. Same answer as "no such doctor".
+  if (doctor.userId && (await storage.isBlockedEitherWay(patientUserId, doctor.userId))) {
+    return res.status(404).json({ message: "Doctor not found" });
+  }
 
   if (parsed.data.symptomReportId) {
     const report = await storage.getSymptomReport(parsed.data.symptomReportId);
@@ -306,7 +310,24 @@ async function getAuthorizedPairing(req: any) {
   return null;
 }
 
-const sendMessageSchema = z.object({ body: z.string().trim().min(1).max(4000) });
+const sendMessageSchema = z.object({
+  body: z.string().trim().min(1).max(4000),
+  // The sending app's own id for this attempt. Reusing it on a retry returns the original instead of sending twice.
+  clientMessageId: z.string().trim().min(8).max(100).regex(/^[A-Za-z0-9_-]+$/).optional(),
+});
+
+const PAGE = 200;
+
+/** The other person in a connection, and whether they let this person see when they have read a message. */
+async function counterpartOf(pairing: { patientUserId: string; doctorProfileId: string }, viewerId: string) {
+  if (viewerId === pairing.patientUserId) {
+    const profile = await storage.getDoctorProfile(pairing.doctorProfileId);
+    const user = profile?.userId ? await storage.getUser(profile.userId) : undefined;
+    return { userId: profile?.userId ?? null, readReceipts: user?.readReceipts ?? true, name: profile?.name ?? "" };
+  }
+  const patient = await storage.getUser(pairing.patientUserId);
+  return { userId: pairing.patientUserId, readReceipts: patient?.readReceipts ?? true, name: patient?.name ?? "" };
+}
 
 router.get("/:id/messages", requireAuth, async (req, res) => {
   const pairing = await getAuthorizedPairing(req);
@@ -314,8 +335,21 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   if (pairing.status !== "accepted") {
     return res.status(403).json({ message: "Messaging is only available once the doctor has accepted" });
   }
-  const list = await storage.getMessagesByPairing(pairing.id);
-  res.json(list.map((m) => ({ id: m.id, senderUserId: m.senderUserId, body: m.body, createdAt: m.createdAt })));
+  const userId = (req as any).userId as string;
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "100"), 10) || 100, 1), PAGE);
+  const before = typeof req.query.before === "string" && !Number.isNaN(Date.parse(req.query.before)) ? new Date(req.query.before) : undefined;
+  const list = await storage.getMessagesPage(pairing.id, { before, limit });
+  // This person's app has now received these messages, which is the only evidence of "delivered" there is.
+  await storage.markMessagesDelivered(pairing.id, userId);
+  const other = await counterpartOf(pairing, userId);
+  res.json(
+    list.map((m) => {
+      const mine = m.senderUserId === userId;
+      // A sender sees "read" only if the recipient allows it; otherwise the most they learn is "delivered".
+      const status = !mine ? undefined : m.readAt && other.readReceipts ? "read" : m.deliveredAt || m.readAt ? "delivered" : "sent";
+      return { id: m.id, senderUserId: m.senderUserId, body: m.body, createdAt: m.createdAt, ...(mine ? { status } : {}) };
+    }),
+  );
 });
 
 router.post("/:id/messages", requireAuth, messageLimiter, async (req, res) => {
@@ -329,18 +363,41 @@ router.post("/:id/messages", requireAuth, messageLimiter, async (req, res) => {
     return res.status(400).json({ message: "Message text is required" });
   }
   const userId = (req as any).userId as string;
-  const message = await storage.createMessage({ pairingRequestId: pairing.id, senderUserId: userId, body: parsed.data.body });
-  // Tell the other person in-app, once until they've seen it (no message text, ever).
-  const doctorProfile = await storage.getDoctorProfile(pairing.doctorProfileId);
-  const recipientId = userId === pairing.patientUserId ? doctorProfile?.userId : pairing.patientUserId;
-  if (recipientId) {
-    const senderName = userId === pairing.patientUserId ? (await storage.getUser(userId))?.name ?? "" : doctorProfile?.name ?? "";
-    const link = `/chat/${pairing.id}?with=${encodeURIComponent(senderName)}`;
-    if (!(await storage.hasUnreadNotification(recipientId, "message.new", link))) {
-      await storage.createNotification({ userId: recipientId, kind: "message.new", params: { name: senderName }, link });
+  const other = await counterpartOf(pairing, userId);
+  if (other.userId && (await storage.isBlockedEitherWay(userId, other.userId))) {
+    return res.status(403).json({ message: "You can't send messages in this conversation." });
+  }
+  const { message, created } = await storage.createMessageIdempotent({
+    pairingRequestId: pairing.id,
+    senderUserId: userId,
+    body: parsed.data.body,
+    clientMessageId: parsed.data.clientMessageId ?? null,
+  });
+  // A retry of something already stored changes nothing and tells nobody twice.
+  if (created) {
+    // Tell the other person in-app, once until they've seen it (no message text, ever).
+    const recipientId = other.userId;
+    if (recipientId) {
+      const senderName = userId === pairing.patientUserId ? (await storage.getUser(userId))?.name ?? "" : (await storage.getDoctorProfile(pairing.doctorProfileId))?.name ?? "";
+      const link = `/chat/${pairing.id}?with=${encodeURIComponent(senderName)}`;
+      if (!(await storage.hasUnreadNotification(recipientId, "message.new", link))) {
+        await storage.createNotification({ userId: recipientId, kind: "message.new", params: { name: senderName }, link });
+      }
     }
   }
-  res.status(201).json({ id: message.id, senderUserId: message.senderUserId, body: message.body, createdAt: message.createdAt });
+  res.status(created ? 201 : 200).json({ id: message.id, senderUserId: message.senderUserId, body: message.body, createdAt: message.createdAt, status: "sent", duplicate: !created });
+});
+
+// The person has this conversation open and on screen: everything the other side sent is now read. Recorded only by
+// the recipient's own app, and shown to the sender only if the recipient has read receipts on.
+router.post("/:id/messages/read", requireAuth, async (req, res) => {
+  const pairing = await getAuthorizedPairing(req);
+  if (!pairing) return res.status(404).json({ message: "Pairing request not found" });
+  if (pairing.status !== "accepted") return res.status(403).json({ message: "Messaging is only available once the doctor has accepted" });
+  const userId = (req as any).userId as string;
+  const read = await storage.markMessagesRead(pairing.id, userId);
+  await storage.markNotificationsReadForLink(userId, `/chat/${pairing.id}`);
+  res.json({ read });
 });
 
 export default router;

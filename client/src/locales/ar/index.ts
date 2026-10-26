@@ -13,9 +13,10 @@ import labels from "./labels";
 import directory from "./directory";
 import legal from "./legal";
 import mfa from "./mfa";
+import msg from "./msg";
 
 // Arabic. Loaded on demand, so English readers never download it. Anything
 // not translated yet falls back to English. These are first-draft translations
 // that need review by a fluent speaker (and a clinician for medical wording)
 // before anyone relies on them: see docs/SAFETY_AND_COMPLIANCE.md.
-export const ar: Partial<Record<Key, string>> = { ...common, ...landing, ...auth, ...patient, ...health, ...doctor, ...admin, ...rx, ...onboarding, ...shared, ...labels, ...directory, ...legal, ...mfa };
+export const ar: Partial<Record<Key, string>> = { ...common, ...landing, ...auth, ...patient, ...health, ...doctor, ...admin, ...rx, ...onboarding, ...shared, ...labels, ...directory, ...legal, ...mfa, ...msg };

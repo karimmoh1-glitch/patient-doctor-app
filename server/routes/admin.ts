@@ -187,4 +187,22 @@ router.post("/users/:userId/mfa-reset", ...adminOnly, async (req, res) => {
   res.json({ message: "Their sign-in codes were removed. They will set them up again the next time they sign in." });
 });
 
+// Reports of abusive or unsafe messages. The reviewer sees the reason and ONLY what the reporter chose to attach, never the
+// rest of the conversation. Looking at the list is itself recorded.
+router.get("/message-reports", ...adminOnly, async (req, res) => {
+  const status = req.query.status === "resolved" ? "resolved" : "open";
+  const rows = await storage.listMessageReports(status);
+  await logAudit({ actorUserId: (req as any).userId as string, action: "message_reports.listed", metadata: { status } });
+  res.json(rows.map((r) => ({ id: r.id, reason: r.reason, details: r.details, sharedText: r.sharedText, reporterName: r.reporterName, status: r.status, createdAt: r.createdAt, resolvedAt: r.resolvedAt, resolutionNote: r.resolutionNote })));
+});
+
+router.post("/message-reports/:id/resolve", ...adminOnly, async (req, res) => {
+  const parsed = z.object({ note: z.string().trim().max(1000).optional() }).strict().safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ message: "Invalid request" });
+  const done = await storage.resolveMessageReport(req.params.id, (req as any).userId as string, parsed.data.note || null);
+  if (!done) return res.status(404).json({ message: "Not found" });
+  await logAudit({ actorUserId: (req as any).userId as string, action: "message_report.resolved", targetType: "message_report", targetId: done.id });
+  res.json({ id: done.id, status: done.status });
+});
+
 export default router;

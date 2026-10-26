@@ -16,6 +16,8 @@ export const users = pgTable("users", {
   phone: varchar("phone"),
   // Interface and message language the person chose (en | ar | es).
   language: varchar("language").notNull().default("en"),
+  // Whether the other side may be told when this person has read their message.
+  readReceipts: boolean("read_receipts").notNull().default(true),
   // A seeded demonstration account. Refused (sign-in and sessions) unless demo mode is on.
   isDemo: boolean("is_demo").notNull().default(false),
   // IANA zone (e.g. "America/Chicago"), learned from the person's browser.

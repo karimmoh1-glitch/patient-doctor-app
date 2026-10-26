@@ -313,7 +313,7 @@ function AppContent() {
         {(params) =>
           user?.role === "patient" || user?.role === "doctor" ? (
             <Authenticated user={user} {...shellProps}>
-              <ChatPage pairingId={params.id} user={user} backHref={user.role === "doctor" ? "/doctor/patients" : "/messages"} />
+              <ChatPage pairingId={params.id} user={user} backHref={user.role === "doctor" ? "/doctor/messages" : "/messages"} />
             </Authenticated>
           ) : (
             <Blocked user={user} />
@@ -333,6 +333,9 @@ function AppContent() {
       </Route>
       <Route path="/doctor/patients">
         <DoctorGate user={user} {...shellProps}><DoctorPatients /></DoctorGate>
+      </Route>
+      <Route path="/doctor/messages">
+        <DoctorGate user={user} {...shellProps}><MessagesList user={user!} /></DoctorGate>
       </Route>
       <Route path="/doctor/availability">
         <DoctorGate user={user} {...shellProps}><DoctorAvailability /></DoctorGate>

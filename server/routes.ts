@@ -4,6 +4,7 @@ import authRoutes from "./routes/auth";
 import doctorRoutes from "./routes/doctors";
 import symptomRoutes from "./routes/symptoms";
 import pairingRoutes from "./routes/pairings";
+import conversationRoutes from "./routes/conversations";
 import adminRoutes from "./routes/admin";
 import appointmentRoutes from "./routes/appointments";
 import prescriptionRoutes from "./routes/prescriptions";
@@ -30,6 +31,7 @@ export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
   ["/api/doctors", doctorRoutes],
   ["/api/symptom-reports", symptomRoutes],
   ["/api/pairings", pairingRoutes],
+  ["/api/conversations", conversationRoutes],
   ["/api/admin", adminRoutes],
   ["/api/appointments", appointmentRoutes],
   ["/api/prescriptions", prescriptionRoutes],

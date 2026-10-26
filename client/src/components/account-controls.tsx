@@ -68,6 +68,7 @@ export default function AccountControls({ user, onSignOut }: { user: AuthUser; o
     <section aria-labelledby="acct-heading" className="space-y-3 border-t border-border pt-5">
       <h3 id="acct-heading" className="text-base font-semibold">{t("acct.title")}</h3>
       {(user.role === "doctor" || user.role === "admin") && <SignInCodeControls />}
+      {(user.role === "patient" || user.role === "doctor") && <ReadReceiptControl />}
       <ConfirmAction
         trigger={<Button variant="outline" className="w-full justify-start"><LogOut aria-hidden="true" /> {t("acct.everywhere")}</Button>}
         title={t("acct.everywhere.title")}
@@ -158,6 +159,32 @@ function SignInCodeControls() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/** Whether the other side of a conversation may be told when this person has read their message. */
+function ReadReceiptControl() {
+  const { t } = useI18n();
+  const me = useQuery<{ readReceipts?: boolean }>({ queryKey: ["/api/auth/me"], staleTime: 0 });
+  const [busy, setBusy] = useState(false);
+  const on = me.data?.readReceipts ?? true;
+  async function toggle(next: boolean) {
+    setBusy(true);
+    try {
+      await apiRequest("PATCH", "/api/auth/me/preferences", { readReceipts: next });
+      await me.refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-1">
+      <label className="flex min-h-12 cursor-pointer items-start gap-3 text-base font-medium">
+        <input type="checkbox" className="mt-1 h-6 w-6 shrink-0 accent-[#0E5A4F]" checked={on} disabled={busy || me.isLoading} onChange={(e) => toggle(e.target.checked)} />
+        {t("msg.receipts")}
+      </label>
+      <p className="ps-9 text-base text-muted-foreground">{t("msg.receipts.help")}</p>
     </div>
   );
 }

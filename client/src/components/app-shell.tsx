@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Home, Stethoscope, CalendarDays, HeartPulse, LogOut, Siren, LifeBuoy, Settings as SettingsIcon,
   Inbox, UserCog, Users, Gauge, Clock, Bell, ClipboardCheck, UserRound, ScrollText,
+  MessagesSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -51,7 +52,8 @@ const PATIENT_NAV: NavItem[] = [
 const DOCTOR_NAV: NavItem[] = [
   { href: "/doctor", labelKey: "nav.d.home", icon: Home, exact: true },
   { href: "/doctor/requests", labelKey: "nav.d.requests", icon: Inbox },
-  { href: "/doctor/patients", labelKey: "nav.d.patients", icon: Users, owns: ["/chat"] },
+  { href: "/doctor/patients", labelKey: "nav.d.patients", icon: Users },
+  { href: "/doctor/messages", labelKey: "nav.d.messages", icon: MessagesSquare, owns: ["/chat"] },
   { href: "/doctor/appointments", labelKey: "nav.d.appointments", shortKey: "nav.d.appointments.short", icon: CalendarDays },
   { href: "/doctor/availability", labelKey: "nav.d.hours", shortKey: "nav.d.hours.short", icon: Clock },
   { href: "/doctor/profile", labelKey: "nav.d.profile", icon: UserRound, owns: ["/notifications"], sidebarOnly: true },

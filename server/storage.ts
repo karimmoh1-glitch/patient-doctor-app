@@ -7,7 +7,7 @@ import { fixtureAccountsAllowed } from "./config";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
-  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, medications, medicationLogs, pharmacies, pharmacyOrders,
+  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, messageReports, userBlocks, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
   type UserDevice, type InsertUserDevice,
@@ -18,7 +18,7 @@ import {
   type DoctorProfile, type InsertDoctorProfile,
   type SymptomReport, type InsertSymptomReport,
   type PairingRequest, type InsertPairingRequest,
-  type Message, type InsertMessage,
+  type Message, type InsertMessage, type MessageReport,
   type Appointment, type InsertAppointment,
   type Prescription, type InsertPrescription, type PrescriptionEvent,
   type Notification, type InsertNotification,
@@ -114,6 +114,21 @@ export interface IStorage {
 
   createMessage(data: InsertMessage): Promise<Message>;
   getMessagesByPairing(pairingRequestId: string): Promise<Message[]>;
+  /** Stores a message unless the same sender already sent this client id in this conversation, in which case the original is returned. */
+  createMessageIdempotent(data: InsertMessage): Promise<{ message: Message; created: boolean }>;
+  /** The newest `limit` messages older than `before` (all, if omitted), oldest first. */
+  getMessagesPage(pairingRequestId: string, opts: { before?: Date; limit: number }): Promise<Message[]>;
+  markMessagesDelivered(pairingRequestId: string, recipientUserId: string): Promise<number>;
+  markMessagesRead(pairingRequestId: string, recipientUserId: string): Promise<number>;
+  getConversationStats(pairingIds: string[], userId: string): Promise<Map<string, { lastAt: Date | null; lastBody: string | null; lastSenderUserId: string | null; unread: number }>>;
+  searchMessages(pairingIds: string[], query: string, limit: number): Promise<{ id: string; pairingRequestId: string; senderUserId: string; body: string; createdAt: Date | null }[]>;
+  setReadReceipts(userId: string, enabled: boolean): Promise<void>;
+  getMessage(id: string): Promise<Message | undefined>;
+  createMessageReport(data: { reporterUserId: string; pairingRequestId: string; messageId: string | null; reason: string; details: string | null; sharedText: string | null }): Promise<MessageReport>;
+  listMessageReports(status: "open" | "resolved"): Promise<(MessageReport & { reporterName: string })[]>;
+  resolveMessageReport(id: string, adminUserId: string, note: string | null): Promise<MessageReport | undefined>;
+  blockUser(blockerUserId: string, blockedUserId: string): Promise<void>;
+  isBlockedEitherWay(a: string, b: string): Promise<boolean>;
 
   setPairingRelationshipLabel(id: string, relationshipLabel: string | null): Promise<PairingRequest | undefined>;
   getAcceptedPairingsByPatient(patientUserId: string): Promise<PairingRequest[]>;
@@ -195,6 +210,7 @@ export interface IStorage {
   getNotificationsForUser(userId: string, limit: number): Promise<Notification[]>;
   countUnreadNotifications(userId: string): Promise<number>;
   markNotificationsRead(userId: string, ids?: string[]): Promise<void>;
+  markNotificationsReadForLink(userId: string, linkPrefix: string): Promise<void>;
   incrementPrescriptionRefills(id: string): Promise<Prescription | undefined>;
 
   createMedication(data: InsertMedication): Promise<Medication>;
@@ -630,6 +646,132 @@ export class DbStorage implements IStorage {
   async createMessage(data: InsertMessage): Promise<Message> {
     const [message] = await db.insert(messages).values(data).returning();
     return message;
+  }
+
+  async createMessageIdempotent(data: InsertMessage) {
+    if (!data.clientMessageId) return { message: await this.createMessage(data), created: true };
+    const [inserted] = await db.insert(messages).values(data).onConflictDoNothing().returning();
+    if (inserted) return { message: inserted, created: true };
+    const [existing] = await db
+      .select()
+      .from(messages)
+      .where(and(eq(messages.pairingRequestId, data.pairingRequestId), eq(messages.senderUserId, data.senderUserId), eq(messages.clientMessageId, data.clientMessageId)));
+    return { message: existing, created: false };
+  }
+
+  async getMessagesPage(pairingRequestId: string, opts: { before?: Date; limit: number }) {
+    const conditions = [eq(messages.pairingRequestId, pairingRequestId)];
+    // ISO text, not a Date object: the column is a timestamp without a zone that holds UTC, and a Date would be sent in local time.
+    if (opts.before) conditions.push(sqlOp`${messages.createdAt} < ${opts.before.toISOString()}::timestamp`);
+    const rows = await db.select().from(messages).where(and(...conditions)).orderBy(desc(messages.createdAt)).limit(opts.limit);
+    return rows.reverse();
+  }
+
+  async markMessagesDelivered(pairingRequestId: string, recipientUserId: string) {
+    const rows = await db
+      .update(messages)
+      .set({ deliveredAt: new Date() })
+      .where(and(eq(messages.pairingRequestId, pairingRequestId), sqlOp`${messages.senderUserId} <> ${recipientUserId}`, isNull(messages.deliveredAt)))
+      .returning({ id: messages.id });
+    return rows.length;
+  }
+
+  async markMessagesRead(pairingRequestId: string, recipientUserId: string) {
+    const now = new Date();
+    const rows = await db
+      .update(messages)
+      .set({ readAt: now, deliveredAt: sqlOp`COALESCE(${messages.deliveredAt}, ${now})` })
+      .where(and(eq(messages.pairingRequestId, pairingRequestId), sqlOp`${messages.senderUserId} <> ${recipientUserId}`, isNull(messages.readAt)))
+      .returning({ id: messages.id });
+    return rows.length;
+  }
+
+  async getConversationStats(pairingIds: string[], userId: string) {
+    const out = new Map<string, { lastAt: Date | null; lastBody: string | null; lastSenderUserId: string | null; unread: number }>();
+    if (!pairingIds.length) return out;
+    const ids = sqlOp.join(pairingIds.map((id) => sqlOp`${id}`), sqlOp`, `);
+    const res = await db.execute(sqlOp`
+      SELECT pairing_request_id,
+             max(created_at) AS last_at,
+             (array_agg(body ORDER BY created_at DESC))[1] AS last_body,
+             (array_agg(sender_user_id ORDER BY created_at DESC))[1] AS last_sender,
+             count(*) FILTER (WHERE sender_user_id <> ${userId} AND read_at IS NULL)::int AS unread
+        FROM messages WHERE pairing_request_id IN (${ids}) GROUP BY pairing_request_id`);
+    for (const r of res.rows as any[]) {
+      out.set(r.pairing_request_id, {
+        lastAt: r.last_at ? new Date(typeof r.last_at === "string" && !/[zZ]|[+-]\d\d/.test(r.last_at) ? r.last_at.replace(" ", "T") + "Z" : r.last_at) : null,
+        lastBody: r.last_body ?? null,
+        lastSenderUserId: r.last_sender ?? null,
+        unread: r.unread ?? 0,
+      });
+    }
+    return out;
+  }
+
+  async searchMessages(pairingIds: string[], query: string, limit: number) {
+    if (!pairingIds.length) return [];
+    const escaped = query.replace(/[\\%_]/g, (c) => `\\${c}`);
+    return db
+      .select({ id: messages.id, pairingRequestId: messages.pairingRequestId, senderUserId: messages.senderUserId, body: messages.body, createdAt: messages.createdAt })
+      .from(messages)
+      .where(and(inArray(messages.pairingRequestId, pairingIds), sqlOp`${messages.body} ILIKE ${"%" + escaped + "%"} ESCAPE '\\'`))
+      .orderBy(desc(messages.createdAt))
+      .limit(limit);
+  }
+
+  async setReadReceipts(userId: string, enabled: boolean) {
+    await db.update(users).set({ readReceipts: enabled }).where(eq(users.id, userId));
+  }
+
+  async getMessage(id: string) {
+    const [row] = await db.select().from(messages).where(eq(messages.id, id));
+    return row;
+  }
+
+  async createMessageReport(data: { reporterUserId: string; pairingRequestId: string; messageId: string | null; reason: string; details: string | null; sharedText: string | null }) {
+    const [row] = await db.insert(messageReports).values(data).returning();
+    return row;
+  }
+
+  // Reviewing reports is an administrator's job and sees only what the reporter chose to attach.
+  async listMessageReports(status: "open" | "resolved") {
+    return runAsSystem(async () => {
+      const rows = await db
+        .select({ report: messageReports, reporterName: users.name })
+        .from(messageReports)
+        .innerJoin(users, eq(users.id, messageReports.reporterUserId))
+        .where(eq(messageReports.status, status))
+        .orderBy(desc(messageReports.createdAt))
+        .limit(200);
+      return rows.map((r) => ({ ...r.report, reporterName: r.reporterName }));
+    });
+  }
+
+  async resolveMessageReport(id: string, adminUserId: string, note: string | null) {
+    return runAsSystem(async () => {
+      const [row] = await db
+        .update(messageReports)
+        .set({ status: "resolved", resolvedByUserId: adminUserId, resolvedAt: new Date(), resolutionNote: note })
+        .where(and(eq(messageReports.id, id), eq(messageReports.status, "open")))
+        .returning();
+      return row;
+    });
+  }
+
+  async blockUser(blockerUserId: string, blockedUserId: string) {
+    await db.insert(userBlocks).values({ blockerUserId, blockedUserId }).onConflictDoNothing();
+  }
+
+  // Whether either person has blocked the other. Asked about someone else's block list, so it is a server check.
+  async isBlockedEitherWay(a: string, b: string) {
+    return runAsSystem(async () => {
+      const rows = await db
+        .select({ x: userBlocks.blockerUserId })
+        .from(userBlocks)
+        .where(sqlOp`(${userBlocks.blockerUserId} = ${a} AND ${userBlocks.blockedUserId} = ${b}) OR (${userBlocks.blockerUserId} = ${b} AND ${userBlocks.blockedUserId} = ${a})`)
+        .limit(1);
+      return rows.length > 0;
+    });
   }
 
   async getMessagesByPairing(pairingRequestId: string): Promise<Message[]> {
@@ -1155,6 +1297,10 @@ export class DbStorage implements IStorage {
       .from(notifications)
       .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
     return row?.n ?? 0;
+  }
+
+  async markNotificationsReadForLink(userId: string, linkPrefix: string) {
+    await db.update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.userId, userId), isNull(notifications.readAt), sqlOp`${notifications.link} LIKE ${linkPrefix + "%"}`));
   }
 
   async markNotificationsRead(userId: string, ids?: string[]) {

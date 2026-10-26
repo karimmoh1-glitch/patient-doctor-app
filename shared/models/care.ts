@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, uniqueIndex, jsonb, pgTable, text, timestamp, varchar, boolean, integer } from "drizzle-orm/pg-core";
+import { index, uniqueIndex, jsonb, pgTable, primaryKey, text, timestamp, varchar, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./users";
@@ -157,11 +157,16 @@ export const messages = pgTable("messages", {
   senderUserId: varchar("sender_user_id").notNull().references(() => users.id),
   body: text("body").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+  // Idempotency key supplied by the sender's app, so a retried send never duplicates.
+  clientMessageId: varchar("client_message_id"),
+  // Set only by what the recipient's app actually did: it fetched the conversation / it reported the conversation was opened.
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  readAt: timestamp("read_at", { withTimezone: true }),
 }, (table) => [
   index("idx_messages_pairing").on(table.pairingRequestId, table.createdAt),
 ]);
 
-export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
+export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true, deliveredAt: true, readAt: true });
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
@@ -178,3 +183,26 @@ export type SymptomReport = typeof symptomReports.$inferSelect;
 export type InsertSymptomReport = z.infer<typeof insertSymptomReportSchema>;
 export type PairingRequest = typeof pairingRequests.$inferSelect;
 export type InsertPairingRequest = z.infer<typeof insertPairingRequestSchema>;
+
+// A report of abusive or unsafe behaviour in a conversation. The reporter chooses whether to attach the message text.
+export const messageReports = pgTable("message_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reporterUserId: varchar("reporter_user_id").notNull().references(() => users.id),
+  pairingRequestId: varchar("pairing_request_id").notNull().references(() => pairingRequests.id),
+  messageId: varchar("message_id").references(() => messages.id),
+  reason: varchar("reason").notNull(),
+  details: text("details"),
+  sharedText: text("shared_text"),
+  status: varchar("status").notNull().default("open"), // open | resolved
+  resolvedByUserId: varchar("resolved_by_user_id").references(() => users.id),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolutionNote: text("resolution_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type MessageReport = typeof messageReports.$inferSelect;
+
+export const userBlocks = pgTable("user_blocks", {
+  blockerUserId: varchar("blocker_user_id").notNull().references(() => users.id),
+  blockedUserId: varchar("blocked_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.blockerUserId, t.blockedUserId] })]);
