@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, uniqueIndex, jsonb, pgTable, primaryKey, text, timestamp, varchar, boolean, integer } from "drizzle-orm/pg-core";
+import { index, uniqueIndex, jsonb, pgTable, pgView, primaryKey, text, timestamp, varchar, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { users } from "./users";
@@ -88,6 +88,34 @@ export const doctorProfiles = pgTable("doctor_profiles", {
 }, (table) => [
   index("idx_doctor_profiles_state_specialty").on(table.state, table.specialty),
 ]);
+
+// The public face of the directory: a view (migration 0024) that lists only providers a patient may be offered and leaves out
+// the phone number (revealed on an accepted connection), licence and registry numbers, and who verified the profile. The
+// profile table itself is private to the clinician, an administrator and the doctor's own connections.
+export const doctorDirectory = pgView("doctor_directory", {
+  id: varchar("id").notNull(),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull(),
+  specialty: varchar("specialty").notNull(),
+  state: varchar("state").notNull(),
+  bio: text("bio"),
+  active: boolean("active").notNull(),
+  source: varchar("source").notNull(),
+  timezone: varchar("timezone").notNull(),
+  languages: jsonb("languages").$type<string[]>().notNull(),
+  modalities: jsonb("modalities").$type<string[]>().notNull(),
+  clinic: text("clinic"),
+  qualifications: text("qualifications"),
+  yearsExperience: integer("years_experience"),
+  licensingBody: text("licensing_body"),
+  professionalRole: varchar("professional_role"),
+  verifiedAt: timestamp("verified_at"),
+  credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at"),
+  // True for a seeded demonstration provider; a production server never lists one.
+  isFixture: boolean("is_fixture").notNull(),
+}).existing();
+export type ListedDoctor = typeof doctorDirectory.$inferSelect;
 
 // A doctor's recurring weekly working windows, in the doctor's own time zone.
 // A doctor with NO rows has published no availability: the app offers no

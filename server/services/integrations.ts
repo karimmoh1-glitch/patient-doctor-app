@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db";
 import { runAsSystem } from "../dbContext";
 import { videoAvailable } from "./videoService";
+import { attestedSourceNames } from "./schedulerRun";
 
 /**
  * What each external service is really doing, computed from our own records. Nothing is "verified" because a key is present:
@@ -53,12 +54,12 @@ export async function integrationRegistry(env: NodeJS.ProcessEnv = process.env):
       facts: { eventsReceived: events },
     });
 
-    // ---- Scheduler caller: only a non-GitHub caller seen on enough distinct days counts as dependable.
+    // ---- Scheduler caller: only a caller the server attested (it presented that caller's own secret) on enough distinct days counts as dependable.
     const calls24 = await num(sql`SELECT count(*)::int AS n FROM job_run_history WHERE job = 'reminders' AND outcome <> 'skipped_overlap' AND started_at > now() - interval '24 hours'`);
     // A day counts only if a dependable caller made at least 90% of the 288 expected 5-minute calls successfully.
     const dependableDays = await num(sql`SELECT count(*)::int AS n FROM (
       SELECT date_trunc('day', started_at) AS d FROM job_run_history
-      WHERE job = 'reminders' AND outcome = 'ok' AND source NOT IN ('github-actions','unknown') AND started_at > now() - interval '14 days'
+      WHERE job = 'reminders' AND outcome = 'ok' AND source IN (${sql.join(attestedSourceNames().map((n) => sql`${n}`), sql`, `)}) AND started_at > now() - interval '14 days'
       GROUP BY 1 HAVING count(*) >= ${Math.ceil(0.9 * 288)}) days`);
     const lastOk = await db.execute(sql`SELECT last_success_at, consecutive_failures FROM job_runs WHERE job = 'reminders'`);
     const jr = lastOk.rows[0] as any;

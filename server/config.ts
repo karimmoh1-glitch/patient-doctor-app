@@ -48,6 +48,13 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
     add("mfa-reuse", "MFA_ALLOW_CODE_REUSE is a test-only setting and must not exist in production.");
   }
 
+  // A scheduler with its own secret is how the server knows who is calling (an attested caller). Sharing the general secret would
+  // make that meaningless, and a short one is guessable.
+  if (env.CRON_SECRET_CLOUDFLARE) {
+    if (env.CRON_SECRET_CLOUDFLARE.length < 32) add("cron-secret-cloudflare", "CRON_SECRET_CLOUDFLARE is shorter than 32 characters.");
+    else if (env.CRON_SECRET_CLOUDFLARE === env.CRON_SECRET) add("cron-secret-shared", "CRON_SECRET_CLOUDFLARE is the same as CRON_SECRET. Each scheduler needs its own secret, or the server cannot tell them apart.");
+  }
+
   const restricted = !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on";
   const halfConfigured = !!env.APP_DATABASE_URL !== (env.DB_ENFORCE_RLS === "on");
   if (halfConfigured) {

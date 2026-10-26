@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import type { Express } from "express";
-import { getApp, auth, uniqueEmail, signIn } from "./helpers";
+import { getApp, auth, uniqueEmail, signIn, operatorPool } from "./helpers";
 import { storage } from "../server/storage";
 import { assertProductionConfig, productionConfigProblems } from "../server/config";
 import { checkReadiness } from "../server/services/readiness";
@@ -23,11 +23,15 @@ const inProduction = () => ((process.env as any).NODE_ENV = "production");
 
 const KNOWN_PASSWORD = "DemoPass123!"; // published in the repository for the development fixtures
 
+// Fixtures are made by the operator, on the owner connection: the application's own role may neither create an administrator
+// nor mark an account as a fixture (migration 0024), and that is exactly what a test must not paper over.
 async function fixtureAccount(role: "admin" | "patient" | "doctor") {
-  return storage.createUser({
-    name: `Fixture ${role}`, email: uniqueEmail(`fixture-${role}`), passwordHash: await bcrypt.hash(KNOWN_PASSWORD, 4), role,
-    state: role === "admin" ? null : "CA", phone: null, deactivatedAt: null, emailVerifiedAt: null, isDemo: true,
-  });
+  const email = uniqueEmail(`fixture-${role}`);
+  const { rows } = await operatorPool().query(
+    "INSERT INTO users (name, email, password_hash, role, state, is_demo) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, email",
+    [`Fixture ${role}`, email, await bcrypt.hash(KNOWN_PASSWORD, 4), role, role === "admin" ? null : "CA"],
+  );
+  return { id: rows[0].id as string, email };
 }
 
 describe("fixture accounts in production", () => {
@@ -145,7 +149,7 @@ describe("the readiness check before real patients", () => {
     expect(failing).toEqual(expect.arrayContaining(["demo-absent", "demo-accounts", "cron-secret", "rls-enforced", "app-role", "scheduler-history"]));
   });
 
-  it("does not mistake a manual check, a daily cron or GitHub's schedule for a scheduler", async () => {
+  it("does not mistake a manual check, a daily cron, GitHub's schedule or a look-alike label for a scheduler", async () => {
     const insert = async (source: string, n: number) => {
       for (let i = 0; i < n; i += 24) {
         await pool.query(
@@ -160,8 +164,13 @@ describe("the readiness check before real patients", () => {
     await insert("github-actions", 40);
     let checks = await checkReadiness(realEnv, pool);
     expect(checks.find((c) => c.id === "scheduler-history")!.level).toBe("fail");
-    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("warn");
+    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("fail");
 
+    // A look-alike label from a holder of the general secret is recorded as a claim and counts for nothing, however often it is made.
+    await pool.query("DELETE FROM job_run_history");
+    await insert("claimed:cloudflare-worker", 290);
+    checks = await checkReadiness(realEnv, pool);
+    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("fail");
     await pool.query("DELETE FROM job_run_history");
     await insert("cloudflare-worker", 280);
     checks = await checkReadiness(realEnv, pool);
@@ -182,7 +191,7 @@ describe("providers in a production directory", () => {
     const { createDoctor, signupPatient } = await import("./helpers");
     const real = await createDoctor({ name: "Dr. Listed Realperson" });
     const fixtureDoc = await createDoctor({ name: "Dr. Fixture Unlisted" });
-    await pool.query("UPDATE users SET is_demo = true WHERE id = $1", [fixtureDoc.id]);
+    await operatorPool().query("UPDATE users SET is_demo = true WHERE id = $1", [fixtureDoc.id]);
     const patient = await signupPatient();
 
     // Development and test: fixtures are listed, so the suites can use them.

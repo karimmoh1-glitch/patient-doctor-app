@@ -23,6 +23,8 @@ export async function callAvela(env, { fetchImpl = fetch, sleep = (ms) => new Pr
   if (!env.AVELA_URL || !env.CRON_SECRET) {
     throw new Error("AVELA_URL and CRON_SECRET must both be configured");
   }
+  // The secret travels in a header: never to anything but https.
+  if (!/^https:\/\//i.test(String(env.AVELA_URL))) throw new Error("AVELA_URL must be an https address");
   const url = `${String(env.AVELA_URL).replace(/\/+$/, "")}/api/cron/reminders`;
   let lastStatus = 0;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {

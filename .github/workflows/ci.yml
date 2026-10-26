@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -55,6 +55,7 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # (PostgreSQL 18 here because production is 18.x: a migration or policy must behave the same on the version that runs it.)
   # The same tests again, but the application connects as the restricted database role (no ownership,
   # no DDL, row-level security enforced), exactly as it should in production. A policy that disagrees
   # with how the application really works fails here.
@@ -62,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -86,6 +87,14 @@ jobs:
       - run: npm ci
       - name: Unit and integration tests as the restricted role
         run: npm run test:rls
+      - name: Database access audit (every table behind row-level security, least privilege; zero findings)
+        run: npm run audit:db
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/patient_doctor_app_test
+      - name: Rehearse the newest migration on a scratch database (applies, idempotent, touches no row, rolls back exactly)
+        run: npm run migration:rehearse
+        env:
+          REHEARSAL_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests as the restricted role

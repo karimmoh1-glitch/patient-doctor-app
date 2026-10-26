@@ -1,6 +1,11 @@
 import crypto from "crypto";
 import { MemoryStore, type ClientRateLimitInfo, type Options, type Store } from "express-rate-limit";
 import { pool } from "../db";
+import { runAsSystem } from "../dbContext";
+
+// The counters belong to the server alone (row-level security gives nobody else any access), and the limiter runs before
+// anyone is signed in, so every statement here says so explicitly.
+const q = (text: string, params?: unknown[]) => runAsSystem(() => pool.query(text, params));
 
 /**
  * A rate-limit store in Postgres, so the limit holds across every server
@@ -40,7 +45,7 @@ export class PgRateLimitStore implements Store {
 
   async increment(raw: string): Promise<ClientRateLimitInfo> {
     try {
-      const { rows } = await pool.query(
+      const { rows } = await q(
         `INSERT INTO rate_limit_hits AS r (key, hits, reset_at)
          VALUES ($1, 1, now() + make_interval(secs => $2))
          ON CONFLICT (key) DO UPDATE SET
@@ -51,7 +56,7 @@ export class PgRateLimitStore implements Store {
       );
       // Housekeeping on roughly one hit in 200, never awaited.
       if (Math.random() < 0.005) {
-        pool.query("DELETE FROM rate_limit_hits WHERE reset_at < now() - interval '1 hour'").catch(() => {});
+        q("DELETE FROM rate_limit_hits WHERE reset_at < now() - interval '1 hour'").catch(() => {});
       }
       return { totalHits: rows[0].hits as number, resetTime: new Date(rows[0].reset_at) };
     } catch (err) {
@@ -62,7 +67,7 @@ export class PgRateLimitStore implements Store {
 
   async decrement(raw: string): Promise<void> {
     try {
-      await pool.query("UPDATE rate_limit_hits SET hits = GREATEST(hits - 1, 0) WHERE key = $1", [this.key(raw)]);
+      await q("UPDATE rate_limit_hits SET hits = GREATEST(hits - 1, 0) WHERE key = $1", [this.key(raw)]);
     } catch (err) {
       this.warn(err);
       await this.fallback.decrement(raw);
@@ -71,7 +76,7 @@ export class PgRateLimitStore implements Store {
 
   async resetKey(raw: string): Promise<void> {
     try {
-      await pool.query("DELETE FROM rate_limit_hits WHERE key = $1", [this.key(raw)]);
+      await q("DELETE FROM rate_limit_hits WHERE key = $1", [this.key(raw)]);
     } catch (err) {
       this.warn(err);
     }

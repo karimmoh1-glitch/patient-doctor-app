@@ -22,9 +22,13 @@
     "lint": "tsc --noEmit",
     "admin:create": "tsx script/create-admin.ts",
     "verify:production": "tsx script/verify-production.ts",
+    "schema:fingerprint": "tsx script/schema-fingerprint.ts",
+    "audit:db": "tsx script/audit-database.ts",
+    "migration:rehearse": "tsx script/rehearse-migration.ts",
     "demo:retire": "tsx script/retire-demo.ts",
     "test:live": "playwright test -c playwright.live.config.ts",
     "mfa:reset": "tsx script/reset-mfa.ts",
+    "password:reset": "tsx script/reset-password.ts",
     "erase:user": "tsx script/erase-user.ts"
   },
   "dependencies": {

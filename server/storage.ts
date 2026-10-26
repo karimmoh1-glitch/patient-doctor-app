@@ -9,7 +9,7 @@ import { runAsSystem } from "./dbContext";
 import { fixtureAccountsAllowed } from "./config";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
-  doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
+  doctorApplications, doctorProfiles, doctorDirectory, type ListedDoctor, symptomReports, pairingRequests, messages,
   appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, messageReports, userBlocks, doctorCredentials, credentialEvents, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
@@ -102,8 +102,8 @@ export interface IStorage {
   createDoctorProfile(data: InsertDoctorProfile): Promise<DoctorProfile>;
   getDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
   getDoctorProfileByUserId(userId: string): Promise<DoctorProfile | undefined>;
-  getActiveDoctorProfiles(): Promise<DoctorProfile[]>;
-  getListableDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
+  getActiveDoctorProfiles(): Promise<ListedDoctor[]>;
+  getListableDoctorProfile(id: string): Promise<ListedDoctor | undefined>;
 
   createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport>;
   getSymptomReport(id: string): Promise<SymptomReport | undefined>;
@@ -595,22 +595,19 @@ export class DbStorage implements IStorage {
    * Providers a patient may see and ask: active, able to answer (they have a login), and never a fixture:
    * a production server hides any provider whose account is marked as a fixture, whatever else is in the database.
    */
-  async getActiveDoctorProfiles(): Promise<DoctorProfile[]> {
-    return db.select().from(doctorProfiles).where(this.listable());
+  async getActiveDoctorProfiles(): Promise<ListedDoctor[]> {
+    return db.select().from(doctorDirectory).where(this.notFixture());
   }
 
-  async getListableDoctorProfile(id: string): Promise<DoctorProfile | undefined> {
-    const [row] = await db.select().from(doctorProfiles).where(and(eq(doctorProfiles.id, id), this.listable()));
+  async getListableDoctorProfile(id: string): Promise<ListedDoctor | undefined> {
+    const [row] = await db.select().from(doctorDirectory).where(and(eq(doctorDirectory.id, id), this.notFixture()));
     return row;
   }
 
-  private listable() {
-    // Active, able to answer, and not past the expiry of the licence a reviewer verified. A profile made through the application
-    // flow with no recorded check is not listed; only profiles that never went through it (fixtures) have nothing to enforce.
-    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`, sqlOp`(${doctorProfiles.credentialExpiresAt} > now() OR (${doctorProfiles.credentialExpiresAt} IS NULL AND ${doctorProfiles.source} <> 'application'))`);
-    return fixtureAccountsAllowed()
-      ? base
-      : and(base, sqlOp`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${doctorProfiles.userId} AND u.is_demo)`);
+  // "Listed" itself (active, able to answer, licence not lapsed) is the directory view's definition, in the database, so no
+  // caller can widen it. A production server additionally hides any provider whose account is marked as a fixture.
+  private notFixture() {
+    return fixtureAccountsAllowed() ? undefined : eq(doctorDirectory.isFixture, false);
   }
 
   async createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport> {

@@ -1,4 +1,6 @@
 import { emergencyDataReviewed } from "./emergencyInfo";
+import { runAsSystem } from "../dbContext";
+import { attestedSourceNames } from "./schedulerRun";
 export interface Check {
   id: string;
   level: "fail" | "warn" | "ok";
@@ -15,7 +17,13 @@ interface Queryable {
  * no patient information. Run it before any real-patient launch:
  *   npm run verify:production
  */
-export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]> {
+export function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]> {
+  // These are counts over every account and every scheduler call. Through the restricted role with nobody established they
+  // would all read zero (row-level security), and "no demo account is active" would pass for the wrong reason.
+  return runAsSystem(() => readiness(env, db));
+}
+
+async function readiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]> {
   const out: Check[] = [];
   const add = (id: string, ok: boolean, level: "fail" | "warn", good: string, bad: string) =>
     out.push({ id, level: ok ? "ok" : level, message: ok ? good : bad });
@@ -52,6 +60,11 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
   const lastRun = await db.query("SELECT last_success_at FROM job_runs WHERE job = 'reminders'");
   const ageMin = lastRun.rows[0]?.last_success_at ? (Date.now() - new Date(lastRun.rows[0].last_success_at).getTime()) / 60_000 : Infinity;
   add("reminder-job", ageMin <= 30, "fail", "The reminder scheduler ran successfully in the last 30 minutes", "The reminder scheduler has not run successfully in the last 30 minutes");
+  // Every table behind row-level security, and nothing executable by the application role beyond the policy helpers
+  // (migration 0024). The migration record is protected by a missing privilege instead of a policy.
+  const bare = await db.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND NOT relrowsecurity ORDER BY 1");
+  add("rls-complete", bare.rows.length === 0, "fail", "Every table is behind row-level security",
+    `${bare.rows.length} table(s) are outside row-level security: ${bare.rows.map((r: { relname: string }) => r.relname).join(", ")} (migration 0024)`);
   const appRole = await db.query("SELECT r.rolcanlogin, r.rolsuper, r.rolbypassrls FROM pg_roles r WHERE r.rolname = 'avela_runtime'");
   const role = appRole.rows[0];
   add("app-role", !!role && role.rolcanlogin && !role.rolsuper && !role.rolbypassrls, "fail",
@@ -60,15 +73,17 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
 
   // Has anything really been calling the scheduler? Our own records, not a workflow file. One call is expected every 5 minutes.
   // A person's manual check proves the endpoint works; it is not a scheduler, so it counts for nothing here. A caller is
-  // "dependable" only if ONE named source (not GitHub's best-effort schedule, not an unnamed caller) made nearly every
-  // expected call: a daily cron or a handful of lucky calls must not read as a scheduler.
+  // "dependable" only if ONE source the SERVER attested (it presented that caller's own secret; a label in a header proves
+  // nothing) made nearly every expected call: GitHub's best-effort schedule, a daily cron, a handful of lucky calls or a
+  // look-alike label must not read as a scheduler.
   const expected = 288;
   const bySource = await db.query(
     "SELECT source, count(*)::int AS n FROM job_run_history WHERE job = 'reminders' AND outcome <> 'skipped_overlap' AND source <> 'manual-verification' AND started_at > now() - interval '24 hours' GROUP BY source",
   );
   const calls = (bySource.rows as { n: number }[]).reduce((sum, r) => sum + Number(r.n), 0);
   add("scheduler-history", calls >= 0.9 * expected, "fail", `The scheduler called ${calls} times in the last 24 hours`, `The scheduler called only ${calls} times in the last 24 hours (about ${expected} expected; manual checks are not counted)`);
-  const dependable = (bySource.rows as { source: string; n: number }[]).some((r) => !["github-actions", "unknown"].includes(r.source) && Number(r.n) >= 0.9 * expected);
-  add("scheduler-caller", dependable, "warn", "A dedicated scheduler (not GitHub's best-effort schedule, not a manual check) made nearly every expected call in the last 24 hours", "No single dedicated caller made 90% of the expected calls in the last 24 hours (GitHub Actions' best-effort schedule, a daily cron and manual checks do not qualify)");
+  const attested = attestedSourceNames();
+  const dependable = (bySource.rows as { source: string; n: number }[]).some((r) => attested.includes(r.source) && Number(r.n) >= 0.9 * expected);
+  add("scheduler-caller", dependable, "fail", "A dedicated scheduler, identified by its own secret, made nearly every expected call in the last 24 hours", `No attested scheduler (${attested.join(", ")}) made 90% of the expected calls in the last 24 hours (GitHub Actions' best-effort schedule, a daily cron, manual checks and look-alike labels do not qualify)`);
   return out;
 }

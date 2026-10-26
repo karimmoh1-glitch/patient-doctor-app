@@ -42,10 +42,23 @@ export type RunSummary =
   | { status: "skipped"; runId: string; reason: "already_running" }
   | { status: "superseded"; runId: string; durationMs: number };
 
-/** The caller names itself; this is a label for the history, never a credential. */
-export function schedulerSource(headers: { get(name: string): string | undefined }): string {
+/**
+ * Callers whose identity the SERVER establishes, by which secret they presented, not by anything they say. Each has its own
+ * secret (the environment variable named here), so a caller holding only the general CRON_SECRET (a GitHub workflow, a person
+ * testing) cannot pass as one of these however it labels itself. Only these count as a dependable scheduler.
+ */
+export const ATTESTED_SCHEDULER_SOURCES: Record<string, string> = { CRON_SECRET_CLOUDFLARE: "cloudflare-worker" };
+export const attestedSourceNames = (): string[] => Object.values(ATTESTED_SCHEDULER_SOURCES);
+
+/**
+ * The label recorded for a call. `attested` is set by the endpoint when the caller proved who it is; otherwise the caller names
+ * itself, which is a label for the history and never a credential, and a name that belongs to an attested caller is recorded as
+ * a claim (`claimed:cloudflare-worker`), so it can never be mistaken for the real thing.
+ */
+export function schedulerSource(headers: { get(name: string): string | undefined }, attested?: string | null): string {
+  if (attested) return attested;
   const named = headers.get("x-avela-scheduler")?.toLowerCase();
-  if (named && /^[a-z0-9][a-z0-9-]{0,31}$/.test(named)) return named;
+  if (named && /^[a-z0-9][a-z0-9-]{0,31}$/.test(named)) return attestedSourceNames().includes(named) ? `claimed:${named}` : named;
   if (headers.get("user-agent")?.toLowerCase().startsWith("vercel-cron")) return "vercel-cron";
   return "unknown";
 }
