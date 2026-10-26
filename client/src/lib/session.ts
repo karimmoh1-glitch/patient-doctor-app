@@ -73,3 +73,56 @@ export async function migrateLegacySession(): Promise<void> {
     // Offline: keep it and try again next load.
   }
 }
+
+const PENDING_LOGOUT_KEY = "pdapp_logout_pending";
+
+/**
+ * Ends the session on the server, which is also what clears the cookie: script cannot delete an HttpOnly
+ * cookie, so a sign-out that never reached the server would leave a live session in the browser behind a
+ * signed-out screen. So the request is sent with `keepalive` (it survives the page being closed), and if it
+ * does not get an answer a note is kept and it is tried again the next time the app opens or comes online.
+ */
+export async function requestLogout(): Promise<boolean> {
+  try {
+    localStorage.setItem(PENDING_LOGOUT_KEY, "1");
+  } catch {
+    // Storage blocked: still try once.
+  }
+  try {
+    const res = await fetch("/api/auth/logout", { method: "POST", headers: CLIENT_HEADERS, keepalive: true });
+    // 200: signed out. 401: there was no live session left to end. Either way the cookie is gone or useless.
+    if (res.ok || res.status === 401) {
+      try {
+        localStorage.removeItem(PENDING_LOGOUT_KEY);
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+  } catch {
+    // Offline or interrupted: the note stays, and the next load tries again.
+  }
+  return false;
+}
+
+/** A new sign-in replaces the cookie, so a queued sign-out of the old session must not end the new one. */
+export function clearPendingLogout(): void {
+  try {
+    localStorage.removeItem(PENDING_LOGOUT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function logoutPending(): boolean {
+  try {
+    return localStorage.getItem(PENDING_LOGOUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Finishes a sign-out that could not be completed earlier. Safe to call at any time. */
+export async function retryPendingLogout(): Promise<void> {
+  if (logoutPending()) await requestLogout();
+}

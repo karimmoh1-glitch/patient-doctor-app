@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { parseErrorMessage } from "@/lib/api-error";
 import { queryClient, SESSION_EXPIRED_EVENT } from "@/lib/queryClient";
-import { CLIENT_HEADERS, readStoredUser, storeUser } from "@/lib/session";
+import { CLIENT_HEADERS, clearPendingLogout, readStoredUser, requestLogout, retryPendingLogout, storeUser } from "@/lib/session";
 import type { DoctorStatus } from "@shared/languages";
 
 export const SESSION_NOTICE_KEY = "pdapp_session_notice";
@@ -51,9 +51,18 @@ export function useAuth() {
     storeUser(auth);
   }, [auth]);
 
+  // A sign-out that could not reach the server (offline, tab closed) is finished as soon as it can be.
+  useEffect(() => {
+    void retryPendingLogout();
+    const onOnline = () => void retryPendingLogout();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
   const persistAuth = useCallback((user: AuthUser) => {
     // Never let the previous person's cached screens show for the next one.
     queryClient.clear();
+    clearPendingLogout();
     storeUser(user);
     setAuth(user);
   }, []);
@@ -137,10 +146,9 @@ export function useAuth() {
   }, [persistAuth]);
 
   const signOut = useCallback(() => {
-    // Best-effort: end the session on the server (which also clears the cookie) so a copied
-    // cookie can't be reused. Local sign-out proceeds regardless: a failed request
-    // shouldn't trap the person in a signed-in screen.
-    fetch("/api/auth/logout", { method: "POST", headers: CLIENT_HEADERS }).catch(() => {});
+    // End the session on the server (which also clears the cookie, and makes a copied cookie useless).
+    // The screen does not wait for the answer; if the request is lost it is retried (see requestLogout).
+    void requestLogout();
     queryClient.clear();
     setAuth(null);
     storeUser(null);

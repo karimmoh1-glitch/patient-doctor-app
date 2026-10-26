@@ -42,3 +42,44 @@ test.describe("moving an existing sign-in onto the cookie", () => {
     await expect(page.getByRole("status").filter({ hasText: "You were signed out" })).toBeVisible();
   });
 });
+
+test.describe("signing out when the server cannot be reached", () => {
+  test("is finished as soon as the app is back online, so no live session outlives it", async ({ page, context }) => {
+    const { signInAs } = await import("./helpers");
+    await signInAs(page, "patient@avela.dev");
+    const live = async () => (await context.cookies()).filter((c) => /avela_session/.test(c.name) && c.value).length;
+    expect(await live()).toBe(1);
+
+    await context.setOffline(true);
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign me out" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare, closer to you.");
+    // The screen is signed out at once, but the server never heard: the browser still holds the cookie, and says so.
+    expect(await live()).toBe(1);
+    expect(await page.evaluate(() => localStorage.getItem("pdapp_logout_pending"))).toBe("1");
+
+    await context.setOffline(false);
+    await page.reload();
+    await expect.poll(live, { timeout: 10_000 }).toBe(0);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("pdapp_logout_pending"))).toBeNull();
+  });
+
+  test("a new sign-in is not ended by an older sign-out that was waiting", async ({ page, context }) => {
+    const { signInAs } = await import("./helpers");
+    await signInAs(page, "patient@avela.dev");
+    await context.setOffline(true);
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign me out" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare, closer to you.");
+    await context.setOffline(false);
+
+    await page.goto("/login");
+    await page.getByRole("button", { name: "Demo doctor" }).click();
+    await expect(page).not.toHaveURL(/\/login/);
+    expect(await page.evaluate(() => localStorage.getItem("pdapp_logout_pending"))).toBeNull();
+    await page.reload();
+    await expect(page.getByRole("navigation", { name: "Main" }).filter({ visible: true }).first()).toBeVisible(); // still signed in
+  });
+});

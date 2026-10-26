@@ -40,6 +40,12 @@ A browser that signed in before this change still holds a token in `localStorage
 renders, the page exchanges it once for a cookie (`POST /api/auth/session`) and deletes it. A token that is no longer
 valid simply signs the person out, as it would have.
 
+Signing out has to reach the server, because script cannot delete an `HttpOnly` cookie. The sign-out request is sent with
+`keepalive` (it survives the tab closing); if it gets no answer (offline) the app records that and finishes the sign-out
+the next time it opens or comes back online, and a new sign-in cancels the queued one. **Residual risk:** on a device
+that signed out while offline, the browser keeps a live session cookie behind a signed-out screen until the app next
+runs online (at most 24 hours, the cookie's life). Covered by `e2e/session-migration.spec.ts`.
+
 What this does and does not do: an injected script can no longer **copy** the session and use it from elsewhere. It can
 still act inside the open page, so the strict production content-security policy (`script-src 'self'`, no inline
 script) remains important. There is still no multi-factor authentication.

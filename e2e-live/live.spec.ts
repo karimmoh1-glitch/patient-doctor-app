@@ -112,7 +112,8 @@ test.describe("a patient, signed in through the demo button", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare, closer to you.");
     expect(await page.evaluate(() => localStorage.getItem("pdapp_user"))).toBeNull();
     expect(await page.evaluate(() => localStorage.getItem("pdapp_auth"))).toBeNull();
-    expect((await page.context().cookies()).filter((c) => /avela_session/.test(c.name) && c.value)).toHaveLength(0);
+    // The sign-out request is what clears the HttpOnly cookie; the screen does not wait for it, so give it a moment.
+    await expect.poll(async () => (await page.context().cookies()).filter((c) => /avela_session/.test(c.name) && c.value).length, { timeout: 10_000 }).toBe(0);
     await page.goto("/appointments");
     await expect(page).toHaveURL(/\/login/);
   });
