@@ -12,6 +12,8 @@ import { storage } from "../server/storage";
 import bcrypt from "bcryptjs";
 import { defaultTimezoneForState } from "../shared/timezones";
 import { replaceAvailability } from "../server/services/schedulingService";
+import { encryptSecret } from "../server/services/mfaService";
+import { FIXTURE_MFA_SECRET } from "./fixtures";
 
 const DEMO_PASSWORD = "DemoPass123!";
 
@@ -62,6 +64,12 @@ async function publishDemoHours(doctorProfileId: string, timezone: string) {
 // production server will ACCEPT, to exercise every role signing in; it sets SEED_AS_REAL_ACCOUNTS=1 on its own throwaway database.
 const FIXTURE = process.env.SEED_AS_REAL_ACCOUNTS !== "1";
 
+/** Clinicians and administrators must sign in with a second factor; fixtures use one shared, public secret (script/fixtures.ts). */
+async function enrollFixtureMfa(userId: string) {
+  await storage.beginMfaEnrollment(userId, encryptSecret(userId, FIXTURE_MFA_SECRET));
+  await storage.enableMfa(userId, 0);
+}
+
 async function main() {
   if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing to seed demo data into a production environment (NODE_ENV=production).");
@@ -90,7 +98,8 @@ async function main() {
     emailVerifiedAt: null,
     isDemo: FIXTURE,
   });
-  console.log(`Admin: ${admin.email} / ${DEMO_PASSWORD}`);
+  await enrollFixtureMfa(admin.id);
+  console.log(`Admin: ${admin.email} / ${DEMO_PASSWORD}  (authenticator secret: script/fixtures.ts)`);
 
   const patient = await storage.createUser({
     name: "Margaret Johnson",
@@ -149,6 +158,7 @@ async function main() {
     emailVerifiedAt: null,
     isDemo: FIXTURE,
   });
+  await enrollFixtureMfa(doctorUser.id);
   const firstProfile = await storage.createDoctorProfile({
     userId: doctorUser.id,
     timezone: defaultTimezoneForState(DEMO_DOCTORS[0].state),
@@ -180,6 +190,7 @@ async function main() {
       emailVerifiedAt: null,
       isDemo: FIXTURE,
     });
+    await enrollFixtureMfa(user.id);
     const profile = await storage.createDoctorProfile({
       userId: user.id,
       timezone: defaultTimezoneForState(d.state),

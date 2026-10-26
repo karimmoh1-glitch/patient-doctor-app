@@ -7,7 +7,7 @@ import { fixtureAccountsAllowed } from "./config";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
-  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, medications, medicationLogs, pharmacies, pharmacyOrders,
+  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
   type UserDevice, type InsertUserDevice,
@@ -174,6 +174,18 @@ export interface IStorage {
   getJobRunHistory(job: string, since: Date): Promise<{ runId: string; source: string; startedAt: Date; finishedAt: Date | null; outcome: string; durationMs: number | null }[]>;
   pruneJobRunHistory(job: string, before: Date): Promise<void>;
   getAllEnabledReminders(): Promise<MedicationReminder[]>;
+  // Multi-factor sign-in. System access: only the authentication code touches these.
+  getMfa(userId: string): Promise<{ secretCiphertext: string; pending: boolean; enabledAt: Date | null; lastUsedStep: number; failedAttempts: number; lockedUntil: Date | null } | undefined>;
+  beginMfaEnrollment(userId: string, secretCiphertext: string): Promise<boolean>;
+  enableMfa(userId: string, step: number): Promise<boolean>;
+  /** Accepts a time-step only if it is newer than any already used (replay protection); resets the failure count. */
+  recordMfaSuccess(userId: string, step: number, allowReuse: boolean): Promise<boolean>;
+  recordMfaFailure(userId: string, now: Date, maxAttempts: number, lockMinutes: number): Promise<{ failedAttempts: number; lockedUntil: Date | null }>;
+  clearMfaFailures(userId: string): Promise<void>;
+  replaceRecoveryCodes(userId: string, hashes: string[]): Promise<void>;
+  consumeRecoveryCode(userId: string, hash: string): Promise<boolean>;
+  countRecoveryCodes(userId: string): Promise<number>;
+  resetMfa(userId: string): Promise<void>;
   createDataRequest(userId: string, kind: "export" | "deletion"): Promise<{ id: string }>;
   deactivateUser(userId: string): Promise<void>;
   /** Atomically marks and returns confirmed visits starting within `hours` whose notice hasn't gone out. */
@@ -983,6 +995,101 @@ export class DbStorage implements IStorage {
 
   async pruneJobRunHistory(job: string, before: Date) {
     await db.delete(jobRunHistory).where(and(eq(jobRunHistory.job, job), sqlOp`${jobRunHistory.startedAt} < ${before}`));
+  }
+
+  // --- Multi-factor sign-in (always system access) ---
+  async getMfa(userId: string) {
+    return runAsSystem(async () => {
+      const [row] = await db.select().from(userMfa).where(eq(userMfa.userId, userId));
+      return row
+        ? { secretCiphertext: row.secretCiphertext, pending: row.pending, enabledAt: row.enabledAt, lastUsedStep: row.lastUsedStep, failedAttempts: row.failedAttempts, lockedUntil: row.lockedUntil }
+        : undefined;
+    });
+  }
+
+  async beginMfaEnrollment(userId: string, secretCiphertext: string) {
+    return runAsSystem(async () => {
+      // Only an enrolment that is not finished may be (re)started; a working second factor is never replaced this way.
+      const res = await db.execute(sqlOp`
+        INSERT INTO user_mfa (user_id, secret_ciphertext) VALUES (${userId}, ${secretCiphertext})
+        ON CONFLICT (user_id) DO UPDATE SET secret_ciphertext = EXCLUDED.secret_ciphertext, failed_attempts = 0, locked_until = NULL, updated_at = now()
+        WHERE user_mfa.pending
+        RETURNING user_id`);
+      return res.rows.length === 1;
+    });
+  }
+
+  async enableMfa(userId: string, step: number) {
+    return runAsSystem(async () => {
+      const rows = await db.update(userMfa)
+        .set({ pending: false, enabledAt: new Date(), lastUsedStep: step, failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
+        .where(and(eq(userMfa.userId, userId), eq(userMfa.pending, true)))
+        .returning({ id: userMfa.userId });
+      return rows.length === 1;
+    });
+  }
+
+  async recordMfaSuccess(userId: string, step: number, allowReuse: boolean) {
+    return runAsSystem(async () => {
+      const res = await db.execute(allowReuse
+        ? sqlOp`UPDATE user_mfa SET last_used_step = GREATEST(last_used_step, ${step}), failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE user_id = ${userId} RETURNING user_id`
+        : sqlOp`UPDATE user_mfa SET last_used_step = ${step}, failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE user_id = ${userId} AND last_used_step < ${step} RETURNING user_id`);
+      return res.rows.length === 1;
+    });
+  }
+
+  async recordMfaFailure(userId: string, now: Date, maxAttempts: number, lockMinutes: number) {
+    return runAsSystem(async () => {
+      const res = await db.execute(sqlOp`
+        UPDATE user_mfa SET
+          failed_attempts = failed_attempts + 1,
+          locked_until = CASE WHEN failed_attempts + 1 >= ${maxAttempts} THEN ${new Date(now.getTime() + lockMinutes * 60_000)} ELSE locked_until END,
+          updated_at = now()
+        WHERE user_id = ${userId}
+        RETURNING failed_attempts, locked_until`);
+      const row = res.rows[0] as { failed_attempts: number; locked_until: string | Date | null } | undefined;
+      return { failedAttempts: row?.failed_attempts ?? 0, lockedUntil: row?.locked_until ? new Date(row.locked_until) : null };
+    });
+  }
+
+  async clearMfaFailures(userId: string) {
+    await runAsSystem(() => db.update(userMfa).set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() }).where(eq(userMfa.userId, userId)));
+  }
+
+  async replaceRecoveryCodes(userId: string, hashes: string[]) {
+    await runAsSystem(() =>
+      db.transaction(async (tx) => {
+        await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
+        if (hashes.length) await tx.insert(mfaRecoveryCodes).values(hashes.map((codeHash) => ({ userId, codeHash })));
+      }),
+    );
+  }
+
+  async consumeRecoveryCode(userId: string, hash: string) {
+    return runAsSystem(async () => {
+      const rows = await db.update(mfaRecoveryCodes)
+        .set({ usedAt: new Date() })
+        .where(and(eq(mfaRecoveryCodes.userId, userId), eq(mfaRecoveryCodes.codeHash, hash), isNull(mfaRecoveryCodes.usedAt)))
+        .returning({ id: mfaRecoveryCodes.id });
+      return rows.length === 1;
+    });
+  }
+
+  async countRecoveryCodes(userId: string) {
+    return runAsSystem(async () => {
+      const [row] = await db.select({ n: sqlOp<number>`count(*)::int` }).from(mfaRecoveryCodes).where(and(eq(mfaRecoveryCodes.userId, userId), isNull(mfaRecoveryCodes.usedAt)));
+      return row?.n ?? 0;
+    });
+  }
+
+  async resetMfa(userId: string) {
+    await runAsSystem(() =>
+      db.transaction(async (tx) => {
+        await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
+        await tx.delete(userMfa).where(eq(userMfa.userId, userId));
+        await tx.update(userDevices).set({ revokedAt: new Date() }).where(and(eq(userDevices.userId, userId), isNull(userDevices.revokedAt)));
+      }),
+    );
   }
 
   async getAllEnabledReminders() {

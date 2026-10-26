@@ -40,6 +40,14 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
   if ((env.JWT_SECRET ?? "").length < 32) add("jwt-secret", "JWT_SECRET is missing or shorter than 32 characters.");
   if (!/^https:\/\//.test(env.APP_URL ?? "")) add("app-url", "APP_URL must be set to the public https address (links in e-mails are built from it).");
 
+  // Authenticator secrets are encrypted with this key: 32 random bytes, base64. Without it nobody could enrol.
+  if (!env.MFA_ENCRYPTION_KEY || Buffer.from(env.MFA_ENCRYPTION_KEY, "base64").length !== 32) {
+    add("mfa-key", "MFA_ENCRYPTION_KEY must be set to 32 random bytes, base64 encoded (openssl rand -base64 32).");
+  }
+  if (env.MFA_ALLOW_CODE_REUSE !== undefined && env.MFA_ALLOW_CODE_REUSE !== "") {
+    add("mfa-reuse", "MFA_ALLOW_CODE_REUSE is a test-only setting and must not exist in production.");
+  }
+
   const restricted = !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on";
   const halfConfigured = !!env.APP_DATABASE_URL !== (env.DB_ENFORCE_RLS === "on");
   if (halfConfigured) {

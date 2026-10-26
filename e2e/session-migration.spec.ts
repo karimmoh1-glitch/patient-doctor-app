@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { PASSWORD } from "./helpers";
+import { PASSWORD, answerCodeIfAsked } from "./helpers";
 
 // Before sessions lived in an HttpOnly cookie, the app kept the session token in localStorage. Someone
 // who is already signed in when this version arrives must not be signed out, and the old token must
@@ -79,6 +79,7 @@ test.describe("signing out when the server cannot be reached", () => {
     await page.getByLabel("Email address").fill("doctor@avela.dev");
     await page.getByLabel("Password", { exact: true }).fill("DemoPass123!");
     await page.getByRole("button", { name: "Sign in" }).click();
+    await answerCodeIfAsked(page, "doctor@avela.dev");
     await expect(page).not.toHaveURL(/\/login/);
     expect(await page.evaluate(() => localStorage.getItem("pdapp_logout_pending"))).toBeNull();
     await page.reload();

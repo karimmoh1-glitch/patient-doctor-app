@@ -6,6 +6,8 @@ import { appRoleUrl } from "./tests/fastCommit";
 // dist/public. The dev-server suite cannot catch bundling or CSP failures
 // (a circular chunk split once produced a blank page in production only).
 export const PROD_PORT = 3102;
+// Key for the stored authenticator secrets in the smoke run (32 bytes, base64): the seed and the server must agree on it.
+export const PROD_SMOKE_MFA_KEY = Buffer.alloc(32, 9).toString("base64");
 export const PROD_DB = process.env.PROD_SMOKE_DATABASE_URL || "postgresql://karimmohamed@localhost:5432/patient_doctor_app_prodsmoke_test";
 
 export default defineConfig({
@@ -38,6 +40,7 @@ export default defineConfig({
       JWT_SECRET: "prod-smoke-only-secret-that-is-long-enough-to-pass",
       APP_URL: "https://smoke.avela.invalid",
       EMERGENCY_NUMBER: "911",
+      MFA_ENCRYPTION_KEY: PROD_SMOKE_MFA_KEY,
     },
   },
 });

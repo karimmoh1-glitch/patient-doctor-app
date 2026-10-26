@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, auth, uniqueEmail, PASSWORD } from "./helpers";
+import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, auth, uniqueEmail, PASSWORD, completeSecondFactor } from "./helpers";
 import { ROUTER_MOUNTS } from "../server/routes";
 
 let app: Express;
 let tokens: Record<string, string>;
 beforeAll(async () => {
   app = await getApp();
-  const pendingDoctor = (await request(app).post("/api/doctors/register").send({ name: "Pending Doc", email: uniqueEmail("pd"), password: PASSWORD })).body.token;
+  const pendingEmail = uniqueEmail("pd");
+  const pendingDoctor = (await completeSecondFactor((await request(app).post("/api/doctors/register").send({ name: "Pending Doc", email: pendingEmail, password: PASSWORD })).body, pendingEmail)).token;
   tokens = {
     patient: (await signupPatient()).token,
     doctor: (await createDoctor()).token,
@@ -25,6 +26,7 @@ const P = "patient", D = "doctor", PD = "pendingDoctor", A = "admin", C = "careg
 const EVERYONE = [P, D, PD, A, C];
 const MATRIX: Record<string, string[]> = {
   "/api/auth/me": EVERYONE,
+  "/api/auth/mfa/status": EVERYONE,
   "/api/config": EVERYONE,
   "/api/doctors": EVERYONE,
   "/api/notifications": EVERYONE,

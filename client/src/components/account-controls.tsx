@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Download, LogOut, ShieldAlert } from "lucide-react";
+import { Download, KeyRound, LogOut, ShieldAlert } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,6 +67,7 @@ export default function AccountControls({ user, onSignOut }: { user: AuthUser; o
   return (
     <section aria-labelledby="acct-heading" className="space-y-3 border-t border-border pt-5">
       <h3 id="acct-heading" className="text-base font-semibold">{t("acct.title")}</h3>
+      {(user.role === "doctor" || user.role === "admin") && <SignInCodeControls />}
       <ConfirmAction
         trigger={<Button variant="outline" className="w-full justify-start"><LogOut aria-hidden="true" /> {t("acct.everywhere")}</Button>}
         title={t("acct.everywhere.title")}
@@ -103,5 +105,59 @@ export default function AccountControls({ user, onSignOut }: { user: AuthUser; o
         </>
       )}
     </section>
+  );
+}
+
+/** For clinicians and administrators: whether the sign-in code is on, how many recovery codes remain, and replacing them. */
+function SignInCodeControls() {
+  const { t } = useI18n();
+  const status = useQuery<{ required: boolean; enabled: boolean; recoveryCodesLeft: number }>({ queryKey: ["/api/auth/mfa/status"], staleTime: 0 });
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fresh, setFresh] = useState<string[] | null>(null);
+
+  async function regenerate() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiRequest("POST", "/api/auth/mfa/recovery-codes", { code });
+      setFresh((await res.json()).recoveryCodes);
+      status.refetch();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status.data?.enabled) return null;
+  return (
+    <div className="space-y-2 rounded-xl border border-border p-3">
+      <p className="flex items-center gap-2 text-base font-semibold"><KeyRound className="h-5 w-5" aria-hidden="true" /> {t("mfa.settings.title")}</p>
+      <p className="text-base text-muted-foreground">{t("mfa.settings.on")} {t("mfa.settings.left", { count: status.data.recoveryCodesLeft })}</p>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); setCode(""); setError(null); setFresh(null); }}>
+        <DialogTrigger asChild><Button variant="outline" className="w-full justify-start">{t("mfa.settings.regenerate")}</Button></DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("mfa.settings.regenerate")}</DialogTitle>
+            <DialogDescription>{fresh ? t("mfa.recovery.intro") : t("mfa.settings.regenBody")}</DialogDescription>
+          </DialogHeader>
+          {fresh ? (
+            <ul dir="ltr" className="grid grid-cols-1 gap-2 rounded-xl border-2 border-input p-3 font-mono text-lg sm:grid-cols-2" data-testid="new-recovery-codes">{fresh.map((c) => <li key={c}>{c}</li>)}</ul>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="regen-code" className="text-base">{t("mfa.code.label")}</Label>
+              <Input id="regen-code" dir="ltr" inputMode="numeric" maxLength={6} autoComplete="one-time-code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+              {error && <p role="alert" className="font-medium text-destructive">{error}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            {fresh ? <Button onClick={() => setOpen(false)}>{t("mfa.recovery.continue")}</Button> : <Button disabled={busy || code.length !== 6} onClick={regenerate}>{t("mfa.settings.regenSubmit")}</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

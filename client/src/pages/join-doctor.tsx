@@ -8,14 +8,18 @@ import PasswordField from "@/components/password-field";
 import PageHeader from "@/components/page-header";
 import StepProgress from "@/components/step-progress";
 import { Field } from "@/components/form-field";
+import MfaFlow, { type MfaApi } from "@/components/mfa-flow";
+import type { PendingMfa, SignInResult } from "@/hooks/use-auth";
 import { useI18n } from "@/lib/i18n";
 
 // Registering creates the account only. A doctor cannot see any patient, and
 // patients cannot see them, until an administrator approves their application.
 export default function JoinDoctor({
   onRegister,
+  mfa,
 }: {
-  onRegister: (fields: { name: string; email: string; password: string; language: string }) => Promise<unknown>;
+  onRegister: (fields: { name: string; email: string; password: string; language: string }) => Promise<SignInResult>;
+  mfa: MfaApi;
 }) {
   const { t, locale } = useI18n();
   const [name, setName] = useState("");
@@ -23,13 +27,15 @@ export default function JoinDoctor({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<PendingMfa | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await onRegister({ name, email, password, language: locale });
+      const result = await onRegister({ name, email, password, language: locale });
+      if (result.kind === "mfa") setPending(result.pending);
     } catch (err: any) {
       setError(err.message || t("onb.join.failed"));
     } finally {
@@ -42,6 +48,14 @@ export default function JoinDoctor({
     { icon: ShieldCheck, text: t("onb.join.p2") },
     { icon: Stethoscope, text: t("onb.join.p3") },
   ];
+
+  if (pending) {
+    return (
+      <PublicLayout narrow>
+        <MfaFlow pending={pending} api={mfa} />
+      </PublicLayout>
+    );
+  }
 
   return (
     <PublicLayout>

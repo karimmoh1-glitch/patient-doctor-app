@@ -11,7 +11,7 @@ import Login from "@/pages/login";
 import Signup from "@/pages/signup";
 import AppShell from "@/components/app-shell";
 import ErrorBoundary from "@/components/error-boundary";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { useDocumentTitle } from "@/lib/route-titles";
 import { I18nProvider, hasChosenLocale, useI18n } from "@/lib/i18n";
 import { apiRequest } from "@/lib/queryClient";
@@ -175,7 +175,8 @@ function HomeForRole({ user, simpleMode, ...rest }: ShellProps) {
 }
 
 function AppContent() {
-  const { user, login, signup, registerDoctor, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
+  const { user, login, signup, registerDoctor, mfaVerify, mfaBeginSetup, mfaEnable, finishSignIn, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
+  const mfa = useMemo(() => ({ verify: mfaVerify, beginSetup: mfaBeginSetup, enable: mfaEnable, finish: finishSignIn }), [mfaVerify, mfaBeginSetup, mfaEnable, finishSignIn]);
   const { simpleMode, setSimpleMode } = useSimpleMode();
   const [location, setLocation] = useLocation();
 
@@ -234,10 +235,10 @@ function AppContent() {
     <Suspense fallback={<RouteLoading />}>
     <Switch>
       <Route path="/">{user ? <HomeForRole user={user} {...shellProps} /> : <Landing />}</Route>
-      <Route path="/login">{user ? <HomeForRole user={user} {...shellProps} /> : <Login onLogin={login} />}</Route>
+      <Route path="/login">{user ? <HomeForRole user={user} {...shellProps} /> : <Login onLogin={login} mfa={mfa} />}</Route>
       <Route path="/signup">{user ? <HomeForRole user={user} {...shellProps} /> : <Signup onSignup={signup} />}</Route>
       <Route path="/get-started">{user ? <HomeForRole user={user} {...shellProps} /> : <GetStarted />}</Route>
-      <Route path="/join/doctor">{user ? <HomeForRole user={user} {...shellProps} /> : <JoinDoctor onRegister={registerDoctor} />}</Route>
+      <Route path="/join/doctor">{user ? <HomeForRole user={user} {...shellProps} /> : <JoinDoctor onRegister={registerDoctor} mfa={mfa} />}</Route>
       <Route path="/apply-as-doctor"><Redirect to="/join/doctor" /></Route>
       <Route path="/find-doctors">{user?.role === "patient" ? <Redirect to="/doctors" /> : <FindDoctors />}</Route>
       <Route path="/about"><LegalPage page="about" /></Route>

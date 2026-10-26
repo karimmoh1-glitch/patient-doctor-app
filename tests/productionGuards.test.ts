@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import type { Express } from "express";
-import { getApp, auth, uniqueEmail } from "./helpers";
+import { getApp, auth, uniqueEmail, signIn } from "./helpers";
 import { storage } from "../server/storage";
 import { assertProductionConfig, productionConfigProblems } from "../server/config";
 import { checkReadiness } from "../server/services/readiness";
@@ -55,7 +55,7 @@ describe("fixture accounts in production", () => {
 
   it("cannot reach administrator functions in production", async () => {
     const admin = await fixtureAccount("admin");
-    const token = (await request(app).post("/api/auth/login").send({ email: admin.email, password: KNOWN_PASSWORD })).body.token;
+    const token = (await signIn(admin.email, KNOWN_PASSWORD)).token; // an administrator also completes the second factor
     expect((await request(app).get("/api/admin/doctor-applications").set(auth(token))).status).toBe(200);
     inProduction();
     for (const path of ["/api/admin/doctor-applications", "/api/admin/audit", "/api/admin/reminders/status"]) {
@@ -77,6 +77,7 @@ describe("what a production server refuses to start with", () => {
   const good = {
     NODE_ENV: "production", DATABASE_URL: "postgresql://owner@db/x", APP_DATABASE_URL: "postgresql://runtime@db/x", DB_ENFORCE_RLS: "on",
     JWT_SECRET: "j".repeat(40), APP_URL: "https://avela.example.org",
+    MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
   } as NodeJS.ProcessEnv;
   const ids = (env: NodeJS.ProcessEnv) => productionConfigProblems(env).map((p) => p.id);
 
@@ -101,6 +102,13 @@ describe("what a production server refuses to start with", () => {
     expect(ids({ ...good, APP_URL: undefined })).toContain("app-url");
   });
 
+  it("refuses to run without a proper key for the stored authenticator secrets, or with the test-only reuse switch", () => {
+    expect(ids({ ...good, MFA_ENCRYPTION_KEY: undefined })).toContain("mfa-key");
+    expect(ids({ ...good, MFA_ENCRYPTION_KEY: "short" })).toContain("mfa-key");
+    expect(ids({ ...good, MFA_ENCRYPTION_KEY: Buffer.alloc(16, 1).toString("base64") })).toContain("mfa-key"); // wrong length
+    expect(ids({ ...good, MFA_ALLOW_CODE_REUSE: "1" })).toEqual(["mfa-reuse"]);
+  });
+
   it("refuses to connect as the table owner, unless that is a named, visible exception", () => {
     const owner = { ...good, APP_DATABASE_URL: undefined, DB_ENFORCE_RLS: undefined } as NodeJS.ProcessEnv;
     expect(ids(owner)).toEqual(["owner-role"]);
@@ -120,7 +128,7 @@ describe("what a production server refuses to start with", () => {
 
   it("names every problem at once, so an operator fixes them in one pass", () => {
     const all = ids({ NODE_ENV: "production", DEMO_MODE: "true" } as NodeJS.ProcessEnv);
-    expect(all).toEqual(expect.arrayContaining(["demo-mode", "database-url", "jwt-secret", "app-url", "owner-role"]));
+    expect(all).toEqual(expect.arrayContaining(["demo-mode", "database-url", "jwt-secret", "app-url", "owner-role", "mfa-key"]));
   });
 });
 

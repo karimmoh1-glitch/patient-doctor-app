@@ -24,6 +24,7 @@
     "verify:production": "tsx script/verify-production.ts",
     "demo:retire": "tsx script/retire-demo.ts",
     "test:live": "playwright test -c playwright.live.config.ts",
+    "mfa:reset": "tsx script/reset-mfa.ts",
     "erase:user": "tsx script/erase-user.ts"
   },
   "dependencies": {
@@ -64,6 +65,7 @@
     "multer": "^1.4.5-lts.1",
     "nanoid": "^5.0.9",
     "pg": "^8.13.1",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^4.0.0",
@@ -84,6 +86,7 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.11.10",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@types/supertest": "^7.2.1",

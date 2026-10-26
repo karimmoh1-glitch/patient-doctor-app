@@ -2,6 +2,8 @@
 // it structurally impossible for the test suite to touch a real database:
 // tests create and mutate users, appointments and PHI-shaped rows freely.
 process.env.NODE_ENV = "test";
+// Fixture accounts sign in many times inside one 30-second authenticator step; real deployments never allow a code twice (refused in production).
+process.env.MFA_ALLOW_CODE_REUSE = "1";
 process.env.JWT_SECRET = "test-only-secret-not-used-anywhere-else";
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL || "postgresql://karimmohamed@localhost:5432/patient_doctor_app_test";

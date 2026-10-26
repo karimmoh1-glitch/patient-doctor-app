@@ -19,7 +19,7 @@ import { languageName, modalityLabel, roleLabel, specialtyLabel } from "@/lib/la
 import { cn } from "@/lib/utils";
 
 interface Application {
-  id: string; name: string; displayName: string | null; email: string; professionalRole: string | null; specialty: string | null;
+  id: string; userId: string | null; name: string; displayName: string | null; email: string; professionalRole: string | null; specialty: string | null;
   licenseNumber: string | null; licensingBody: string | null; licensedStates: string[]; npiNumber: string | null; qualifications: string | null;
   languages: string[]; yearsExperience: number | null; clinic: string | null; modalities: string[]; phone: string | null; bio: string | null;
   status: string; infoRequest: string | null; reviewerNotes: string | null; submittedAt: string | null; createdAt: string;
@@ -146,6 +146,20 @@ function ApplicationCard({ a, onChanged }: { a: Application; onChanged: () => vo
               trigger={<Button variant="outline">{t("admin.suspend")}<span className="sr-only">: {a.name}</span></Button>}
               title={t("admin.suspend.title")} description={t("admin.suspend.body")} label={t("admin.suspend.label")} confirm={t("admin.suspend.confirm")}
               onSubmit={(reason) => act("suspend", { reason: reason || undefined }, "admin.suspended")}
+            />
+          )}
+          {a.userId && (
+            <ConfirmAction
+              trigger={<Button variant="outline">{t("admin.resetMfa")}<span className="sr-only">: {a.name}</span></Button>}
+              title={t("admin.resetMfa.title", { name: a.name })} description={t("admin.resetMfa.body")} confirmLabel={t("admin.resetMfa.yes")} cancelLabel={t("common.cancel")}
+              onConfirm={async () => {
+                try {
+                  await apiRequest("POST", `/api/admin/users/${a.userId}/mfa-reset`);
+                  toast({ title: t("admin.resetMfa.done") });
+                } catch (err: any) {
+                  toast({ title: t("admin.actionFailed"), description: err.message, variant: "destructive" });
+                }
+              }}
             />
           )}
           {a.status === "suspended" && (

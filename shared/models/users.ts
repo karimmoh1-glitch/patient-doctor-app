@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, varchar, boolean } from "drizzle-orm/pg-core";
+import { bigint, index, integer, jsonb, pgTable, text, timestamp, varchar, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -92,6 +92,27 @@ export const auditLogs = pgTable("audit_logs", {
   index("idx_audit_logs_created").on(table.createdAt),
   index("idx_audit_logs_subject_created").on(table.subjectUserId, table.createdAt),
 ]);
+
+// Multi-factor sign-in (clinicians and administrators). The secret is stored encrypted; see server/services/mfaService.ts.
+export const userMfa = pgTable("user_mfa", {
+  userId: varchar("user_id").primaryKey().references(() => users.id),
+  secretCiphertext: text("secret_ciphertext").notNull(),
+  pending: boolean("pending").notNull().default(true),
+  enabledAt: timestamp("enabled_at", { withTimezone: true }),
+  lastUsedStep: bigint("last_used_step", { mode: "number" }).notNull().default(0),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mfaRecoveryCodes = pgTable("mfa_recovery_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  codeHash: varchar("code_hash").notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertUserDeviceSchema = createInsertSchema(userDevices).omit({ id: true, firstSeenAt: true, lastSeenAt: true });

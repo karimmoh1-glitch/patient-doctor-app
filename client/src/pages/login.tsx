@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { User, Stethoscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import PublicLayout from "@/components/public-layout";
 import PasswordField from "@/components/password-field";
-import { SESSION_NOTICE_KEY } from "@/hooks/use-auth";
+import MfaFlow, { type MfaApi } from "@/components/mfa-flow";
+import { SESSION_NOTICE_KEY, type PendingMfa, type SignInResult } from "@/hooks/use-auth";
 import { useI18n } from "@/lib/i18n";
 
 function takeSessionNotice(): boolean {
@@ -21,8 +21,10 @@ function takeSessionNotice(): boolean {
 
 export default function Login({
   onLogin,
+  mfa,
 }: {
-  onLogin: (email: string, password: string) => Promise<unknown>;
+  onLogin: (email: string, password: string) => Promise<SignInResult>;
+  mfa: MfaApi;
 }) {
   const { t } = useI18n();
   const [expired] = useState(takeSessionNotice);
@@ -30,13 +32,15 @@ export default function Login({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<PendingMfa | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      await onLogin(email, password);
+      const result = await onLogin(email, password);
+      if (result.kind === "mfa") setPending(result.pending);
     } catch (err: any) {
       setError(err.message || t("auth.login.failed"));
     } finally {
@@ -44,6 +48,14 @@ export default function Login({
     }
   }
 
+
+  if (pending) {
+    return (
+      <PublicLayout narrow>
+        <MfaFlow pending={pending} api={mfa} />
+      </PublicLayout>
+    );
+  }
 
   return (
     <PublicLayout narrow>

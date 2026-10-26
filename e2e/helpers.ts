@@ -1,4 +1,5 @@
 import { expect, type Browser, type Page } from "@playwright/test";
+import { codeFor, rememberSecret } from "./mfa";
 
 // The development fixtures' password (e2e database only; production refuses these accounts). It is on the list of passwords Avela refuses for NEW accounts.
 export const PASSWORD = "DemoPass123!";
@@ -16,10 +17,18 @@ export const WEB = { "X-Avela-Client": "web" };
 export async function signInAs(page: Page, email: string, password = PASSWORD) {
   const api = await page.request.post("/api/auth/login", { data: { email, password } });
   expect(api.ok(), `login for ${email}`).toBeTruthy();
-  const body = await api.json();
-  const web = await page.request.post("/api/auth/login", { headers: WEB, data: { email, password } });
-  expect(web.ok(), `web login for ${email}`).toBeTruthy();
-  const { user } = await web.json();
+  let body = await api.json();
+  // Clinicians and administrators answer the second factor, through the real endpoint.
+  if (body.mfa === "verify") {
+    const verified = await page.request.post("/api/auth/mfa/verify", { data: { challenge: body.challenge, code: codeFor(email) } });
+    expect(verified.ok(), `second factor for ${email}`).toBeTruthy();
+    body = await verified.json();
+  }
+  expect(body.token, `a session for ${email}`).toBeTruthy();
+  // The browser itself holds the session as the HttpOnly cookie: exchange the token once, exactly as the app does for an older session.
+  const adopted = await page.request.post("/api/auth/session", { headers: { ...WEB, Authorization: `Bearer ${body.token}` } });
+  expect(adopted.ok(), `cookie session for ${email}`).toBeTruthy();
+  const { user } = await adopted.json();
   await page.goto("/login");
   await page.evaluate((u) => localStorage.setItem("pdapp_user", JSON.stringify(u)), user);
   await page.goto("/");
@@ -31,6 +40,30 @@ export async function newSession(browser: Browser, email: string, viewport = { w
   const page = await context.newPage();
   const session = await signInAs(page, email);
   return { context, page, session };
+}
+
+/** After a password is submitted in the browser: if the code screen appears (clinicians, administrators), answer it. */
+export async function answerCodeIfAsked(page: Page, email: string) {
+  const codeStep = page.getByRole("heading", { name: "Enter your sign-in code" });
+  await expect.poll(async () => (await codeStep.isVisible()) || !/\/login/.test(page.url()), { timeout: 15_000 }).toBe(true);
+  if (await codeStep.isVisible()) {
+    await page.getByLabel("Six-digit code").fill(codeFor(email));
+    await page.getByRole("button", { name: "Continue" }).click();
+  }
+}
+
+/** On the first-time setup screen: read the key shown, answer with a code, save the recovery codes, continue. */
+export async function completeAuthenticatorSetup(page: Page, email: string) {
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Set up your sign-in code");
+  await expect(page.getByTestId("mfa-secret")).toBeVisible();
+  const secret = (await page.getByTestId("mfa-secret").innerText()).replace(/\s/g, "");
+  rememberSecret(email, secret);
+  await page.getByLabel("3. Type the six-digit code the app now shows.").fill(codeFor(email));
+  await page.getByRole("button", { name: "Finish setting up" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Save your recovery codes");
+  await expect(page.getByTestId("recovery-codes").getByRole("listitem")).toHaveCount(10);
+  await page.getByLabel("I have saved these codes").check();
+  await page.getByRole("button", { name: "Continue" }).click();
 }
 
 export function uniqueEmail(prefix: string) {
@@ -62,10 +95,21 @@ const COMPLETE_APPLICATION = {
 };
 
 /** Registers a doctor and sends a complete application, all through the API. Returns the application id. */
-export async function registerDoctorViaApi(page: Page, name: string, email: string, overrides: Record<string, unknown> = {}) {
+/** Registers a clinician account and sets up their authenticator, all through the API. No application yet. Returns a session token. */
+export async function registerDoctorAccountViaApi(page: Page, name: string, email: string) {
   const reg = await page.request.post("/api/doctors/register", { data: { name, email, password: NEW_PASSWORD } });
   expect(reg.status()).toBe(201);
-  const token = (await reg.json()).token as string; // API sign-up (no X-Avela-Client), so the token is in the body
+  // A clinician must set up the second factor before any session exists: do that through the real endpoints.
+  const challenge = (await reg.json()).challenge as string;
+  const setup = await (await page.request.post("/api/auth/mfa/setup", { data: { challenge } })).json();
+  rememberSecret(email, setup.secret);
+  const enabled = await page.request.post("/api/auth/mfa/enable", { data: { challenge, code: codeFor(email) } });
+  expect(enabled.ok()).toBeTruthy();
+  return (await enabled.json()).token as string;
+}
+
+export async function registerDoctorViaApi(page: Page, name: string, email: string, overrides: Record<string, unknown> = {}) {
+  const token = await registerDoctorAccountViaApi(page, name, email);
   const headers = { Authorization: `Bearer ${token}` };
   const save = await page.request.put("/api/doctors/me/application", { headers, data: { ...COMPLETE_APPLICATION, displayName: name, ...overrides } });
   expect(save.status()).toBe(200);

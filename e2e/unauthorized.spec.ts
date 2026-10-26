@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { signInAs, uniqueEmail, NEW_PASSWORD } from "./helpers";
+import { signInAs, uniqueEmail, NEW_PASSWORD, registerDoctorAccountViaApi } from "./helpers";
 
 // In a real browser: each kind of account types the address of a screen that is
 // not theirs. They must land somewhere of their own, never on the screen, and
@@ -24,8 +24,7 @@ for (const [label, email, password, paths, landsOn] of CASES) {
 
 test("a doctor who has not been approved can reach only their own application", async ({ page }) => {
   const email = uniqueEmail("pendingui");
-  const reg = await page.request.post("/api/doctors/register", { data: { name: "Dr. Not Yet", email, password: NEW_PASSWORD } });
-  expect(reg.status()).toBe(201);
+  await registerDoctorAccountViaApi(page, "Dr. Not Yet", email);
   await signInAs(page, email, NEW_PASSWORD);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application");
 

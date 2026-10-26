@@ -32,6 +32,7 @@ async function applicantLang(a: Application) {
 function reviewerView(a: Application) {
   return {
     id: a.id,
+    userId: a.userId,
     name: a.name,
     displayName: a.displayName,
     email: a.email,
@@ -172,6 +173,18 @@ router.get("/audit", ...adminOnly, async (req, res) => {
 router.get("/reminders/status", ...adminOnly, async (_req, res) => {
   // Counts only, across everyone's reminders: an operational read, not a view of anyone's record.
   res.json(await runAsSystem(() => reminderHealth()));
+});
+
+// A clinician who has lost both their phone and their recovery codes. Their second factor is removed and every session
+// they hold ends; they enrol again at their next sign-in. Audited. An administrator's own second factor is reset only by
+// the operator (npm run mfa:reset), so no account can quietly reset its own or a peer's.
+router.post("/users/:userId/mfa-reset", ...adminOnly, async (req, res) => {
+  const adminId = (req as any).userId as string;
+  const target = await storage.getUser(req.params.userId);
+  if (!target || target.role !== "doctor") return res.status(404).json({ message: "Not found" });
+  await storage.resetMfa(target.id);
+  await logAudit({ actorUserId: adminId, action: "mfa.reset_by_admin", targetType: "user", targetId: target.id, subjectUserId: target.id });
+  res.json({ message: "Their sign-in codes were removed. They will set them up again the next time they sign in." });
 });
 
 export default router;

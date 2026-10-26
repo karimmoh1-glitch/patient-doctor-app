@@ -38,14 +38,45 @@ export function auth(token: string): { Authorization: string } {
 
 import bcrypt from "bcryptjs";
 import { storage } from "../server/storage";
+import { totp } from "../server/lib/totp";
 
 const TEST_HASH = bcrypt.hashSync(PASSWORD, 4);
 
-async function login(email: string): Promise<string> {
+// Clinicians and administrators sign in with a second factor. The suite does it through the REAL endpoints (set up an
+// authenticator on first sign-in, then answer with a current code), keeping each account's secret for next time.
+const authenticatorSecrets = new Map<string, string>(); // email -> secret
+export const authenticatorSecretFor = (email: string) => authenticatorSecrets.get(email.toLowerCase());
+
+/** Finishes a password sign-in that asked for a second factor; returns the final session response body. */
+export async function completeSecondFactor(body: any, email: string, extra: Record<string, string> = {}): Promise<any> {
+  if (!body?.mfa) return body;
   const app = await getApp();
-  const res = await request(app).post("/api/auth/login").send({ email, password: PASSWORD });
+  const key = email.toLowerCase();
+  if (body.mfa === "setup") {
+    const setup = await request(app).post("/api/auth/mfa/setup").set(extra).send({ challenge: body.challenge });
+    if (setup.status !== 200) throw new Error(`mfa setup failed: ${setup.status} ${JSON.stringify(setup.body)}`);
+    authenticatorSecrets.set(key, setup.body.secret);
+    const enabled = await request(app).post("/api/auth/mfa/enable").set(extra).send({ challenge: body.challenge, code: totp(setup.body.secret) });
+    if (enabled.status !== 200) throw new Error(`mfa enable failed: ${enabled.status} ${JSON.stringify(enabled.body)}`);
+    return enabled.body;
+  }
+  const secret = authenticatorSecrets.get(key);
+  if (!secret) throw new Error(`no authenticator secret known for ${email}`);
+  const verified = await request(app).post("/api/auth/mfa/verify").set(extra).send({ challenge: body.challenge, code: totp(secret) });
+  if (verified.status !== 200) throw new Error(`mfa verify failed: ${verified.status} ${JSON.stringify(verified.body)}`);
+  return verified.body;
+}
+
+/** Signs in with the password and, if asked, the second factor. Returns the whole session response. */
+export async function signIn(email: string, password = PASSWORD, extra: Record<string, string> = {}): Promise<any> {
+  const app = await getApp();
+  const res = await request(app).post("/api/auth/login").set(extra).send({ email, password });
   if (res.status !== 200) throw new Error(`login failed: ${res.status} ${JSON.stringify(res.body)}`);
-  return res.body.token;
+  return completeSecondFactor(res.body, email, extra);
+}
+
+async function login(email: string): Promise<string> {
+  return (await signIn(email)).token;
 }
 
 export interface TestDoctor extends TestUser {

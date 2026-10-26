@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { storage } from "../storage";
 import { fixtureAccountsAllowed } from "../config";
+import { mfaState, roleRequiresMfa, signChallenge } from "../services/mfaService";
 import { enterUser, runAsSystem } from "../dbContext";
 import { clearSessionCookie, cookieRequestAllowed, isWebClient, readSessionCookie, setSessionCookie } from "./session";
 
@@ -20,8 +21,9 @@ if (!isLocalDevOrTest && !process.env.JWT_SECRET) {
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const JWT_EXPIRY = "24h";
 
-export function signToken(userId: string, role: string, deviceId: string): string {
-  return jwt.sign({ userId, role, deviceId }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+export function signToken(userId: string, role: string, deviceId: string, mfa = false): string {
+  // `mfa` records that this session passed the second factor. For clinicians and administrators a token without it is refused.
+  return jwt.sign({ userId, role, deviceId, ...(mfa ? { mfa: true } : {}) }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 }
 
 // Coarse, display-only parsing — never used for security decisions.
@@ -65,7 +67,10 @@ export async function createDeviceForLogin(userId: string, req: Request): Promis
 }
 
 /**
- * Starts a session for a user who just proved who they are. The web app (which announces itself with
+ * Starts a session for a user who just proved who they are with their password.
+ *
+ * Clinicians and administrators are not given a session yet: they get a short-lived challenge to complete with their
+ * second factor (or to enrol one first), see /api/auth/mfa/*. Everyone else is signed in as before. The web app (which announces itself with
  * X-Avela-Client: web) gets an HttpOnly cookie and NO token in the body, so no script can ever read
  * its credential; any other client gets the token in the body as before.
  */
@@ -76,8 +81,30 @@ export async function issueSession(
   body: Record<string, unknown>,
   status = 200,
 ): Promise<void> {
+  if (roleRequiresMfa(user.role)) {
+    const state = await mfaState(user.id);
+    const account = await storage.getUser(user.id);
+    res.status(status).json({
+      mfa: state === "enabled" ? "verify" : "setup",
+      challenge: signChallenge(user.id, state === "enabled" ? "verify" : "setup"),
+      account: { name: account?.name ?? "", email: account?.email ?? "" },
+    });
+    return;
+  }
+  await completeSession(req, res, user, body, status, false);
+}
+
+/** The session itself: a device, a token, and (for the web app) the cookie. `mfa` says the second factor was proven. */
+export async function completeSession(
+  req: Request,
+  res: Response,
+  user: { id: string; role: string },
+  body: Record<string, unknown>,
+  status: number,
+  mfa: boolean,
+): Promise<void> {
   const deviceId = await createDeviceForLogin(user.id, req);
-  const token = signToken(user.id, user.role, deviceId);
+  const token = signToken(user.id, user.role, deviceId, mfa);
   if (isWebClient(req)) {
     setSessionCookie(req, res, token);
     res.status(status).json(body);
@@ -109,7 +136,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return res.status(403).json({ message: "This request was blocked for your safety. Please reload the page and try again." });
   }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string; deviceId?: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string; deviceId?: string; mfa?: boolean };
 
     // Every token this server issues carries a deviceId, so a token without
     // one — or whose device record no longer exists — can't be a live session.
@@ -133,6 +160,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!user || user.deactivatedAt) {
       return res.status(401).json({ message: "This account has been deactivated" });
     }
+    // A clinician or administrator session counts only if it passed the second factor. This also ends every
+    // session that was issued before the second factor existed.
+    if (roleRequiresMfa(user.role) && decoded.mfa !== true) {
+      return res.status(401).json({ message: "Your session has ended. Please sign in again." });
+    }
     // Sessions of seeded fixture accounts never work in production.
     if (user.isDemo && !fixtureAccountsAllowed()) {
       return res.status(401).json({ message: "Your session has ended. Please sign in again." });
@@ -143,6 +175,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     (req as any).userId = decoded.userId;
     (req as any).userRole = user.role;
     (req as any).deviceId = decoded.deviceId || null;
+    (req as any).sessionMfa = decoded.mfa === true;
     enterUser(user.id);
     next();
   } catch {

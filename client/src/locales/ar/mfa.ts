@@ -1,0 +1,36 @@
+import type { Key } from "../index";
+
+// mfa. First draft: not yet reviewed by a fluent Arabic reader (docs/REAL_PATIENT_READINESS.md, section 4).
+const t: Partial<Record<Key, string>> = {
+  "mfa.verify.title": "أدخل رمز تسجيل الدخول",
+  "mfa.verify.intro": "افتح تطبيق المصادقة واكتب الرمز المكوّن من ستة أرقام الذي يعرضه لأفيلا.",
+  "mfa.code.label": "الرمز المكوّن من ستة أرقام",
+  "mfa.verify.submit": "متابعة",
+  "mfa.verify.submitting": "جارٍ التحقق…",
+  "mfa.useRecovery": "استخدم رمز استرداد بدلًا من ذلك",
+  "mfa.useApp": "استخدم الرمز من التطبيق بدلًا من ذلك",
+  "mfa.recovery.label": "رمز الاسترداد",
+  "mfa.recovery.hint": "كل رمز استرداد يعمل مرة واحدة فقط.",
+  "mfa.lost": "فقدت هاتفك ورموز الاسترداد؟ يمكن للمسؤول إعادة ضبط تسجيل دخولك، وستُعدّه من جديد.",
+  "mfa.account": "الحساب: {email}",
+  "mfa.setup.title": "إعداد رمز تسجيل الدخول",
+  "mfa.setup.intro": "يسجّل الأطباء والمسؤولون الدخول بكلمة مرور ورمز من تطبيق مصادقة. هذا يحمي معلومات المرضى إذا سُرقت كلمة المرور يومًا ما.",
+  "mfa.setup.step1": "1. ثبّت تطبيق مصادقة إن لم يكن لديك، مثل Google Authenticator أو Microsoft Authenticator أو 1Password أو Aegis.",
+  "mfa.setup.step2": "2. امسح هذه الصورة بالتطبيق، أو اكتب المفتاح الظاهر أدناه فيه.",
+  "mfa.setup.qrAlt": "رمز QR لإضافة أفيلا إلى تطبيق المصادقة. إن تعذّر مسحه فاستخدم المفتاح الظاهر أدناه.",
+  "mfa.setup.key": "المفتاح، إن تعذّر المسح",
+  "mfa.setup.step3": "3. اكتب الرمز المكوّن من ستة أرقام الذي يعرضه التطبيق الآن.",
+  "mfa.setup.submit": "إنهاء الإعداد",
+  "mfa.setup.loading": "جارٍ تجهيز المفتاح…",
+  "mfa.recovery.title": "احفظ رموز الاسترداد",
+  "mfa.recovery.intro": "إذا فقدت هاتفك، يتيح لك كل رمز من هذه الرموز تسجيل الدخول مرة واحدة. تُعرض الآن فقط. احتفظ بها في مكان آمن بعيدًا عن هاتفك، مثل مدير كلمات المرور أو نسخة مطبوعة.",
+  "mfa.recovery.saved": "لقد حفظت هذه الرموز",
+  "mfa.recovery.continue": "متابعة",
+  "mfa.settings.title": "رمز تسجيل الدخول",
+  "mfa.settings.on": "حسابك محمي بتطبيق مصادقة.",
+  "mfa.settings.left": "رموز الاسترداد المتبقية: {count}",
+  "mfa.settings.regenerate": "احصل على رموز استرداد جديدة",
+  "mfa.settings.regenBody": "اكتب الرمز الحالي المكوّن من ستة أرقام من تطبيقك. ستتوقف رموز الاسترداد القديمة عن العمل.",
+  "mfa.settings.regenSubmit": "استبدل رموز الاسترداد",
+};
+export default t;

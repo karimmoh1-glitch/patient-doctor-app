@@ -6,7 +6,8 @@ import { doctorStatusFor } from "../services/doctorStatus";
 import { weakPasswordReason } from "../lib/password";
 import { logAudit } from "../services/auditService";
 import { normalizeLang } from "../services/serverText";
-import { signToken, issueSession, clearSessionCookie, requireAuth } from "../middleware/auth";
+import { signToken, issueSession, completeSession, clearSessionCookie, requireAuth } from "../middleware/auth";
+import { beginEnrollment, checkSecondFactor, completeEnrollment, lockMessageMinutes, mfaState, readChallenge, regenerateRecoveryCodes, roleRequiresMfa } from "../services/mfaService";
 import { isWebClient, setSessionCookie } from "../middleware/session";
 import { insertUserSchema } from "@shared/schema";
 import { US_STATES } from "@shared/specialties";
@@ -144,6 +145,80 @@ router.post("/login", systemAccess, loginIpLimiter, loginAccountLimiter, async (
   await issueSession(req, res, user, { user: await sessionUser(user) });
 });
 
+// ---------------------------------------------------------------------------------------------------------------
+// Second factor (clinicians and administrators). The password step returned a short-lived challenge; these three
+// endpoints are the only way to exchange it for a session. See server/services/mfaService.ts.
+// ---------------------------------------------------------------------------------------------------------------
+const mfaIpLimiter = makeLimiter({ windowMs: 10 * 60 * 1000, limit: 40, message: "Too many attempts. Please wait a few minutes and try again." });
+const EXPIRED = "This step has expired. Please sign in again.";
+const challengeBody = z.object({ challenge: z.string().min(10).max(2000), code: z.string().trim().min(6).max(40).optional() });
+
+async function mfaFailureResponse(res: any, result: { reason: "invalid" | "locked"; lockedUntil?: Date }) {
+  if (result.reason === "locked") {
+    return res.status(429).json({ message: `Too many wrong codes. Try again in ${lockMessageMinutes(result.lockedUntil)} minutes, or ask an administrator to reset your sign-in.` });
+  }
+  return res.status(401).json({ message: "That code isn't right. Check your authenticator app and try again." });
+}
+
+router.post("/mfa/setup", systemAccess, mfaIpLimiter, async (req, res) => {
+  const parsed = challengeBody.safeParse(req.body);
+  const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
+  if (!userId) return res.status(401).json({ message: EXPIRED });
+  const user = await storage.getUser(userId);
+  if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
+  const started = await beginEnrollment(user);
+  if (!started) return res.status(409).json({ message: "Sign-in codes are already set up for this account." });
+  res.json({ secret: started.secret, otpauthUri: started.otpauthUri, account: user.email });
+});
+
+router.post("/mfa/enable", systemAccess, mfaIpLimiter, async (req, res) => {
+  const parsed = challengeBody.safeParse(req.body);
+  const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
+  if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
+  const user = await storage.getUser(userId);
+  if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
+  const done = await completeEnrollment(userId, parsed.data.code);
+  if (!done.ok) {
+    if (done.reason === "not_started") return res.status(409).json({ message: "Set up your authenticator app first." });
+    return mfaFailureResponse(res, done as { reason: "invalid" | "locked"; lockedUntil?: Date });
+  }
+  await logAudit({ actorUserId: userId, action: "mfa.enrolled", targetType: "user", targetId: userId });
+  await completeSession(req, res, user, { user: await sessionUser(user), recoveryCodes: done.recoveryCodes }, 200, true);
+});
+
+router.post("/mfa/verify", systemAccess, mfaIpLimiter, async (req, res) => {
+  const parsed = challengeBody.safeParse(req.body);
+  const userId = parsed.success ? readChallenge(parsed.data.challenge, "verify") : null;
+  if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
+  const user = await storage.getUser(userId);
+  if (!user || user.deactivatedAt || (user.isDemo && !fixtureAccountsAllowed())) return res.status(401).json({ message: EXPIRED });
+  const check = await checkSecondFactor(userId, parsed.data.code);
+  if (!check.ok) {
+    await logAudit({ actorUserId: userId, action: "mfa.failed", targetType: "user", targetId: userId });
+    return mfaFailureResponse(res, check);
+  }
+  if (check.usedRecoveryCode) await logAudit({ actorUserId: userId, action: "mfa.recovery_code_used", targetType: "user", targetId: userId });
+  await completeSession(req, res, user, { user: await sessionUser(user), recoveryCodesLeft: check.recoveryCodesLeft }, 200, true);
+});
+
+router.get("/mfa/status", requireAuth, async (req, res) => {
+  const userId = (req as any).userId as string;
+  const user = await storage.getUser(userId);
+  const state = await mfaState(userId);
+  res.json({ required: !!user && roleRequiresMfa(user.role), enabled: state === "enabled", recoveryCodesLeft: state === "enabled" ? await storage.countRecoveryCodes(userId) : 0 });
+});
+
+// Replaces the recovery codes (the old ones stop working). Needs a current six-digit code, so a stolen session alone cannot do it.
+router.post("/mfa/recovery-codes", requireAuth, mfaIpLimiter, async (req, res) => {
+  const userId = (req as any).userId as string;
+  const parsed = z.object({ code: z.string().trim().regex(/^\d{6}$/) }).strict().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: "Enter the six-digit code from your authenticator app." });
+  const out = await regenerateRecoveryCodes(userId, parsed.data.code);
+  if (!out.ok) return mfaFailureResponse(res, out);
+  await logAudit({ actorUserId: userId, action: "mfa.recovery_codes_replaced", targetType: "user", targetId: userId });
+  res.json({ recoveryCodes: out.recoveryCodes });
+});
+
 const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
 
 router.post("/forgot-password", systemAccess, authLimiter, async (req, res) => {
@@ -239,7 +314,7 @@ router.post("/session", requireAuth, async (req, res) => {
   const deviceId = (req as any).deviceId as string;
   const user = await storage.getUser(userId);
   if (!user) return res.status(401).json({ message: "Your session has ended. Please sign in again." });
-  setSessionCookie(req, res, signToken(user.id, user.role, deviceId));
+  setSessionCookie(req, res, signToken(user.id, user.role, deviceId, (req as any).sessionMfa === true));
   res.json({ user: await sessionUser(user) });
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { getApp, signupPatient, createAdmin, connect, auth, uniqueEmail, PASSWORD, prescriptionBody } from "./helpers";
+import { getApp, signupPatient, createAdmin, connect, auth, uniqueEmail, PASSWORD, prescriptionBody, signIn, completeSecondFactor } from "./helpers";
 import { storage } from "../server/storage";
 
 let app: Express;
@@ -21,13 +21,14 @@ async function suspendedDoctorWithPatient(opts: { suspend?: boolean } = {}) {
   const admin = await createAdmin();
   const email = uniqueEmail("susp");
   const reg = await request(app).post("/api/doctors/register").send({ name: "Dr. Soon Suspended", email, password: PASSWORD });
-  const regToken = reg.body.token as string;
+  const session = await completeSecondFactor(reg.body, email);
+  const regToken = session.token as string;
   await request(app).put("/api/doctors/me/application").set(auth(regToken)).send(APPLICATION);
   const submitted = await request(app).post("/api/doctors/me/application/submit").set(auth(regToken));
   await request(app).post(`/api/admin/doctor-applications/${submitted.body.id}/approve`).set(auth(admin.token));
-  const approvedLogin = (await request(app).post("/api/auth/login").send({ email, password: PASSWORD })).body.token as string;
-  const profile = (await storage.getDoctorProfileByUserId(reg.body.user.id))!;
-  const doctor = { id: reg.body.user.id as string, email, token: approvedLogin, profileId: profile.id };
+  const approvedLogin = (await signIn(email)).token as string;
+  const profile = (await storage.getDoctorProfileByUserId(session.user.id))!;
+  const doctor = { id: session.user.id as string, email, token: approvedLogin, profileId: profile.id };
 
   const patient = await signupPatient({ state: "CA" });
   const { pairingId } = await connect(patient, doctor);
@@ -45,7 +46,7 @@ async function suspendedDoctorWithPatient(opts: { suspend?: boolean } = {}) {
   const suspend = () => request(app).post(`/api/admin/doctor-applications/${submitted.body.id}/suspend`).set(auth(admin.token)).send({ reason: "test" });
   if (opts.suspend === false) return { token: approvedLogin, patient, pairingId, appt, draftId: draft.body.id as string, doctor, docId: doc.body.id as string, suspend };
   await suspend();
-  const token = (await request(app).post("/api/auth/login").send({ email, password: PASSWORD })).body.token as string;
+  const token = (await signIn(email)).token as string;
   return { token, patient, pairingId, appt, draftId: draft.body.id as string, doctor, docId: doc.body.id as string, suspend };
 }
 
@@ -86,7 +87,7 @@ describe("a suspended doctor", () => {
     expect((await request(app).get(`/api/documents/${docId}/file`).set(auth(token))).status).toBe(200); // the control
     const { doctor } = ctx;
     await suspend();
-    const later = (await request(app).post("/api/auth/login").send({ email: doctor.email, password: PASSWORD })).body.token as string;
+    const later = (await signIn(doctor.email)).token as string;
     expect([403, 404]).toContain((await request(app).get(`/api/documents/${docId}/file`).set(auth(later))).status);
   });
 

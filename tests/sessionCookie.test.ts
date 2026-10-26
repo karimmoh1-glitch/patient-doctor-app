@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { getApp, signupPatient, uniqueEmail, PASSWORD, auth } from "./helpers";
+import { totp } from "../server/lib/totp";
 
 let app: Express;
 beforeAll(async () => {
@@ -56,23 +57,28 @@ describe("the browser session is an HttpOnly cookie", () => {
     expect(sessionCookie(res)).toBeNull();
   });
 
-  it("signs in and out through the cookie on every way in: login, demo, registration and invitation", async () => {
+  it("signs in through the cookie on every way in: login, and registration after the second factor", async () => {
     const { email } = await webSignup();
     const login = await request(app).post("/api/auth/login").set(WEB).send({ email, password: PASSWORD });
     expect(login.status).toBe(200);
     expect(login.body.token).toBeUndefined();
     expect(sessionCookie(login)).not.toBeNull();
 
-    const reg = await request(app).post("/api/doctors/register").set(WEB).send({ name: "Dr Cookie", email: uniqueEmail("doc"), password: PASSWORD });
+    // A clinician gets no cookie from the password step: only a challenge. The cookie arrives with the second factor.
+    const docEmail = uniqueEmail("doc");
+    const reg = await request(app).post("/api/doctors/register").set(WEB).send({ name: "Dr Cookie", email: docEmail, password: PASSWORD });
     expect(reg.status).toBe(201);
     expect(reg.body.token).toBeUndefined();
-    expect(sessionCookie(reg)).not.toBeNull();
-
-    const demo = await request(app).post("/api/auth/demo-login").set(WEB).send({ role: "patient" });
-    if (demo.status === 200) {
-      expect(demo.body.token).toBeUndefined();
-      expect(sessionCookie(demo)).not.toBeNull();
-    }
+    expect(sessionCookie(reg)).toBeNull();
+    expect(reg.body.mfa).toBe("setup");
+    const setup = await request(app).post("/api/auth/mfa/setup").set(WEB).send({ challenge: reg.body.challenge });
+    const enabled = await request(app).post("/api/auth/mfa/enable").set(WEB).send({ challenge: reg.body.challenge, code: totp(setup.body.secret) });
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.token).toBeUndefined();
+    const cookie = sessionCookie(enabled);
+    expect(cookie).not.toBeNull();
+    expect(cookie!.raw).toMatch(/HttpOnly/i);
+    expect((await request(app).get("/api/auth/me").set("Cookie", `${cookie!.name}=${cookie!.value}`)).body.email).toBe(docEmail);
   });
 });
 

@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 import { appRoleUrl } from "./tests/fastCommit";
 
 export const E2E_PORT = 3101;
+// The seed and the server must agree on the key that protects stored authenticator secrets.
+export const E2E_MFA_KEY = Buffer.alloc(32, 5).toString("base64");
 export const E2E_DB = process.env.E2E_DATABASE_URL || "postgresql://karimmohamed@localhost:5432/patient_doctor_app_e2e_test";
 
 export default defineConfig({
@@ -39,6 +41,8 @@ export default defineConfig({
       JWT_SECRET: "e2e-only-secret",
       EMERGENCY_NUMBER: "911", // the test deployment models a US launch; a real deployment sets its own, reviewed number
       E2E_DISABLE_RATE_LIMITS: "true",
+      MFA_ENCRYPTION_KEY: E2E_MFA_KEY,
+      MFA_ALLOW_CODE_REUSE: "1", // fixture accounts sign in many times inside one 30-second step; refused by a production server
     },
   },
 });

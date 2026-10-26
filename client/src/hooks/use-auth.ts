@@ -18,6 +18,14 @@ export interface AuthUser {
   doctorStatus?: DoctorStatus;
 }
 
+/** A clinician or administrator who has proven their password but not yet their second factor. */
+export interface PendingMfa {
+  step: "verify" | "setup";
+  challenge: string;
+  account: { name: string; email: string };
+}
+export type SignInResult = { kind: "signedIn"; user: AuthUser } | { kind: "mfa"; pending: PendingMfa };
+
 const JSON_HEADERS = { "Content-Type": "application/json", ...CLIENT_HEADERS };
 
 /**
@@ -67,6 +75,52 @@ export function useAuth() {
     setAuth(user);
   }, []);
 
+  // A password step either signs the person in, or (clinicians and administrators) hands back a challenge for the second factor.
+  const acceptSessionBody = useCallback(
+    (data: any): SignInResult => {
+      if (data?.mfa) {
+        return { kind: "mfa", pending: { step: data.mfa, challenge: data.challenge, account: data.account ?? { name: "", email: "" } } };
+      }
+      persistAuth(data.user);
+      return { kind: "signedIn", user: data.user as AuthUser };
+    },
+    [persistAuth],
+  );
+
+  const postJson = useCallback(async (path: string, body: unknown, failure: string) => {
+    const res = await fetch(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await parseErrorMessage(res, failure));
+    return res.json();
+  }, []);
+
+  /** Second step, for someone who already has an authenticator: a six-digit code or a recovery code. */
+  const mfaVerify = useCallback(
+    async (challenge: string, code: string) => {
+      const data = await postJson("/api/auth/mfa/verify", { challenge, code }, "That code isn't right.");
+      persistAuth(data.user);
+      return { user: data.user as AuthUser, recoveryCodesLeft: data.recoveryCodesLeft as number };
+    },
+    [persistAuth, postJson],
+  );
+
+  /** First step of setting up an authenticator: the key and the address for the QR code. */
+  const mfaBeginSetup = useCallback(
+    (challenge: string): Promise<{ secret: string; otpauthUri: string; account: string }> => postJson("/api/auth/mfa/setup", { challenge }, "Couldn't start setup."),
+    [postJson],
+  );
+
+  /** Proves the app is set up. The server has started the session; the recovery codes are shown before the screen moves on. */
+  const mfaEnable = useCallback(
+    async (challenge: string, code: string) => {
+      const data = await postJson("/api/auth/mfa/enable", { challenge, code }, "That code isn't right.");
+      return { user: data.user as AuthUser, recoveryCodes: data.recoveryCodes as string[] };
+    },
+    [postJson],
+  );
+
+  /** After the recovery codes have been shown and acknowledged. */
+  const finishSignIn = useCallback((user: AuthUser) => persistAuth(user), [persistAuth]);
+
   const login = useCallback(async (email: string, password: string) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
@@ -77,9 +131,8 @@ export function useAuth() {
       throw new Error(await parseErrorMessage(res, "Login failed"));
     }
     const data = await res.json();
-    persistAuth(data.user);
-    return data.user as AuthUser;
-  }, [persistAuth]);
+    return acceptSessionBody(data);
+  }, [acceptSessionBody]);
 
   const signup = useCallback(async (fields: { name: string; email: string; password: string; state: string; phone?: string; language: string }) => {
     const res = await fetch("/api/auth/signup", {
@@ -107,9 +160,8 @@ export function useAuth() {
       throw new Error(await parseErrorMessage(res, "Registration failed"));
     }
     const data = await res.json();
-    persistAuth(data.user);
-    return data.user as AuthUser;
-  }, [persistAuth]);
+    return acceptSessionBody(data);
+  }, [acceptSessionBody]);
 
   // Re-reads who the server says this person is: how a doctor learns they were
   // approved (or suspended) without signing out and back in.
@@ -149,6 +201,10 @@ export function useAuth() {
     login,
     signup,
     registerDoctor,
+    mfaVerify,
+    mfaBeginSetup,
+    mfaEnable,
+    finishSignIn,
     refreshUser,
     acceptCareCircleInvite,
     signOut,

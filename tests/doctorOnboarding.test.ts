@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { eq } from "drizzle-orm";
-import { getApp, signupPatient, createAdmin, createDoctor, connect, auth, uniqueEmail, PASSWORD } from "./helpers";
+import { getApp, signupPatient, createAdmin, createDoctor, connect, auth, uniqueEmail, PASSWORD, completeSecondFactor, signIn } from "./helpers";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { users } from "@shared/schema";
@@ -32,7 +32,11 @@ async function register(name = "Amira Haddad") {
   const email = uniqueEmail("newdoc");
   const res = await request(app).post("/api/doctors/register").send({ name, email, password: PASSWORD });
   expect(res.status).toBe(201);
-  return { email, token: res.body.token as string, id: res.body.user.id as string, body: res.body };
+  // A clinician is not given a session at registration: the second factor is set up first.
+  expect(res.body.token).toBeUndefined();
+  expect(res.body.mfa).toBe("setup");
+  const session = await completeSecondFactor(res.body, email);
+  return { email, token: session.token as string, id: session.user.id as string, body: session };
 }
 
 async function submitted() {
@@ -50,8 +54,9 @@ describe("registering as a doctor", () => {
       .post("/api/doctors/register")
       .send({ name: "Sneaky Doc", email, password: PASSWORD, role: "admin", doctorStatus: "approved" });
     expect(res.status).toBe(201);
-    expect(res.body.user.role).toBe("doctor");
-    expect(res.body.user.doctorStatus).toBe("incomplete");
+    const session = await completeSecondFactor(res.body, email);
+    expect(session.user.role).toBe("doctor");
+    expect(session.user.doctorStatus).toBe("incomplete");
     const [row] = await db.select().from(users).where(eq(users.email, email));
     expect(row.role).toBe("doctor");
     expect(await storage.getDoctorProfileByUserId(row.id)).toBeUndefined();
@@ -186,7 +191,7 @@ describe("review by an administrator", () => {
     expect(suspend.status).toBe(200);
 
     expect((await request(app).get("/api/pairings/doctor").set(auth(doc.token))).status).toBe(401); // sessions ended
-    const relog = await request(app).post("/api/auth/login").send({ email: doc.email, password: PASSWORD });
+    const relog = { status: 200, body: await signIn(doc.email) };
     expect(relog.status).toBe(200);
     expect(relog.body.user.doctorStatus).toBe("suspended");
     expect((await request(app).get("/api/pairings/doctor").set(auth(relog.body.token))).status).toBe(403);
@@ -195,7 +200,7 @@ describe("review by an administrator", () => {
     expect((await request(app).get("/api/doctors")).body.map((d: any) => d.id)).not.toContain(profile.id);
 
     expect((await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/reinstate`).set(auth(admin.token))).status).toBe(200);
-    const back = await request(app).post("/api/auth/login").send({ email: doc.email, password: PASSWORD });
+    const back = { status: 200, body: await signIn(doc.email) };
     expect((await request(app).get("/api/pairings/doctor").set(auth(back.body.token))).status).toBe(200);
   });
 

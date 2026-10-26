@@ -29,7 +29,8 @@ async function as<T>(who: Who, fn: (q: (text: string, params?: unknown[]) => Pro
     c.release();
   }
 }
-const ids = async (who: Who, table: string, where = "true") => as(who, async (q) => (await q(`SELECT id FROM ${table} WHERE ${where} ORDER BY id`)).rows.map((r) => r.id as string));
+const keyOf = (table: string) => (table === "user_mfa" ? "user_id" : "id");
+const ids = async (who: Who, table: string, where = "true") => as(who, async (q) => (await q(`SELECT ${keyOf(table)} AS id FROM ${table} WHERE ${where} ORDER BY 1`)).rows.map((r) => r.id as string));
 const sees = async (who: Who, table: string, id: string) => (await ids(who, table, `id = '${id}'`)).length === 1;
 
 let A: TestUser, B: TestUser, C: TestUser, admin: TestUser;
@@ -134,7 +135,7 @@ describe("the restricted role really is restricted", () => {
 
 describe("with nobody established, the database shows and accepts nothing", () => {
   it("returns no rows from any protected table, and refuses writes", async () => {
-    const tables = ["medications", "medication_logs", "medication_reminders", "symptom_reports", "documents", "pharmacy_orders", "follow_up_tasks", "appointments", "prescriptions", "sharing_grants", "pairing_requests", "messages", "care_circle_members", "notifications", "ai_messages", "data_requests", "user_devices", "password_reset_tokens", "email_verification_tokens"];
+    const tables = ["medications", "medication_logs", "medication_reminders", "symptom_reports", "documents", "pharmacy_orders", "follow_up_tasks", "appointments", "prescriptions", "sharing_grants", "pairing_requests", "messages", "care_circle_members", "notifications", "ai_messages", "data_requests", "user_devices", "password_reset_tokens", "email_verification_tokens", "user_mfa", "mfa_recovery_codes"];
     for (const t of tables) expect(await ids({}, t), t).toEqual([]);
     await expect(as({}, (q) => q(`INSERT INTO symptom_reports (patient_user_id, state, symptom_text, input_method) VALUES ($1, 'CA', 'x', 'typed')`, [A.id]))).rejects.toThrow(/row-level security/);
     expect((await as({}, (q) => q(`UPDATE medications SET name = 'hacked' WHERE id = $1`, [medA]))).rowCount).toBe(0);
@@ -178,6 +179,15 @@ describe("who can read which record", () => {
     await owner.query(`INSERT INTO password_reset_tokens (email, token_hash, expires_at) VALUES ($1, $2, now() + interval '1 hour')`, [A.email, `hash-${Date.now()}`]);
     expect(await ids({ userId: A.id }, "password_reset_tokens")).toEqual([]);
     expect((await ids({ system: true }, "password_reset_tokens")).length).toBeGreaterThan(0);
+  });
+
+  it("keeps authenticator secrets and recovery codes from everyone, including their own owner", async () => {
+    expect((await ids({ system: true }, "user_mfa", `user_id = '${D1.id}'`)).length).toBe(1); // D1 really is enrolled
+    for (const who of [{ userId: D1.id }, { userId: admin.id }, { userId: A.id }, {}]) {
+      expect(await ids(who, "user_mfa"), JSON.stringify(who)).toEqual([]);
+      expect(await ids(who, "mfa_recovery_codes"), JSON.stringify(who)).toEqual([]);
+    }
+    await expect(as({ userId: D1.id }, (q) => q(`UPDATE user_mfa SET failed_attempts = 0 WHERE user_id = $1`, [D1.id]))).resolves.toMatchObject({ rowCount: 0 });
   });
 
   it("stops showing a patient to a doctor the moment the connection ends or the doctor is suspended", async () => {
@@ -329,7 +339,7 @@ describe.skipIf(!ENFORCED)("the running application, as the restricted role (npm
 describe("operator scripts", () => {
   it("always load the owner connection, never the application's restricted role", async () => {
     const { readFileSync } = await import("node:fs");
-    for (const name of ["create-admin", "seed", "retire-demo", "erase-user", "verify-production"]) {
+    for (const name of ["create-admin", "seed", "retire-demo", "erase-user", "verify-production", "reset-mfa"]) {
       const src = readFileSync(`script/${name}.ts`, "utf8");
       const operator = src.indexOf('import "./asOperator"');
       const database = src.search(/from "\.\.\/server\/(db|storage)"/);

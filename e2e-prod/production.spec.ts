@@ -1,4 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import { totp } from "../server/lib/totp";
+import { FIXTURE_MFA_SECRET } from "../script/fixtures";
 
 const PASSWORD = "DemoPass123!";
 
@@ -19,11 +21,22 @@ function watch(page: Page) {
   return problems;
 }
 
-async function signInThroughTheForm(page: Page, email: string) {
+// A production server accepts an authenticator code once, ever. The two browser projects (phone, then desktop) sign the same
+// accounts in, so each uses its own time-step: always newer than the other's, always inside the server's one-step tolerance.
+async function signInThroughTheForm(page: Page, email: string, project: string) {
   await page.goto("/login");
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
+  // Doctors and administrators are asked for the code from their authenticator app.
+  const codeStep = page.getByRole("heading", { name: "Enter your sign-in code" });
+  // Either the app moved on (signed in) or the code screen appeared; the page shows neither for a moment while the request runs.
+  await expect.poll(async () => (await codeStep.isVisible()) || !/\/login/.test(page.url()), { timeout: 15_000 }).toBe(true);
+  if (await codeStep.isVisible()) {
+    const offset = project === "phone" ? -1 : 1;
+    await page.getByLabel("Six-digit code").fill(totp(FIXTURE_MFA_SECRET, Date.now() + offset * 30_000));
+    await page.getByRole("button", { name: "Continue" }).click();
+  }
 }
 
 test.describe("the built application", () => {
@@ -60,9 +73,9 @@ test.describe("the built application", () => {
   ];
 
   for (const role of ROLES) {
-    test(`${role.name}: signs in through the form and the signed-in screens render`, async ({ page }) => {
+    test(`${role.name}: signs in through the form and the signed-in screens render`, async ({ page }, testInfo) => {
       const problems = watch(page);
-      await signInThroughTheForm(page, role.email);
+      await signInThroughTheForm(page, role.email, testInfo.project.name);
       const h1 = page.getByRole("heading", { level: 1 }).first();
       await expect(page).not.toHaveURL(/\/login/);
       await expect(h1).toHaveText(role.heading);
@@ -118,6 +131,17 @@ test.describe("the built application", () => {
     await page.getByLabel("Email address").fill(email);
     await page.getByLabel("Choose a password", { exact: true }).fill("seven green umbrellas");
     await page.getByRole("button", { name: "Create my doctor account" }).click();
+    // A clinician sets up an authenticator before anything else: read the key from the page, answer with a code, save the recovery codes.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Set up your sign-in code");
+    await expect(page.getByTestId("mfa-secret")).toBeVisible();
+    const secret = (await page.getByTestId("mfa-secret").innerText()).replace(/\s/g, "");
+    expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+    await page.getByLabel("3. Type the six-digit code the app now shows.").fill(totp(secret));
+    await page.getByRole("button", { name: "Finish setting up" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Save your recovery codes");
+    await expect(page.getByTestId("recovery-codes").getByRole("listitem")).toHaveCount(10);
+    await page.getByLabel("I have saved these codes").check();
+    await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application");
     await page.goto("/doctor/requests");
     await expect(page).toHaveURL(/\/doctor\/application/);
