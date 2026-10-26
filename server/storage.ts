@@ -58,6 +58,8 @@ export interface IStorage {
   createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<EmailVerificationToken>;
   getEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationToken | undefined>;
   markEmailVerificationTokenUsed(id: string): Promise<void>;
+  /** Marks the address as confirmed by the person (only the holder of a link sent to it can do this). */
+  confirmUserEmail(userId: string): Promise<void>;
 
   createAuditLog(data: InsertAuditLog): Promise<AuditLog>;
   getAuditLogsForSubject(subjectUserId: string, limit: number): Promise<AuditLog[]>;
@@ -168,7 +170,7 @@ export interface IStorage {
   upsertReminder(data: InsertMedicationReminder): Promise<MedicationReminder>;
   deleteReminderByMedication(medicationId: string, patientUserId: string): Promise<boolean>;
   /** Enabled reminders for tracked, still-active medicines with an authorized, unexpired prescription. */
-  getDispatchableReminders(): Promise<{ reminder: MedicationReminder; medicationName: string; email: string; language: string }[]>;
+  getDispatchableReminders(): Promise<{ reminder: MedicationReminder; medicationName: string; email: string; emailVerified: boolean; language: string }[]>;
   /** Inserts the delivery row; true only for the caller that created it (so only one sender ever acts). */
   /** In-app notice and its delivery record in ONE transaction: both exist or neither. True only for the caller that created them. */
   deliverInApp(reminderId: string, dueAt: Date, notification: InsertNotification): Promise<boolean>;
@@ -352,6 +354,10 @@ export class DbStorage implements IStorage {
   async getEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationToken | undefined> {
     const [token] = await db.select().from(emailVerificationTokens).where(eq(emailVerificationTokens.tokenHash, tokenHash));
     return token;
+  }
+
+  async confirmUserEmail(userId: string): Promise<void> {
+    await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
   }
 
   async markEmailVerificationTokenUsed(id: string): Promise<void> {
@@ -599,8 +605,9 @@ export class DbStorage implements IStorage {
   }
 
   private listable() {
-    // Active, able to answer, and not past the expiry of the licence a reviewer verified (no recorded expiry: nothing to enforce).
-    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`, sqlOp`(${doctorProfiles.credentialExpiresAt} IS NULL OR ${doctorProfiles.credentialExpiresAt} > now())`);
+    // Active, able to answer, and not past the expiry of the licence a reviewer verified. A profile made through the application
+    // flow with no recorded check is not listed; only profiles that never went through it (fixtures) have nothing to enforce.
+    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`, sqlOp`(${doctorProfiles.credentialExpiresAt} > now() OR (${doctorProfiles.credentialExpiresAt} IS NULL AND ${doctorProfiles.source} <> 'application'))`);
     return fixtureAccountsAllowed()
       ? base
       : and(base, sqlOp`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${doctorProfiles.userId} AND u.is_demo)`);
@@ -1014,6 +1021,7 @@ export class DbStorage implements IStorage {
         reminder: medicationReminders,
         medicationName: medications.name,
         email: users.email,
+        emailVerifiedAt: users.emailVerifiedAt,
         language: users.language,
       })
       .from(medicationReminders)
@@ -1028,7 +1036,7 @@ export class DbStorage implements IStorage {
           isNull(users.deactivatedAt),
         ),
       );
-    return rows;
+    return rows.map(({ emailVerifiedAt, ...r }) => ({ ...r, emailVerified: !!emailVerifiedAt }));
   }
 
   async deliverInApp(reminderId: string, dueAt: Date, notification: InsertNotification) {

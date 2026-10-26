@@ -53,6 +53,9 @@ router.post("/:patientUserId/entries/:id/amend", ...doctorOnly, writeLimiter, ha
   res.json(await profile.amendEntry(actor(req), req.params.patientUserId, req.params.id, req.body?.data));
 }));
 
+// What an entry was and who changed it, so a clinician can see what an amendment replaced.
+router.get("/:patientUserId/entries/:id/history", ...doctorOnly, handle(async (req, res) => res.json(await profile.entryHistory(actor(req), req.params.patientUserId, req.params.id))));
+
 router.post("/:patientUserId/entries/:id/verify", ...doctorOnly, writeLimiter, handle(async (req, res) => {
   await profile.verifyEntry(actor(req), req.params.patientUserId, req.params.id);
   res.json({ ok: true });

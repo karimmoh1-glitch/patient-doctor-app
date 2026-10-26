@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { makeLimiter, userKey } from "../middleware/rateLimit";
 import { z } from "zod";
+import { tellPatientAboutOrganizationStaff } from "../services/orgs";
 import { storage } from "../storage";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
@@ -237,6 +238,8 @@ async function respondToPairing(req: any, res: any, status: "accepted" | "declin
     if (patient) {
       sendPairingAcceptedEmail(patient.email, patient.name, doctorProfile.name, normalizeLang(patient.language)).catch(() => {});
     }
+    // If this clinician belongs to an organization, the patient is told its staff can see their name and appointment times.
+    await tellPatientAboutOrganizationStaff(pairing.patientUserId, userId, doctorProfile.name).catch(() => {});
   }
 
   res.json({ id: updated?.id, status: updated?.status });

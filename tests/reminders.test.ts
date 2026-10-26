@@ -132,6 +132,14 @@ describe("setting reminders", () => {
     }
   });
 
+  it("refuses to switch e-mail on for an address the person has not confirmed", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    const { patient, medicationId } = await patientWithMedicine();
+    const res = await request(app).put(`/api/reminders/${medicationId}`).set(auth(patient.token)).send(body({ emailEnabled: true }));
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("email_not_verified");
+  });
+
   it("refuses email reminders when no email provider is configured", async () => {
     const { patient, medicationId } = await patientWithMedicine();
     const res = await request(app).put(`/api/reminders/${medicationId}`).set(auth(patient.token)).send(body({ emailEnabled: true }));
@@ -296,6 +304,8 @@ describe("email reminders: retries, and honest wording about what 'sent' means",
       timezone: "America/Chicago", startDate: "2026-06-01", endDate: null, enabled: true, emailEnabled: true, showMedicationName: false,
     });
     process.env.RESEND_API_KEY = "re_test";
+    // E-mail reminders go only to an address the person has confirmed.
+    await db.update((await import("@shared/schema")).users).set({ emailVerifiedAt: new Date() }).where((await import("drizzle-orm")).eq((await import("@shared/schema")).users.id, ctx.patient.id));
     return { ...ctx, reminder };
   }
   const emailRows = async (reminderId: string) => (await storage.getDeliveriesSince(new Date("2026-06-09T00:00:00Z"))).filter((d) => d.reminderId === reminderId && d.channel === "email");

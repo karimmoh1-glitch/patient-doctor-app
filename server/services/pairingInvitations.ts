@@ -6,6 +6,7 @@ import { doctorProfiles, pairingInvitations, pairingRequests, users } from "@sha
 import { storage } from "../storage";
 import { logAudit } from "./auditService";
 import { credentialSummaryForUser } from "./credentialService";
+import { organizationsOfClinician, tellPatientAboutOrganizationStaff } from "./orgs";
 
 /**
  * Connecting a patient and a clinician with a code the clinician shows.
@@ -152,6 +153,8 @@ export async function preview(patientUserId: string, input: Presented) {
     return {
       expiresAt: inv.expiresAt,
       alreadyConnected: existing?.status === "accepted",
+      // Staff of these organizations can see the patient's name and appointment times once connected (the patient can switch that off).
+      organizations: (await organizationsOfClinician(doctor.userId)).map((o) => o.name),
       doctor: {
         name: doctor.name, specialty: doctor.specialty, state: doctor.state, languages: doctor.languages ?? [], clinic: doctor.clinic,
         // What Avela did and did not do: a person on the team checked the licence (or not yet). It is not a guarantee of anything else.
@@ -169,7 +172,8 @@ export async function acceptInvitation(patientUserId: string, input: Presented) 
       const h = lookupHash(input);
       if (h) {
         const [done] = await db.select().from(pairingInvitations).where(and(eq(pairingInvitations[h.column], h.value), eq(pairingInvitations.status, "accepted"), eq(pairingInvitations.acceptedByUserId, patientUserId)));
-        if (done?.pairingRequestId) return { pairingId: done.pairingRequestId, doctorProfileId: done.doctorProfileId, repeat: true };
+        // Only a retry soon after: a code that was used long ago and a connection that may since have ended are not "repeated" into existence.
+        if (done?.pairingRequestId && done.acceptedAt && Date.now() - done.acceptedAt.getTime() < 10 * 60_000) return { pairingId: done.pairingRequestId, doctorProfileId: done.doctorProfileId, repeat: true };
       }
       throw INVALID();
     }
@@ -199,6 +203,7 @@ export async function acceptInvitation(patientUserId: string, input: Presented) 
   if (!result.repeat) {
     await logAudit({ actorUserId: patientUserId, action: "pairing_invitation.accepted", targetType: "pairing_request", targetId: result.pairingId, subjectUserId: patientUserId, metadata: { invitationId: (result as any).invitationId } });
     if ((result as any).doctorUserId) {
+      await tellPatientAboutOrganizationStaff(patientUserId, (result as any).doctorUserId, (await runAsSystem(() => storage.getDoctorProfile((result as any).doctorProfileId)))?.name ?? "").catch(() => {});
       const patient = await runAsSystem(() => storage.getUser(patientUserId));
       await runAsSystem(() => storage.createNotification({ userId: (result as any).doctorUserId, kind: "pairing.connected", params: { name: patient?.name ?? "" }, link: "/doctor/patients" })).catch(() => {});
     }

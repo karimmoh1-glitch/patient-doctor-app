@@ -39,7 +39,7 @@ export default defineConfig({
       DB_ENFORCE_RLS: "on",
       JWT_SECRET: "prod-smoke-only-secret-that-is-long-enough-to-pass",
       APP_URL: "https://smoke.avela.invalid",
-      EMERGENCY_DATA_REVIEWED_BY: "Production smoke reviewer",
+      EMERGENCY_DATA_REVIEWED_BY: "Production smoke reviewer", EMERGENCY_DATA_REVIEWED_VERSION: "2026-10-26", EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG",
       MFA_ENCRYPTION_KEY: PROD_SMOKE_MFA_KEY,
     },
   },

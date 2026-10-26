@@ -50,7 +50,9 @@ router.get("/", ...patientOnly, async (req, res) => {
   );
   res.json({
     delivery,
-    emailAvailable: emailAvailable(),
+    // E-mail is offered only for an address the person has confirmed (the reminder may carry a medicine name if they choose).
+    emailAvailable: emailAvailable() && !!(await storage.getUser(userId))?.emailVerifiedAt,
+    emailNeedsConfirmation: emailAvailable() && !(await storage.getUser(userId))?.emailVerifiedAt,
     medications: medications
       .filter((m) => m.active)
       .map((m) => {
@@ -93,6 +95,9 @@ router.put("/:medicationId", ...patientOnly, async (req, res) => {
   }
 
   const user = (await storage.getUser(userId))!;
+  if (parsed.data.emailEnabled && !user.emailVerifiedAt) {
+    return res.status(409).json({ message: "Confirm your e-mail address first, so reminders only go to you.", code: "email_not_verified" });
+  }
   const timezone = await resolvePatientTimezone(req, user);
   const existing = await storage.getReminderByMedication(medication.id);
   const reminder = await storage.upsertReminder({

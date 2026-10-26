@@ -161,3 +161,24 @@ describe("quiet hours", () => {
     expect(inQuietHours(utc("2026-07-01T14:00:00Z"), NY, "10:00", "10:00")).toBe(false);
   });
 });
+
+describe("review findings: days without a midnight, and the cost of an old renewal date", () => {
+  it("fires a renewal anchored on a day that has no midnight in its zone (Cairo's spring-forward day)", () => {
+    const s: RenewalSchedule = { renewalDate: "2026-04-24", interval: "monthly", offsetsDays: [0], cancelByDate: null, time: "09:00", timezone: "Africa/Cairo", endDate: null };
+    const got = renewalOccurrences(s, utc("2026-06-24T00:00:00Z"), utc("2026-06-25T00:00:00Z"));
+    expect(got.map((o) => [local(o.instant, "Africa/Cairo"), o.target])).toEqual([["2026-06-24 09:00", "2026-06-24"]]);
+    const weekly = renewalOccurrences({ ...s, interval: "weekly" }, utc("2026-06-24T00:00:00Z"), utc("2026-06-30T00:00:00Z"));
+    expect(weekly.map((o) => o.target)).toEqual(["2026-06-26"]); // a week step from 24 April lands on Fridays
+    expect(nextRenewal({ renewalDate: "2026-04-24", interval: "monthly", timezone: "Africa/Cairo" }, utc("2026-06-01T00:00:00Z"))).toBe("2026-06-24");
+  });
+
+  it("costs the same for a renewal date long ago as for a recent one", () => {
+    const old: RenewalSchedule = { renewalDate: "2000-01-31", interval: "weekly", offsetsDays: [3], cancelByDate: null, time: "09:00", timezone: NY, endDate: null };
+    const t0 = performance.now();
+    for (let i = 0; i < 200; i++) renewalOccurrences(old, utc("2026-06-01T00:00:00Z"), utc("2026-06-30T00:00:00Z"));
+    expect(performance.now() - t0).toBeLessThan(2000);
+    // And it still finds the right dates: weekly from 2000-01-31 (a Monday) lands on Mondays.
+    expect(renewalOccurrences(old, utc("2026-06-01T00:00:00Z"), utc("2026-06-14T00:00:00Z")).map((o) => o.target)).toEqual(["2026-06-08", "2026-06-15"]); // reminders three days before each renewal that falls in the window
+    expect(renewalOccurrences({ ...old, interval: "monthly" }, utc("2026-02-20T00:00:00Z"), utc("2026-03-05T00:00:00Z")).map((o) => o.target)).toEqual(["2026-02-28"]);
+  });
+});

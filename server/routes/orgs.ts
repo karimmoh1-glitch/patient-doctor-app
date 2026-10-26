@@ -117,9 +117,11 @@ router.post("/:orgId/staff/invitations", orgUser, inviteLimiter, handle(async (r
   const origin = process.env.APP_URL?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
   // The token is in the fragment so opening the link sends it to no server. It is shown to the inviter once, in case e-mail is not set up.
   const link = `${origin}/join-team#${created.token}`;
-  const recipient = await storage.getUserByEmail(parsed.data.email);
-  const emailAccepted = await sendOrgInviteEmail(parsed.data.email, a.org.name, parsed.data.role, link, normalizeLang(recipient?.language)).catch(() => false);
-  res.status(201).json({ id: created.id, link, expiresAt: created.expiresAt, emailAccepted });
+  // E-mail goes out only for an organization Avela has verified (so an invitation cannot be used to send mail to strangers in the name of
+  // an invented clinic). When it did go out, the inviter is NOT given the link: the link is the invitee's proof that the mailbox is theirs.
+  const recipient = created.emailAllowed ? await storage.getUserByEmail(parsed.data.email) : undefined;
+  const emailAccepted = created.emailAllowed ? await sendOrgInviteEmail(parsed.data.email, a.org.name, parsed.data.role, link, normalizeLang(recipient?.language)).catch(() => false) : false;
+  res.status(201).json({ id: created.id, link: emailAccepted ? null : link, expiresAt: created.expiresAt, emailAccepted, emailAllowed: created.emailAllowed });
 }));
 
 router.delete("/:orgId/staff/invitations/:id", orgUser, writeLimiter, handle(async (req, res) => {
@@ -132,6 +134,13 @@ router.patch("/:orgId/staff/:membershipId", orgUser, writeLimiter, handle(async 
   const parsed = z.object({ role: z.enum(ORG_ROLES) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Choose a role" });
   await orgs.changeRole(a, req.params.membershipId, parsed.data.role);
+  res.json({ ok: true });
+}));
+
+// Anyone may leave an organization they belong to (an organization always keeps an owner).
+router.delete("/:orgId/membership", orgUser, writeLimiter, handle(async (req, res) => {
+  const a = await need(req, "org.view");
+  await orgs.revokeMember(a, a.membership.id);
   res.json({ ok: true });
 }));
 

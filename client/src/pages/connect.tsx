@@ -18,6 +18,7 @@ const PENDING_KEY = "avela.pending-connect";
 interface Preview {
   expiresAt: string;
   alreadyConnected: boolean;
+  organizations?: string[];
   doctor: { name: string; specialty: string; state: string; languages: string[]; clinic: string | null; licence: { how: string | null; checkedAt: string | null; validUntil: string | null } | null };
 }
 type Presented = { token: string } | { code: string };
@@ -210,6 +211,9 @@ export default function Connect({ user }: { user: AuthUser | null }) {
             <ul className="list-disc space-y-1 ps-6 text-lg"><li>{t("conn.permits.1")}</li><li>{t("conn.permits.2")}</li><li>{t("conn.permits.3")}</li></ul>
             <p className="text-base text-muted-foreground">{t("conn.permits.not")}</p>
           </div>
+          {preview.organizations && preview.organizations.length > 0 && (
+            <p className="rounded-xl border-2 border-input p-3 text-base">{t("conn.orgs", { list: preview.organizations.join(", ") })}</p>
+          )}
           {preview.alreadyConnected && <p role="status" className="font-medium">{t("conn.already")}</p>}
           {error && <p role="alert" className="font-medium text-destructive">{error}</p>}
           <div className="flex flex-wrap gap-3">

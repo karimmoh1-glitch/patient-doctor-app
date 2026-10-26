@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Badge } from "@/components/ui/badge";
 import { Field, CheckGroup } from "@/components/form-field";
+import ConfirmEmailPrompt from "@/components/confirm-email";
 import ConfirmAction from "@/components/confirm-action";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -28,7 +29,7 @@ interface Reminder {
   nextDueAt: string | null; nextOccurrence: { kind: "due" | "renewal" | "cancel_by"; offsetDays: number | null } | null; nextRenewal: string | null;
   recent: { dueAt: string; channel: "in_app" | "email"; status: "pending" | "sent" | "failed" | "suppressed"; attempts: number; occurrence: string }[];
 }
-interface Payload { reminders: Reminder[]; channels: { inApp: boolean; email: boolean; sms: boolean; push: boolean }; delivery: "active" | "stale" | "failing" | "not_configured" }
+interface Payload { emailNeedsConfirmation?: boolean; reminders: Reminder[]; channels: { inApp: boolean; email: boolean; sms: boolean; push: boolean }; delivery: "active" | "stale" | "failing" | "not_configured" }
 
 const browserZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -67,7 +68,7 @@ function toBody(f: FormState) {
   return { ...common, kind: f.kind, recurrence: f.recurrence, times: f.times, weekdays: f.weekdays, anchorDate: f.anchorDate, endDate: f.endDate || null, healthEntryId: f.kind === "medication" && f.healthEntryId ? f.healthEntryId : null };
 }
 
-function ReminderForm({ initial, id, channels, onDone, onCancel }: { initial: FormState; id?: string; channels: Payload["channels"]; onDone: () => void; onCancel: () => void }) {
+function ReminderForm({ initial, id, channels, needsConfirmation, onDone, onCancel }: { initial: FormState; id?: string; channels: Payload["channels"]; needsConfirmation: boolean; onDone: () => void; onCancel: () => void }) {
   const { t, locale } = useI18n();
   const { toast } = useToast();
   const [f, setF] = useState<FormState>(initial);
@@ -179,6 +180,7 @@ function ReminderForm({ initial, id, channels, onDone, onCancel }: { initial: Fo
       <fieldset className="space-y-3 rounded-xl border border-border p-4">
         <legend className="px-2 text-base font-semibold">{t("rem.how")}</legend>
         <p className="text-base">{t("rem.how.inApp")}</p>
+        {needsConfirmation && <ConfirmEmailPrompt />}
         <label className={`flex min-h-12 items-center gap-3 text-base ${channels.email ? "cursor-pointer" : "opacity-70"}`}>
           <input type="checkbox" className="h-6 w-6 shrink-0 accent-[#0E5A4F]" disabled={!channels.email} checked={f.emailEnabled} onChange={(e) => set("emailEnabled", e.target.checked)} />
           <span>{t("rem.how.email")}{!channels.email && <span className="block text-muted-foreground">{t("rem.how.email.off")}</span>}</span>
@@ -304,7 +306,7 @@ export default function MyReminders() {
               </ul>
             </section>
             {editing ? (
-              <ReminderForm initial={editing.initial} id={editing.id} channels={data.channels} onDone={() => { setEditing(null); refresh(); }} onCancel={() => setEditing(null)} />
+              <ReminderForm initial={editing.initial} id={editing.id} channels={data.channels} needsConfirmation={!!data.emailNeedsConfirmation} onDone={() => { setEditing(null); refresh(); }} onCancel={() => setEditing(null)} />
             ) : (
               <Button size="lg" onClick={() => setEditing({ initial: blank("medication") })}><BellRing aria-hidden="true" /> {t("rem.add")}</Button>
             )}

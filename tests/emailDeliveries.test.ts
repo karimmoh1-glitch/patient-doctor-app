@@ -113,3 +113,26 @@ describe("email delivery evidence", () => {
     expect((await post(app, signed({ type: "email.opened", data: { email_id: "x" } }))).body.outcome).toBe("ignored");
   });
 });
+
+describe("review findings: the webhook", () => {
+  it("does not use up an event for a message it has not recorded yet: the provider's retry still works", async () => {
+    const id = `msg_later_${Date.now()}`;
+    const event = signed({ type: "email.delivered", data: { email_id: id } });
+    expect((await post(app, event)).body.outcome).toBe("unknown_message");
+    await runAsSystem(() => db.insert(emailDeliveries).values({ providerMessageId: id, purpose: "password_reset", recipientHash: "x".repeat(64) }));
+    expect((await post(app, event)).body.outcome).toBe("applied"); // the same event, retried
+    expect((await rowFor(id)).status).toBe("delivered");
+  });
+
+  it("refuses to treat a near-empty secret as a secret", async () => {
+    const weak = ["whsec_", "whsec_AAAA", "   "];
+    for (const secret of weak) {
+      process.env.RESEND_WEBHOOK_SECRET = secret;
+      const body = JSON.stringify({ type: "email.delivered", data: { email_id: "x" } });
+      const ts = String(Math.floor(Date.now() / 1000));
+      const sig = crypto.createHmac("sha256", Buffer.alloc(0)).update(`evt_1.${ts}.${body}`).digest("base64");
+      const res = await request(app).post("/api/webhooks/resend").set({ "svix-id": "evt_1", "svix-timestamp": ts, "svix-signature": `v1,${sig}`, "content-type": "application/json" }).send(body);
+      expect([401, 503]).toContain(res.status);
+    }
+  });
+});

@@ -18,14 +18,26 @@ export interface PublicCountryEmergency {
   reviewedOn: string | null;
 }
 
+/**
+ * A country counts as reviewed only when a person has said so for THIS version of the data and for THAT country:
+ *   EMERGENCY_DATA_REVIEWED_BY        their name
+ *   EMERGENCY_DATA_REVIEWED_VERSION   must equal EMERGENCY_DATA_VERSION (so editing a number un-reviews it)
+ *   EMERGENCY_DATA_REVIEWED_COUNTRIES comma-separated, e.g. "US" or "US,EG" (reviewing one country vouches for no other)
+ */
 export function reviewerFor(code: CountryCode, env: NodeJS.ProcessEnv = process.env): string | null {
   const fromFile = EMERGENCY[code].reviewedBy;
-  const fromEnv = (env.EMERGENCY_DATA_REVIEWED_BY ?? "").trim();
-  return fromFile || fromEnv || null;
+  if (fromFile) return fromFile;
+  const by = (env.EMERGENCY_DATA_REVIEWED_BY ?? "").trim();
+  if (!by || (env.EMERGENCY_DATA_REVIEWED_VERSION ?? "").trim() !== EMERGENCY_DATA_VERSION) return null;
+  const countries = (env.EMERGENCY_DATA_REVIEWED_COUNTRIES ?? "").split(",").map((c) => c.trim().toUpperCase());
+  return countries.includes(code) ? by : null;
 }
 
+/** Anything that is not clearly a development or test run is treated as production (fail closed). */
+export const isProductionLike = (env: NodeJS.ProcessEnv) => env.NODE_ENV !== "development" && env.NODE_ENV !== "test";
+
 export function publicEmergency(env: NodeJS.ProcessEnv = process.env) {
-  const production = env.NODE_ENV === "production";
+  const production = isProductionLike(env);
   const countries = {} as Record<CountryCode, PublicCountryEmergency>;
   for (const code of SUPPORTED_COUNTRIES) {
     const data = EMERGENCY[code];

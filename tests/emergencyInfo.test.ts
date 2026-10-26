@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { getApp } from "./helpers";
-import { EMERGENCY, SUPPORTED_COUNTRIES } from "../shared/emergency";
+import { EMERGENCY, EMERGENCY_DATA_VERSION, SUPPORTED_COUNTRIES } from "../shared/emergency";
 import { emergencyDataReviewed, publicEmergency } from "../server/services/emergencyInfo";
 import { en } from "../client/src/locales/en";
 import { ar } from "../client/src/locales/ar";
@@ -48,12 +48,25 @@ describe("emergency information", () => {
     }
   });
 
-  it("in production serves no number for a country until a person has reviewed it", () => {
-    const unreviewed = publicEmergency({ NODE_ENV: "production" } as NodeJS.ProcessEnv);
+  it("in production serves no number for a country until a person has reviewed THIS version of the data for THAT country", () => {
+    const prod = { NODE_ENV: "production" } as NodeJS.ProcessEnv;
+    const unreviewed = publicEmergency(prod);
     for (const code of SUPPORTED_COUNTRIES) expect(unreviewed.countries[code]).toMatchObject({ reviewed: false, services: null });
-    const reviewed = publicEmergency({ NODE_ENV: "production", EMERGENCY_DATA_REVIEWED_BY: "Dr. Reviewer" } as NodeJS.ProcessEnv);
+    const reviewed = publicEmergency({ ...prod, EMERGENCY_DATA_REVIEWED_BY: "Dr. Reviewer", EMERGENCY_DATA_REVIEWED_VERSION: EMERGENCY_DATA_VERSION, EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG" });
     for (const code of SUPPORTED_COUNTRIES) expect(reviewed.countries[code]).toMatchObject({ reviewed: true, reviewedBy: "Dr. Reviewer" });
     expect(reviewed.countries.US.services).toEqual(EMERGENCY.US.services);
+    // A name alone is not enough; neither is a review of an older version, nor of another country.
+    expect(publicEmergency({ ...prod, EMERGENCY_DATA_REVIEWED_BY: "A. Person" }).countries.US.services).toBeNull();
+    expect(publicEmergency({ ...prod, EMERGENCY_DATA_REVIEWED_BY: "A. Person", EMERGENCY_DATA_REVIEWED_VERSION: "2020-01-01", EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG" }).countries.US.services).toBeNull();
+    const onlyUs = publicEmergency({ ...prod, EMERGENCY_DATA_REVIEWED_BY: "A. Person", EMERGENCY_DATA_REVIEWED_VERSION: EMERGENCY_DATA_VERSION, EMERGENCY_DATA_REVIEWED_COUNTRIES: "US" });
+    expect(onlyUs.countries.US.reviewed).toBe(true);
+    expect(onlyUs.countries.EG).toMatchObject({ reviewed: false, services: null });
+  });
+
+  it("treats an unset or unknown NODE_ENV as production, not as development", () => {
+    expect(publicEmergency({} as NodeJS.ProcessEnv).countries.US.services).toBeNull();
+    expect(publicEmergency({ NODE_ENV: "staging" } as NodeJS.ProcessEnv).countries.EG.services).toBeNull();
+    expect(publicEmergency({ NODE_ENV: "development" } as NodeJS.ProcessEnv).countries.EG.services).not.toBeNull();
   });
 
   it("outside production serves the numbers, marked as not reviewed, so the screens can be built", () => {
@@ -64,7 +77,9 @@ describe("emergency information", () => {
 
   it("blocks a launch until a person has reviewed every country", () => {
     expect(emergencyDataReviewed({} as NodeJS.ProcessEnv)).toEqual({ ok: false, missing: ["EG", "US"] });
-    expect(emergencyDataReviewed({ EMERGENCY_DATA_REVIEWED_BY: "A. Person" } as NodeJS.ProcessEnv).ok).toBe(true);
+    const env = { EMERGENCY_DATA_REVIEWED_BY: "A. Person", EMERGENCY_DATA_REVIEWED_VERSION: EMERGENCY_DATA_VERSION, EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG" } as NodeJS.ProcessEnv;
+    expect(emergencyDataReviewed(env).ok).toBe(true);
+    expect(emergencyDataReviewed({ ...env, EMERGENCY_DATA_REVIEWED_COUNTRIES: "US" })).toEqual({ ok: false, missing: ["EG"] });
   });
 
   it("is public, needs no sign-in, and does not change with the language of the request", async () => {

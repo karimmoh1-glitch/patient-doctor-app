@@ -47,7 +47,8 @@ export async function recordAccepted(input: { providerMessageId: string; purpose
 const TOLERANCE_SECONDS = 5 * 60;
 
 export function webhookSecretConfigured(): boolean {
-  return !!process.env.RESEND_WEBHOOK_SECRET;
+  const secret = (process.env.RESEND_WEBHOOK_SECRET ?? "").trim();
+  return Buffer.from(secret.startsWith("whsec_") ? secret.slice(6) : secret, "base64").length >= 16;
 }
 
 /** True only if the body was signed with our webhook secret, recently, with a constant-time comparison. */
@@ -61,6 +62,8 @@ export function verifyWebhookSignature(rawBody: Buffer | string, headers: Record
   const ts = Number(timestamp);
   if (!Number.isFinite(ts) || Math.abs(now / 1000 - ts) > TOLERANCE_SECONDS) return false;
   const key = Buffer.from(secret.startsWith("whsec_") ? secret.slice(6) : secret, "base64");
+  // A secret that decodes to almost nothing would make a signature trivial to forge: refuse to verify with it.
+  if (key.length < 16) return false;
   const body = typeof rawBody === "string" ? rawBody : rawBody.toString("utf8");
   const expected = crypto.createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest();
   for (const part of signatures.split(" ")) {
@@ -79,16 +82,20 @@ export async function applyWebhookEvent(eventId: string, payload: any): Promise<
   const status = EVENT_STATUS[String(payload?.type ?? "")];
   const messageId = typeof payload?.data?.email_id === "string" ? payload.data.email_id : null;
   if (!status || !messageId) return "ignored";
-  return runAsSystem(async () => {
-    const fresh = await db.insert(emailWebhookEvents).values({ eventId }).onConflictDoNothing().returning({ id: emailWebhookEvents.eventId });
-    if (fresh.length === 0) return "duplicate" as const;
-    const [row] = await db.select().from(emailDeliveries).where(and(eq(emailDeliveries.provider, "resend"), eq(emailDeliveries.providerMessageId, messageId)));
-    if (!row) return "unknown_message" as const;
-    if (RANK[status] <= RANK[row.status as EmailStatus] && status !== row.status) return "ignored" as const;
-    const detail = typeof payload?.data?.bounce?.type === "string" ? String(payload.data.bounce.type).slice(0, 60) : null;
-    await db.update(emailDeliveries).set({ status, statusDetail: detail, lastEventId: eventId, statusAt: new Date() }).where(eq(emailDeliveries.id, row.id));
-    return "applied" as const;
-  });
+  return runAsSystem(() =>
+    db.transaction(async (tx) => {
+      // The message first: an event for a message we have not recorded (yet) must stay retryable, so it is not remembered.
+      const [row] = await tx.select().from(emailDeliveries).where(and(eq(emailDeliveries.provider, "resend"), eq(emailDeliveries.providerMessageId, messageId)));
+      if (!row) return "unknown_message" as const;
+      // The event id and the change are one unit: a failed update does not leave the event marked as handled.
+      const fresh = await tx.insert(emailWebhookEvents).values({ eventId }).onConflictDoNothing().returning({ id: emailWebhookEvents.eventId });
+      if (fresh.length === 0) return "duplicate" as const;
+      if (RANK[status] <= RANK[row.status as EmailStatus] && status !== row.status) return "ignored" as const;
+      const detail = typeof payload?.data?.bounce?.type === "string" ? String(payload.data.bounce.type).slice(0, 60) : null;
+      await tx.update(emailDeliveries).set({ status, statusDetail: detail, lastEventId: eventId, statusAt: new Date() }).where(eq(emailDeliveries.id, row.id));
+      return "applied" as const;
+    }),
+  );
 }
 
 /** Counts by status, for the operations screen. */

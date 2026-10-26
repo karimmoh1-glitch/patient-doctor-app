@@ -9,6 +9,7 @@ import { normalizeLang } from "../services/serverText";
 import { runAsSystem } from "../dbContext";
 import { verificationInput, verifyCredential, rejectCredential, suspendCredential, listCredentials, credentialHistory } from "../services/credentialService";
 import { listForReview, orgVerification, setOrgStatus } from "../services/orgs";
+import { personalReminderHealth } from "../services/personalReminderHealth";
 import { integrationRegistry } from "../services/integrations";
 import { emailDeliverySummary } from "../services/emailDeliveries";
 import {
@@ -182,7 +183,7 @@ router.get("/audit", ...adminOnly, async (req, res) => {
 // nothing here names a patient or a medicine.
 router.get("/reminders/status", ...adminOnly, async (_req, res) => {
   // Counts only, across everyone's reminders: an operational read, not a view of anyone's record.
-  res.json(await runAsSystem(() => reminderHealth()));
+  res.json({ ...(await runAsSystem(() => reminderHealth())), personal: await personalReminderHealth() });
 });
 
 // Credentials: who has been checked, how, and when each stops being valid. Evidence notes are for reviewers only.

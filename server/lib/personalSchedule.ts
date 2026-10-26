@@ -36,7 +36,13 @@ export interface RenewalSchedule {
   endDate: string | null; // stop after this date
 }
 
-const parseDay = (key: string, zone: string) => DateTime.fromISO(key, { zone }).startOf("day");
+/**
+ * A calendar day, represented by NOON on that day in the zone. Midnight does not exist on every day in every zone (some zones
+ * change their clocks at 00:00), and a "start of day" that lands on 01:00 would sort after the day's own times. Noon always exists.
+ */
+const noon = (d: DateTime) => d.set({ hour: 12, minute: 0, second: 0, millisecond: 0 });
+const dayOf = (instant: Date, zone: string) => noon(DateTime.fromJSDate(instant, { zone }));
+const parseDay = (key: string, zone: string) => noon(DateTime.fromISO(key, { zone }));
 const fmt = (d: DateTime) => d.toFormat("yyyy-LL-dd");
 
 function at(day: DateTime, time: string, zone: string): Date | null {
@@ -68,8 +74,8 @@ export function occursOnDay(s: PersonalSchedule, day: DateTime): boolean {
 
 /** Every instant in (from, to] at which this reminder is due. */
 export function personalOccurrences(s: PersonalSchedule, from: Date, to: Date): Date[] {
-  const first = DateTime.fromJSDate(from, { zone: s.timezone }).startOf("day");
-  const last = DateTime.fromJSDate(to, { zone: s.timezone }).startOf("day");
+  const first = dayOf(from, s.timezone);
+  const last = dayOf(to, s.timezone);
   const out: Date[] = [];
   // Bounded: a window is a few hours in practice, and callers asking for a year are asking for 366 days.
   for (let day = first, n = 0; day <= last && n < 400; day = day.plus({ days: 1 }), n++) {
@@ -91,19 +97,29 @@ export function renewalDate(anchor: DateTime, interval: RenewalInterval | null, 
   return step.weeks ? anchor.plus({ weeks: step.weeks * n }) : anchor.plus({ months: step.months! * n });
 }
 
+/** The index of (or just before) the first renewal that is not before `day`, found by arithmetic rather than by walking. */
+export function firstIndex(anchor: DateTime, interval: RenewalInterval | null, day: DateTime): number {
+  if (!interval || day <= anchor) return 0;
+  const step = STEP[interval];
+  const approx = step.weeks ? Math.floor(day.diff(anchor, "weeks").weeks / step.weeks) : Math.floor(day.diff(anchor, "months").months / step.months!);
+  return Math.max(0, approx - 1);
+}
+
 export interface RenewalOccurrence { instant: Date; kind: "renewal" | "cancel_by"; target: string; offsetDays: number }
 
 /** Reminders for renewal dates (and the cancellation deadline) whose reminder moment falls in (from, to]. */
 export function renewalOccurrences(s: RenewalSchedule, from: Date, to: Date): RenewalOccurrence[] {
-  const first = DateTime.fromJSDate(from, { zone: s.timezone }).startOf("day");
-  const last = DateTime.fromJSDate(to, { zone: s.timezone }).startOf("day");
+  const first = dayOf(from, s.timezone);
+  const last = dayOf(to, s.timezone);
   const maxOffset = Math.max(0, ...s.offsetsDays);
   const anchor = parseDay(s.renewalDate, s.timezone);
   const out: RenewalOccurrence[] = [];
   const targets: { date: DateTime; kind: "renewal" | "cancel_by" }[] = [];
 
-  // Renewals that could have a reminder in [first, last]: from `first` up to `last + maxOffset`.
-  for (let n = 0; n < 5000; n++) {
+  // Renewals that could have a reminder in [first, last]: from `first` up to `last + maxOffset`. Start near `first`, not at the
+  // first renewal ever, so a renewal date far in the past costs the same as a recent one.
+  const startIndex = firstIndex(anchor, s.interval, first);
+  for (let n = startIndex; n < startIndex + 400; n++) {
     const d = renewalDate(anchor, s.interval, n);
     if (d > last.plus({ days: maxOffset })) break;
     if (d >= first) targets.push({ date: d, kind: "renewal" });
@@ -126,8 +142,9 @@ export function renewalOccurrences(s: RenewalSchedule, from: Date, to: Date): Re
 /** The first renewal date that is not before `today`, for showing "next charge". Null for a single date already past. */
 export function nextRenewal(s: Pick<RenewalSchedule, "renewalDate" | "interval" | "timezone">, today: Date): string | null {
   const anchor = parseDay(s.renewalDate, s.timezone);
-  const day = DateTime.fromJSDate(today, { zone: s.timezone }).startOf("day");
-  for (let n = 0; n < 5000; n++) {
+  const day = dayOf(today, s.timezone);
+  const start = firstIndex(anchor, s.interval, day);
+  for (let n = start; n < start + 400; n++) {
     const d = renewalDate(anchor, s.interval, n);
     if (d >= day) return fmt(d);
     if (!s.interval) return null;

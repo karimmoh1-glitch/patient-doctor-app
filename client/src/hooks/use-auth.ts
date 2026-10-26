@@ -16,6 +16,8 @@ export interface AuthUser {
   language?: string;
   /** The country the person said they live in (EG or US). Separate from language. */
   country?: "EG" | "US" | null;
+  /** Whether the person confirmed their e-mail address (reminder e-mails go only to a confirmed address). */
+  emailVerified?: boolean;
   /** Doctors only: only "approved" unlocks the clinical workspace. */
   doctorStatus?: DoctorStatus;
 }

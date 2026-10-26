@@ -37,7 +37,8 @@ router.get("/", ...patientOnly, handle(async (req, res) => {
   res.json({
     reminders: await pr.listReminders(me(req), now),
     // What can really carry a reminder today. Only a channel that is set up is described as working.
-    channels: { inApp: true, email: !!process.env.RESEND_API_KEY, sms: false, push: false },
+    channels: { inApp: true, email: !!process.env.RESEND_API_KEY && !!(await storage.getUser(me(req)))?.emailVerifiedAt, sms: false, push: false },
+    emailNeedsConfirmation: !!process.env.RESEND_API_KEY && !(await storage.getUser(me(req)))?.emailVerifiedAt,
     delivery: await reminderDeliveryStatus(now),
   });
 }));

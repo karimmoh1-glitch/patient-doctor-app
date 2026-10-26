@@ -20,7 +20,7 @@ test("a clinician starts an organization, invites a coordinator, and the coordin
   await doctor.page.getByLabel("Their e-mail address").fill(coordEmail);
   await doctor.page.getByLabel("Their role").selectOption("coordinator");
   await doctor.page.getByRole("button", { name: "Create the invitation" }).click();
-  await expect(doctor.page.getByText("No e-mail was sent. Give them this link yourself.")).toBeVisible();
+  await expect(doctor.page.getByText("E-mail invitations are sent only for organizations an Avela reviewer has verified")).toBeVisible();
   const link = (await doctor.page.locator("p.break-all").innerText()).trim();
   expect(link).toMatch(/\/join-team#[A-Za-z0-9_-]{40,}$/);
 

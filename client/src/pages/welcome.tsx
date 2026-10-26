@@ -87,6 +87,7 @@ export default function Welcome({ name }: { name: string }) {
             <Button asChild size="lg"><Link href="/symptoms">{t("welcome.doctor.describe")}</Link></Button>
             <Button asChild size="lg" variant="outline"><Link href="/doctors">{t("welcome.doctor.browse")}</Link></Button>
           </div>
+          <Button asChild size="lg" variant="outline"><Link href="/health-profile">{t("welcome.healthInfo")}</Link></Button>
           <Button variant="ghost" size="lg" onClick={() => setLocation("/")}>{t("welcome.later")}</Button>
           <p className="text-base text-muted-foreground">{t("welcome.settings")}</p>
         </section>

@@ -166,6 +166,7 @@ export async function allergyView(patientId: string): Promise<AllergyView> {
 export async function stateAllergies(actor: Actor, patientId: string, state: "none_known" | "unknown") {
   await authorize(actor, patientId);
   await requireConsent(patientId);
+  await refuseOverwritingReviewed(actor, patientId);
   const active = await db.select({ id: healthEntries.id }).from(healthEntries).where(and(eq(healthEntries.patientUserId, patientId), eq(healthEntries.kind, "allergy"), eq(healthEntries.status, "active"))).limit(1);
   if (state === "none_known" && active.length) fail(409, "has_allergies", "There are allergies on the list. Remove them first if they were entered by mistake.");
   const clinician = actor.role === "doctor";
@@ -174,8 +175,16 @@ export async function stateAllergies(actor: Actor, patientId: string, state: "no
   await logAudit({ actorUserId: actor.userId, action: "health_profile.allergy_statement", targetType: "patient", targetId: patientId, subjectUserId: patientId, metadata: { state, by: actor.role } });
 }
 
+/** A patient cannot overwrite or clear an allergy statement a clinician recorded or reviewed. */
+async function refuseOverwritingReviewed(actor: Actor, patientId: string) {
+  if (actor.role !== "patient") return;
+  const [existing] = await db.select().from(allergyStatements).where(eq(allergyStatements.patientUserId, patientId));
+  if (existing && (existing.reviewedAt || existing.statedByRole === "doctor")) fail(409, "dispute_instead", "A clinician recorded or reviewed this. Add an allergy to the list if something is missing, or tell your clinician.");
+}
+
 export async function clearAllergyStatement(actor: Actor, patientId: string) {
   await authorize(actor, patientId);
+  await refuseOverwritingReviewed(actor, patientId);
   const hasEntries = await db.select({ id: healthEntries.id }).from(healthEntries).where(and(eq(healthEntries.patientUserId, patientId), eq(healthEntries.kind, "allergy"), eq(healthEntries.status, "active"))).limit(1);
   if (hasEntries.length) fail(409, "has_allergies", "There are allergies on the list.");
   await db.delete(allergyStatements).where(eq(allergyStatements.patientUserId, patientId));
@@ -287,6 +296,9 @@ export async function amendEntry(actor: Actor, patientId: string, id: string, ra
   await authorize(actor, patientId);
   await requireConsent(patientId);
   const old = await loadActive(patientId, id);
+  // A patient does not replace what a clinician entered or checked (that would turn a checked entry into an unchecked one without a
+  // trace the clinician can see): they ask for a correction, and the clinician amends it.
+  if (actor.role === "patient" && (old.source === "clinician_entered" || old.verifiedAt)) fail(409, "dispute_instead", "A clinician entered or checked this. Ask for a correction instead.");
   const data = parseEntryData(old.kind as EntryKind, rawData);
   return db.transaction(async (tx) => {
     const [fresh] = await tx.insert(healthEntries).values({ patientUserId: patientId, kind: old.kind, data, source: sourceFor(actor), enteredByUserId: actor.userId, enteredByRole: actor.role, supersedesId: old.id }).returning();

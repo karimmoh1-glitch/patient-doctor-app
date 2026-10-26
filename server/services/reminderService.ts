@@ -120,7 +120,7 @@ export async function dispatchDueReminders(
     if (done) settled.add(`${d.reminderId}|${d.dueAt.getTime()}|${d.channel}`);
   }
 
-  for (const { reminder, medicationName, email, language } of reminders) {
+  for (const { reminder, medicationName, email, emailVerified, language } of reminders) {
     // Out of time: stop starting work. Everything not reached is picked up by the next run
     // (it is still inside the window), so nothing is skipped, only deferred.
     if (opts.deadline && Date.now() > opts.deadline) {
@@ -131,7 +131,8 @@ export async function dispatchDueReminders(
     try {
       for (const dueAt of occurrencesInWindow(reminder, from, now)) {
         const key = `${reminder.id}|${dueAt.getTime()}`;
-        const wantsEmail = reminder.emailEnabled && !!opts.emailEnabled;
+        // An address nobody has confirmed gets no reminder e-mail: it may not be the patient's.
+        const wantsEmail = reminder.emailEnabled && !!opts.emailEnabled && emailVerified;
         const inAppDone = settled.has(`${key}|in_app`);
         const emailDone = !wantsEmail || settled.has(`${key}|email`);
         if (inAppDone && emailDone) continue;

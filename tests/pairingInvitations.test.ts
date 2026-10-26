@@ -223,6 +223,15 @@ describe("a patient connecting with a code", () => {
     expect(again.body.pairingId).toBe(first.body.pairingId);
   });
 
+  it("answers a retry soon after, but a code used long ago is no longer 'repeated' into existence", async () => {
+    const { token, id } = await invited();
+    const patient = await signupPatient();
+    expect((await accept(patient, { token })).status).toBe(201);
+    expect((await accept(patient, { token })).status).toBe(200);
+    await sys(() => db.update(pairingInvitations).set({ acceptedAt: new Date(Date.now() - 3_600_000) }).where(eq(pairingInvitations.id, id)));
+    expect((await accept(patient, { token })).status).toBe(404);
+  });
+
   it("limits how fast codes can be tried", async () => {
     const patient = await signupPatient();
     const statuses: number[] = [];

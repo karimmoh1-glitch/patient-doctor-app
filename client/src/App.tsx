@@ -30,6 +30,7 @@ const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
+const VerifyEmail = lazy(() => import("@/pages/verify-email"));
 const OrgPage = lazy(() => import("@/pages/org"));
 const JoinTeam = lazy(() => import("@/pages/join-team"));
 const AdminOrganizations = lazy(() => import("@/pages/admin-organizations"));
@@ -369,6 +370,7 @@ function AppContent() {
       <Route path="/doctor/requests">
         <DoctorGate user={user} {...shellProps}><DoctorRequests /></DoctorGate>
       </Route>
+      <Route path="/verify-email"><VerifyEmail /></Route>
       <Route path="/join-team"><JoinTeam user={user} registerStaff={registerStaff} mfa={mfa} /></Route>
       <Route path="/org/:orgId?/:section?">
         {(params) => user?.role === "staff"

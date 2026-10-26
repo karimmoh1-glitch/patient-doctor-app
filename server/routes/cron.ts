@@ -49,7 +49,7 @@ async function runReminders(req: any, res: any) {
         name: "personalReminders",
         run: async (ctx) => {
           const r = await dispatchPersonalReminders(now, { emailEnabled, deadline: ctx.deadline });
-          return { counts: { personalConsidered: r.considered, personalDue: r.due, personalInApp: r.inApp, personalEmailSent: r.emailSent, personalEmailFailed: r.emailFailed, personalEmailSuppressed: r.emailSuppressed, personalEmailRetried: r.emailRetried, personalTruncated: r.truncated }, errors: r.errors };
+          return { counts: { personalConsidered: r.considered, personalDue: r.due, personalInApp: r.inApp, personalEmailSent: r.emailSent, personalEmailFailed: r.emailFailed, personalEmailSuppressed: r.emailSuppressed, personalEmailRetried: r.emailRetried, personalTruncated: r.truncated, truncated: r.truncated }, errors: r.errors };
         },
       },
       { name: "appointmentNotices", run: async () => ({ counts: { appointmentNotices: await dispatchAppointmentReminders(now) } }) },

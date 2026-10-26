@@ -305,7 +305,7 @@ function StaffSection({ orgId, role, userId }: { orgId: string; role: OrgRole; u
   const [email, setEmail] = useState("");
   const roles = assignableRoles(role);
   const [newRole, setNewRole] = useState<OrgRole>(roles.includes("coordinator") ? "coordinator" : roles[0] ?? "scheduler");
-  const [link, setLink] = useState<{ link: string; emailAccepted: boolean } | null>(null);
+  const [link, setLink] = useState<{ link: string | null; emailAccepted: boolean; emailAllowed: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: [key(orgId, "/staff")] });
   async function inviteSomeone(e: React.FormEvent) {
@@ -343,9 +343,8 @@ function StaffSection({ orgId, role, userId }: { orgId: string; role: OrgRole; u
           <Button type="submit" disabled={!email.includes("@")}>{t("org.s.send")}</Button>
           {link && (
             <div role="status" className="space-y-1 rounded-xl bg-secondary p-3 text-base">
-              <p>{link.emailAccepted ? t("org.s.emailAccepted") : t("org.s.emailNot")}</p>
-              <p>{t("org.s.linkOnce")}</p>
-              <p className="break-all"><Ltr>{link.link}</Ltr></p>
+              <p>{link.emailAccepted ? t("org.s.emailAccepted") : link.emailAllowed ? t("org.s.emailNot") : t("org.s.emailUnverifiedOrg")}</p>
+              {link.link && (<><p>{t("org.s.linkOnce")}</p><p className="break-all"><Ltr>{link.link}</Ltr></p></>)}
             </div>
           )}
         </form>
@@ -364,6 +363,13 @@ function StaffSection({ orgId, role, userId }: { orgId: string; role: OrgRole; u
                       <span className="flex gap-2"><Badge variant="secondary">{t(`org.role.${m.role}` as MessageKey)}</Badge>{m.status !== "active" && <Badge variant="outline">{t("org.s.revoked")}</Badge>}</span>
                     </div>
                     {m.email && <p className="text-base text-muted-foreground"><Ltr>{m.email}</Ltr></p>}
+                    {m.status === "active" && mine && !can(role, "org.staff.role") && (
+                      <ConfirmAction
+                        trigger={<Button variant="outline">{t("org.s.leave")}</Button>}
+                        title={t("org.s.leave.title")} description={t("org.s.remove.body")} confirmLabel={t("org.s.remove.yes")} cancelLabel={t("common.cancel")} destructive
+                        onConfirm={async () => { await apiRequest("DELETE", key(orgId, "/membership")); queryClient.invalidateQueries({ queryKey: ["/api/orgs"] }); window.location.assign("/org"); }}
+                      />
+                    )}
                     {can(role, "org.staff.role") && m.status === "active" && (editable || (mine && m.role !== "owner")) && (
                       <div className="flex flex-wrap items-center gap-2">
                         {editable && (

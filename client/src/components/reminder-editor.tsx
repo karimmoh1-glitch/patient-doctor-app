@@ -1,3 +1,4 @@
+import ConfirmEmailPrompt from "@/components/confirm-email";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bell, BellOff, Plus, X } from "lucide-react";
@@ -64,13 +65,14 @@ function weekdayName(day: number): string {
  * what the doctor wrote.
  */
 export default function ReminderEditor({
-  medicationId, medicationName, suggestedTimes, reminder, emailAvailable,
+  medicationId, medicationName, suggestedTimes, reminder, emailAvailable, emailNeedsConfirmation,
 }: {
   medicationId: string;
   medicationName: string;
   suggestedTimes: string[];
   reminder: ReminderState | null;
   emailAvailable: boolean;
+  emailNeedsConfirmation?: boolean;
 }) {
   const { t } = useI18n();
   const { toast } = useToast();
@@ -201,6 +203,7 @@ export default function ReminderEditor({
       <fieldset className="space-y-1">
         <legend className="text-base font-semibold">{t("rem.how")}</legend>
         <p className="min-h-11 text-base">{t("rem.inApp")}</p>
+        {emailNeedsConfirmation && <ConfirmEmailPrompt />}
         {emailAvailable && (
           <label className="flex min-h-11 cursor-pointer items-center gap-3 text-base">
             <input type="checkbox" className="h-6 w-6 shrink-0 accent-[#0E5A4F]" checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} />

@@ -16,7 +16,7 @@ Required in production (the server refuses to start otherwise; `server/config.ts
 | `MFA_ENCRYPTION_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`). Losing it locks every clinician and administrator out of their second factor |
 | `APP_URL` | `https://…`, no trailing slash |
 | `CRON_SECRET` | Bearer secret for the scheduler |
-| `EMERGENCY_DATA_REVIEWED_BY` | Set only by a person who has compared `shared/emergency.ts` with its sources |
+| `EMERGENCY_DATA_REVIEWED_BY`, `EMERGENCY_DATA_REVIEWED_VERSION`, `EMERGENCY_DATA_REVIEWED_COUNTRIES` | Set only by a person who has compared `shared/emergency.ts` with its sources: their name, the data version they reviewed (the value of `EMERGENCY_DATA_VERSION`), and the countries (`US,EG`). Anything else and the screens show no number |
 
 Optional but needed for the features they name: `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_WEBHOOK_SECRET`,
 `SCHEDULER_HEARTBEAT_URL`, `OPS_ALERT_EMAIL`, `SUPPORT_PHONE`/`SUPPORT_EMAIL`/`SUPPORT_HOURS`, `ADMIN_NOTIFICATION_EMAILS`.

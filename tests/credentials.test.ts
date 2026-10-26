@@ -116,6 +116,15 @@ describe("approving a clinician is verifying their licence", () => {
     expect((await request(app).post(`/api/admin/credentials/${licence.id}/suspend`).set(auth(admin.token)).send({ note: "again" })).status).toBe(409);
   });
 
+  it("does not list a clinician made through the application flow who has no recorded licence check", async () => {
+    const admin = await createAdmin();
+    const doc = await submitted();
+    await approve(admin.token, doc.applicationId, APPROVAL);
+    expect(await listed(doc.name)).toBe(true);
+    await sys(() => db.update(doctorProfiles).set({ credentialExpiresAt: null }).where(eq(doctorProfiles.userId, doc.userId)));
+    expect(await listed(doc.name)).toBe(false); // an application-made profile needs a check on record
+  });
+
   it("keeps the history of a credential append-only", async () => {
     const admin = await createAdmin();
     const doc = await submitted();

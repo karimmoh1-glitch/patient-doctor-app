@@ -79,7 +79,7 @@ export async function listCredentials(filter: "all" | "expiring" | "expired" | "
       .from(doctorCredentials)
       .leftJoin(doctorProfiles, eq(doctorProfiles.userId, doctorCredentials.userId))
       .orderBy(desc(doctorCredentials.updatedAt))
-      .limit(500),
+      .limit(5000),
   );
   const soon = now.getTime() + 60 * 86_400_000;
   return rows

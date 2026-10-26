@@ -57,6 +57,7 @@ const MATRIX: Record<string, string[]> = {
   "/api/personal-reminders": [P],
   "/api/assist/patients": [D],
   "/api/assist/x": [D],
+  "/api/assist/x/entries/x/history": [D],
   "/api/admin/integrations": [A],
   "/api/admin/organizations": [A],
   // Organization routes are for approved clinicians and organization staff (a different kind of account, not in this table);

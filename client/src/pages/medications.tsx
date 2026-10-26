@@ -33,6 +33,7 @@ interface Medication {
 interface ReminderListing {
   delivery: "active" | "stale" | "failing" | "not_configured";
   emailAvailable: boolean;
+  emailNeedsConfirmation?: boolean;
   medications: { medicationId: string; suggestedTimes: string[]; reminder: ReminderState | null }[];
 }
 
@@ -213,6 +214,7 @@ export default function Medications() {
                             suggestedTimes={rem?.suggestedTimes ?? m.scheduleTimes}
                             reminder={rem?.reminder ?? null}
                             emailAvailable={remindersQuery.data.emailAvailable}
+                            emailNeedsConfirmation={remindersQuery.data.emailNeedsConfirmation}
                           />
                         )}
                         {m.active ? (

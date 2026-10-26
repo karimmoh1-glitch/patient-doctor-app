@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { makeLimiter, emailKey } from "../middleware/rateLimit";
+import { makeLimiter, emailKey, userKey } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { doctorStatusFor } from "../services/doctorStatus";
 import { weakPasswordReason } from "../lib/password";
@@ -12,10 +12,11 @@ import { isWebClient, setSessionCookie } from "../middleware/session";
 import { insertUserSchema } from "@shared/schema";
 import { US_STATES } from "@shared/specialties";
 import { generateSecureToken, hashToken } from "../services/tokenService";
-import { sendPasswordResetEmail } from "../services/emailService";
+import { sendPasswordResetEmail, sendEmailVerificationEmail } from "../services/emailService";
 import { z } from "zod";
 import { fixtureAccountsAllowed } from "../config";
 import { systemAccess } from "../middleware/systemAccess";
+import { runAsSystem } from "../dbContext";
 
 const router = Router();
 
@@ -52,7 +53,7 @@ const loginAccountLimiter = makeLimiter({
 // What the client is told about the signed-in person. doctorStatus is how the
 // interface knows whether to show the clinician workspace or the verification
 // screen; the server enforces it independently on every clinical route.
-async function sessionUser(user: { id: string; name: string; email: string; role: string; state: string | null; language: string; readReceipts?: boolean; country?: string | null }) {
+async function sessionUser(user: { emailVerifiedAt?: Date | null; id: string; name: string; email: string; role: string; state: string | null; language: string; readReceipts?: boolean; country?: string | null }) {
   return {
     id: user.id,
     name: user.name,
@@ -62,9 +63,38 @@ async function sessionUser(user: { id: string; name: string; email: string; role
     language: user.language,
     readReceipts: user.readReceipts ?? true,
     country: user.country ?? null,
+    emailVerified: !!user.emailVerifiedAt,
     ...(user.role === "doctor" ? { doctorStatus: await doctorStatusFor(user.id) } : {}),
   };
 }
+
+// Confirming an e-mail address: a link sent to it, single use, one hour. Until then reminder e-mails are not sent to it.
+const verifyRequestLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 5, keyGenerator: userKey, message: "You've asked for several links. Please wait a while." });
+
+router.post("/email/verify/request", requireAuth, verifyRequestLimiter, async (req, res) => {
+  const user = await storage.getUser((req as any).userId);
+  if (!user) return res.status(404).json({ message: "Account not found" });
+  if (user.emailVerifiedAt) return res.json({ verified: true, sent: false });
+  const { token, tokenHash } = generateSecureToken();
+  // The token table is system-only: the person never reads or writes it themselves.
+  await runAsSystem(() => storage.createEmailVerificationToken(user.id, tokenHash, new Date(Date.now() + 60 * 60 * 1000)));
+  const appUrl = (process.env.APP_URL || "http://localhost:3001").replace(/\/$/, "");
+  // The token travels in the fragment, so opening the link sends it to no server.
+  const sent = await sendEmailVerificationEmail(user.email, user.name, `${appUrl}/verify-email#${token}`, normalizeLang(user.language)).catch(() => false);
+  res.json({ verified: false, sent });
+});
+
+router.post("/email/verify", systemAccess, authLimiter, async (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return res.status(404).json({ message: "That link isn't valid or has expired." });
+  const tokenHash = hashToken(token);
+  const row = await storage.getEmailVerificationTokenByHash(tokenHash);
+  if (!row || row.used || row.expiresAt.getTime() < Date.now()) return res.status(404).json({ message: "That link isn't valid or has expired." });
+  await storage.markEmailVerificationTokenUsed(row.id);
+  await storage.confirmUserEmail(row.userId);
+  await logAudit({ actorUserId: row.userId, action: "account.email_confirmed", targetType: "user", targetId: row.userId, subjectUserId: row.userId });
+  res.json({ verified: true });
+});
 
 const signupBodySchema = z.object({
   name: z.string().trim().min(1).max(100),

@@ -33,6 +33,11 @@ afterEach(() => {
 });
 
 const sys = <T,>(f: () => Promise<T>) => runAsSystem(f);
+async function confirmedPatient() {
+  const p = await signupPatient();
+  await sys(() => db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, p.id)));
+  return p;
+}
 const NOW = new Date("2026-06-10T12:00:00Z");
 const api = {
   post: (u: TestUser, path: string, body: object = {}) => request(app).post(`/api/personal-reminders${path}`).set(auth(u.token)).send(body),
@@ -44,7 +49,12 @@ const once = (over: Record<string, unknown> = {}) => ({ kind: "task", title: "Ca
 const sub = (over: Record<string, unknown> = {}) => ({ kind: "subscription", title: "Streaming", renewalDate: "2026-06-13", renewalInterval: "monthly", offsetsDays: [3], time: "11:55", timezone: "UTC", ...over });
 const notesFor = (u: TestUser) => sys(() => db.select().from(notifications).where(eq(notifications.userId, u.id)));
 const deliveriesFor = async (reminderId: string) => sys(() => db.select().from(personalReminderDeliveries).where(eq(personalReminderDeliveries.reminderId, reminderId)));
-const run = (opts: Record<string, unknown> = {}, now = NOW) => dispatchPersonalReminders(now, opts);
+// The tests pretend it is June 2026; reminders made "long ago" are what a scheduler normally finds, so back-date their edit time.
+const run = async (opts: Record<string, unknown> = {}, now = NOW) => {
+  await sys(() => db.update(personalReminders).set({ updatedAt: new Date("2020-01-01T00:00:00Z") }).where(eq(personalReminders.status, "active")));
+  return dispatchPersonalReminders(now, opts);
+};
+const runKeepingEditTimes = (opts: Record<string, unknown> = {}, now = NOW) => dispatchPersonalReminders(now, opts);
 
 describe("creating reminders", () => {
   it("works for a patient with no doctor at all, for every kind, and keeps what was said", async () => {
@@ -195,7 +205,7 @@ describe("e-mail: what is attempted, accepted, held back or given up", () => {
   const emailOn = { emailEnabled: true };
 
   it("sends nothing by e-mail when no provider is configured, and says so", async () => {
-    const p = await signupPatient();
+    const p = await confirmedPatient();
     const r = (await api.post(p, "", once(emailOn))).body;
     await run({ emailEnabled: false });
     expect((await deliveriesFor(r.id)).map((d) => d.channel)).toEqual(["in_app"]);
@@ -204,7 +214,7 @@ describe("e-mail: what is attempted, accepted, held back or given up", () => {
 
   it("is generic by default and names the reminder only if the person chose that", async () => {
     process.env.RESEND_API_KEY = "re_test";
-    const p = await signupPatient();
+    const p = await confirmedPatient();
     const generic = (await api.post(p, "", once({ ...emailOn, title: "Secret thing" }))).body;
     const named = (await api.post(p, "", once({ ...emailOn, title: "Visible thing", showTitleInEmail: true }))).body;
     await run({ emailEnabled: true });
@@ -219,7 +229,7 @@ describe("e-mail: what is attempted, accepted, held back or given up", () => {
   it("retries a refused send at most three times in total and then gives up, never claiming delivery", async () => {
     process.env.RESEND_API_KEY = "re_test";
     provider.fails = 99;
-    const p = await signupPatient();
+    const p = await confirmedPatient();
     const r = (await api.post(p, "", once(emailOn))).body;
     for (let i = 0; i < 5; i++) {
       await run({ emailEnabled: true });
@@ -235,7 +245,7 @@ describe("e-mail: what is attempted, accepted, held back or given up", () => {
   it("recovers when the provider comes back, within the attempts that remain", async () => {
     process.env.RESEND_API_KEY = "re_test";
     provider.fails = 1;
-    const p = await signupPatient();
+    const p = await confirmedPatient();
     const r = (await api.post(p, "", once(emailOn))).body;
     await run({ emailEnabled: true });
     expect((await deliveriesFor(r.id)).find((d) => d.channel === "email")).toMatchObject({ status: "failed", attempts: 1 });
@@ -246,7 +256,7 @@ describe("e-mail: what is attempted, accepted, held back or given up", () => {
 
   it("holds e-mail back in quiet hours for good, while the in-app notice still arrives", async () => {
     process.env.RESEND_API_KEY = "re_test";
-    const p = await signupPatient();
+    const p = await confirmedPatient();
     const r = (await api.post(p, "", once({ ...emailOn, quietStart: "11:00", quietEnd: "13:00" }))).body;
     await run({ emailEnabled: true });
     await run({ emailEnabled: true }, new Date(NOW.getTime() + 90 * 60_000)); // quiet hours over: still not sent late
@@ -258,8 +268,8 @@ describe("e-mail: what is attempted, accepted, held back or given up", () => {
 
   it("a send to the provider that throws does not stop other people's reminders", async () => {
     process.env.RESEND_API_KEY = "re_test";
-    const a = await signupPatient();
-    const b = await signupPatient();
+    const a = await confirmedPatient();
+    const b = await confirmedPatient();
     const ra = (await api.post(a, "", once(emailOn))).body;
     const rb = (await api.post(b, "", once({ title: "Other person" }))).body;
     provider.fails = 1;
@@ -288,5 +298,81 @@ describe("what the reminder list says about delivery", () => {
     await api.post(p, "", once({ title: "Export me" }));
     const exported = (await request(app).get("/api/me/export").set(auth(p.token))).body;
     expect(exported.personalReminders.map((x: any) => x.title)).toContain("Export me");
+  });
+});
+
+describe("what an administrator sees of personal reminders", () => {
+  it("counts only: how many are on and what happened in the last day, naming no one and no reminder", async () => {
+    const admin = await createAdmin();
+    const p = await signupPatient();
+    await api.post(p, "", once({ title: "A very private errand" }));
+    const res = await request(app).get("/api/admin/reminders/status").set(auth(admin.token));
+    expect(res.status).toBe(200);
+    expect(res.body.personal).toEqual({ activeReminders: expect.any(Number), last24h: { inAppDelivered: expect.any(Number), emailAccepted: expect.any(Number), emailFailed: expect.any(Number), emailHeldForQuietHours: expect.any(Number), overdue: expect.any(Number) } });
+    expect(JSON.stringify(res.body)).not.toContain("A very private errand");
+    expect((await request(app).get("/api/admin/reminders/status").set(auth(p.token))).status).toBe(403);
+  });
+});
+
+describe("review findings", () => {
+  it("never e-mails an address the person has not confirmed, and says why when asked to switch e-mail on", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    const p = await signupPatient(); // not confirmed
+    const refused = await api.post(p, "", once({ emailEnabled: true }));
+    expect(refused.status).toBe(409);
+    expect(refused.body.code).toBe("email_not_verified");
+    // Even a reminder that somehow has e-mail switched on sends nothing until the address is confirmed.
+    const r = (await api.post(p, "", once())).body;
+    await sys(() => db.update(personalReminders).set({ emailEnabled: true, showTitleInEmail: true }).where(eq(personalReminders.id, r.id)));
+    await run({ emailEnabled: true });
+    expect((await deliveriesFor(r.id)).map((d) => d.channel)).toEqual(["in_app"]);
+    expect(provider.accepted.filter((m) => m.to.includes(p.email))).toHaveLength(0);
+    // Once confirmed, a title is allowed only because the address is the person's.
+    await sys(() => db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, p.id)));
+    await sys(() => db.delete(personalReminderDeliveries).where(eq(personalReminderDeliveries.reminderId, r.id)));
+    await run({ emailEnabled: true });
+    expect(provider.accepted.filter((m) => m.to.includes(p.email))).toHaveLength(1);
+  });
+
+  it("limits how many e-mails one person can be sent in a day", async () => {
+    process.env.RESEND_API_KEY = "re_test";
+    const p = await confirmedPatient();
+    const times = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30"];
+    for (let i = 0; i < 5; i++) await api.post(p, "", once({ emailEnabled: true, recurrence: "daily", times, anchorDate: "2026-06-01", title: `Many ${i}` }));
+    await run({ emailEnabled: true, lookbackMinutes: 600 });
+    expect(provider.accepted.filter((m) => m.to.includes(p.email)).length).toBeLessThanOrEqual(20);
+  });
+
+  it("refuses dates that are typos and a weekly reminder on every day, and keeps an old renewal date cheap", async () => {
+    const p = await signupPatient();
+    expect((await api.post(p, "", sub({ renewalDate: "0001-01-01" }))).status).toBe(400);
+    expect((await api.post(p, "", sub({ renewalDate: "9999-12-31" }))).status).toBe(400);
+    expect((await api.post(p, "", once({ recurrence: "weekly", weekdays: [0, 1, 2, 3, 4, 5, 6], anchorDate: "2026-06-01" }))).status).toBe(400);
+    const old = await api.post(p, "", sub({ renewalDate: "2000-01-31", renewalInterval: "weekly" }));
+    expect(old.status).toBe(201);
+    const t0 = Date.now();
+    const list = await api.get(p);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(list.body.reminders[0].nextRenewal).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("delivers nothing for moments before the reminder was created or last edited", async () => {
+    const p = await signupPatient();
+    const justNow = new Date();
+    const hhmm = (d: Date) => d.toISOString().slice(11, 16);
+    const earlier = new Date(justNow.getTime() - 30 * 60_000);
+    const r = (await api.post(p, "", once({ anchorDate: justNow.toISOString().slice(0, 10), times: [hhmm(earlier)] }))).body;
+    await runKeepingEditTimes({}, new Date(justNow.getTime() + 60_000));
+    expect(await deliveriesFor(r.id)).toHaveLength(0); // it was due before it existed
+  });
+
+  it("keeps two notices that fall at the same instant, one a minute after the other", async () => {
+    const p = await signupPatient();
+    // Weekly renewal with offsets 0 and 7: the 7-day-early reminder for one renewal and the on-the-day reminder for the previous one coincide.
+    const r = (await api.post(p, "", sub({ renewalDate: "2026-06-17", renewalInterval: "weekly", offsetsDays: [7, 0], time: "11:55" }))).body;
+    await run({}, new Date("2026-06-10T12:30:00Z"));
+    const ds = (await deliveriesFor(r.id)).filter((d) => d.channel === "in_app");
+    expect(ds.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(ds.map((d) => d.dueAt.getTime())).size).toBe(ds.length);
   });
 });

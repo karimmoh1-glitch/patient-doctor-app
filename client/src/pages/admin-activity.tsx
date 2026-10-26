@@ -12,6 +12,7 @@ interface Health {
   job: { lastSuccessAt: string | null; minutesSinceSuccess: number | null; lastError: string | null; consecutiveFailures: number };
   last24h: { scheduled: number; delivered: number; emailAccepted: number; emailFailed: number; emailGaveUp: number; stuckPending: number; overdue: number };
   nextHour: number;
+  personal?: { activeReminders: number; last24h: { inAppDelivered: number; emailAccepted: number; emailFailed: number; emailHeldForQuietHours: number; overdue: number } };
   scheduler: { expectedIntervalMinutes: number; callsLast24h: number; okLast24h: number; failedLast24h: number; skippedOverlapLast24h: number; bySource: Record<string, number>; longestGapMinutes: number | null };
 }
 
@@ -51,6 +52,13 @@ function ReminderHealth() {
                     <div className="sm:col-span-2"><dt className="text-base font-semibold text-muted-foreground">{t("admin.rem.sources")}</dt>
                       <dd className="text-lg">{Object.entries(h.scheduler.bySource).map(([name, n]) => `${name} × ${n}`).join(" · ")}</dd></div>
                   )}
+                  {h.personal && ([
+                    ["admin.rem.personal.active", h.personal.activeReminders], ["admin.rem.personal.inApp", h.personal.last24h.inAppDelivered],
+                    ["admin.rem.personal.emailAccepted", h.personal.last24h.emailAccepted], ["admin.rem.personal.emailFailed", h.personal.last24h.emailFailed],
+                    ["admin.rem.personal.quiet", h.personal.last24h.emailHeldForQuietHours], ["admin.rem.personal.overdue", h.personal.last24h.overdue],
+                  ] as [MessageKey, number][]).map(([k, v]) => (
+                    <div key={k}><dt className="text-base font-semibold text-muted-foreground">{t(k)}</dt><dd className="text-lg">{v}</dd></div>
+                  ))}
                   {rows.map(([k, v]) => (
                     <div key={k}><dt className="text-base font-semibold text-muted-foreground">{t(k)}</dt><dd className="text-lg">{v}</dd></div>
                   ))}
