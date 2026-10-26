@@ -56,8 +56,9 @@ database only (`docs/TESTING.md`).
 ### Scheduler evidence
 
 See the "Evidence" checklist in `docs/SCHEDULER.md` and the numbers recorded in the release report: so far **no scheduled
-GitHub run has ever fired for this repository** (zero across three scheduled workflows over several hours, with
-Actions enabled and no GitHub incident). The only run on record is a manual dispatch, which proved the endpoint works.
+GitHub run has ever fired for this repository**: at 05:02 UTC on 26 October 2026, five hours after the workflow first
+reached `main`, there were 13 runs on record, 12 from pushes and 1 manual, none from a schedule (across a `*/5`
+expression, an off-peak expression, a probe, and a daily check; Actions enabled; no GitHub incident). The only run on record is a manual dispatch, which proved the endpoint works.
 Nothing here establishes that reminders are delivered on time.
 
 ### What was tested, and where
