@@ -12,6 +12,7 @@ import { createServer, type Server } from "http";
 import { registerRoutes, RAW_BODY_MOUNTS } from "./routes";
 import { schedulerSnapshot } from "./services/reminderService";
 import { makeLimiter } from "./middleware/rateLimit";
+import { pool } from "./db";
 
 const schedulerMonitorLimiter = makeLimiter({ windowMs: 60_000, limit: 60, message: "Too many checks." });
 
@@ -86,12 +87,31 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
     }),
   );
 
+  // Nothing under /api is ever stored by a browser, proxy or CDN: responses are personal, and the host's default
+  // ("public, max-age=0, must-revalidate") would allow a shared cache to keep them.
+  app.use("/api", (_req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Vary", "Cookie, Authorization");
+    next();
+  });
+
   // An explicit, small cap on JSON bodies. Every validated input is bounded by
   // this, which is what limits the memory-exhaustion advisory affecting the
   // installed zod 3.x (fixed only in the breaking zod 4 line) — see docs/AUDIT.md.
   // Liveness only: answers without touching the database, so a load balancer
   // can tell "process is up" apart from "database is slow".
   app.get("/api/health", (_req, res) => res.json({ ok: true, commit: process.env.BUILD_COMMIT ?? null, builtAt: process.env.BUILD_TIME ?? null }));
+  // Readiness: can this instance reach its database as the role it runs as? 200 or 503 and the word "up" or "down";
+  // no error text, host name or role leaves the server. For an uptime monitor that must notice a database outage that
+  // the liveness check above cannot.
+  app.get("/api/health/ready", schedulerMonitorLimiter, async (_req, res) => {
+    try {
+      await Promise.race([pool.query("SELECT 1"), new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 4_000))]);
+      res.json({ ok: true, database: "up" });
+    } catch {
+      res.status(503).json({ ok: false, database: "down" });
+    }
+  });
   // For an external uptime monitor: 200 only while the reminder scheduler is really running, 503 otherwise
   // (not configured, stale, or its latest run failed). Reveals a status word and an age, nothing else.
   app.get("/api/health/scheduler", schedulerMonitorLimiter, async (_req, res) => {

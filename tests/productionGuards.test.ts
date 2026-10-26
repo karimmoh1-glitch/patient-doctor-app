@@ -145,6 +145,31 @@ describe("the readiness check before real patients", () => {
     expect(failing).toEqual(expect.arrayContaining(["demo-absent", "demo-accounts", "cron-secret", "rls-enforced", "app-role", "scheduler-history"]));
   });
 
+  it("does not mistake a manual check, a daily cron or GitHub's schedule for a scheduler", async () => {
+    const insert = async (source: string, n: number) => {
+      for (let i = 0; i < n; i += 24) {
+        await pool.query(
+          "INSERT INTO job_run_history (job, run_id, source, started_at, outcome) SELECT 'reminders', gen_random_uuid()::text, $1, now() - (g || ' minutes')::interval, 'ok' FROM generate_series($2::int, $3::int) g",
+          [source, i, Math.min(i + 23, n - 1)],
+        );
+      }
+    };
+    await pool.query("DELETE FROM job_run_history");
+    await insert("manual-verification", 300);
+    await insert("vercel-cron", 1);
+    await insert("github-actions", 40);
+    let checks = await checkReadiness(realEnv, pool);
+    expect(checks.find((c) => c.id === "scheduler-history")!.level).toBe("fail");
+    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("warn");
+
+    await pool.query("DELETE FROM job_run_history");
+    await insert("cloudflare-worker", 280);
+    checks = await checkReadiness(realEnv, pool);
+    expect(checks.find((c) => c.id === "scheduler-history")!.level).toBe("ok");
+    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("ok");
+    await pool.query("DELETE FROM job_run_history");
+  });
+
   it("reports each blocker without printing any secret", async () => {
     const checks = await checkReadiness({ ...realEnv, JWT_SECRET: "short" }, pool);
     expect(checks.find((c) => c.id === "jwt-secret")!.level).toBe("fail");

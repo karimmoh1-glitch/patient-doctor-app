@@ -59,10 +59,16 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
     "The restricted login role avela_runtime does not exist (npm run db:create-app-role)");
 
   // Has anything really been calling the scheduler? Our own records, not a workflow file. One call is expected every 5 minutes.
-  const calls = await count("SELECT count(*)::int AS n FROM job_run_history WHERE job = 'reminders' AND outcome <> 'skipped_overlap' AND started_at > now() - interval '24 hours'");
-  add("scheduler-history", calls >= 0.9 * 288, "fail", `The scheduler called ${calls} times in the last 24 hours`, `The scheduler called only ${calls} times in the last 24 hours (about 288 expected)`);
-  const sources = await db.query("SELECT DISTINCT source FROM job_run_history WHERE job = 'reminders' AND started_at > now() - interval '24 hours'");
-  const dependable = sources.rows.some((r) => r.source !== "github-actions" && r.source !== "unknown");
-  add("scheduler-caller", dependable, "warn", "A dedicated scheduler (not only GitHub's best-effort schedule) is calling", "Only GitHub Actions' best-effort schedule (or an unnamed caller) has called in the last 24 hours");
+  // A person's manual check proves the endpoint works; it is not a scheduler, so it counts for nothing here. A caller is
+  // "dependable" only if ONE named source (not GitHub's best-effort schedule, not an unnamed caller) made nearly every
+  // expected call: a daily cron or a handful of lucky calls must not read as a scheduler.
+  const expected = 288;
+  const bySource = await db.query(
+    "SELECT source, count(*)::int AS n FROM job_run_history WHERE job = 'reminders' AND outcome <> 'skipped_overlap' AND source <> 'manual-verification' AND started_at > now() - interval '24 hours' GROUP BY source",
+  );
+  const calls = (bySource.rows as { n: number }[]).reduce((sum, r) => sum + Number(r.n), 0);
+  add("scheduler-history", calls >= 0.9 * expected, "fail", `The scheduler called ${calls} times in the last 24 hours`, `The scheduler called only ${calls} times in the last 24 hours (about ${expected} expected; manual checks are not counted)`);
+  const dependable = (bySource.rows as { source: string; n: number }[]).some((r) => !["github-actions", "unknown"].includes(r.source) && Number(r.n) >= 0.9 * expected);
+  add("scheduler-caller", dependable, "warn", "A dedicated scheduler (not GitHub's best-effort schedule, not a manual check) made nearly every expected call in the last 24 hours", "No single dedicated caller made 90% of the expected calls in the last 24 hours (GitHub Actions' best-effort schedule, a daily cron and manual checks do not qualify)");
   return out;
 }

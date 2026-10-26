@@ -22,7 +22,7 @@ async function main() {
   if (password.length < 12) throw new Error("ADMIN_PASSWORD must be at least 12 characters.");
   if (await storage.getUserByEmail(email)) throw new Error("An account with that email already exists. Nothing was changed.");
 
-  await storage.createUser({
+  const created = await storage.createUser({
     name,
     email,
     passwordHash: await bcrypt.hash(password, 12),
@@ -32,7 +32,13 @@ async function main() {
     deactivatedAt: null,
     emailVerifiedAt: null,
   });
-  console.log(`Administrator created: ${email}`);
+  // Who made this account, from where, and when: an administrator appearing without a record would be indistinguishable
+  // from a planted one. No password, e-mail or secret goes into the entry.
+  await pool.query(
+    "INSERT INTO audit_logs (action, target_type, target_id, subject_user_id, metadata) VALUES ('admin.bootstrapped', 'user', $1, $1, $2)",
+    [created.id, JSON.stringify({ operator: process.env.USER ?? "unknown", host: process.env.HOSTNAME ?? "unknown", via: "npm run admin:create" })],
+  );
+  console.log(`Administrator created: ${email}. The second factor is set up at the first sign-in.`);
 }
 
 main()
