@@ -158,19 +158,20 @@ export default function DoctorFinder({ mode, defaultState }: { mode: "public" | 
             <p role="status" className="text-muted-foreground">{t("dir.count", { count: list.length })}</p>
             {list.length === 0 ? (
               <EmptyBlock
-                title={t("dir.empty.title")}
+                title={filtered ? t("dir.empty.title") : t("dir.none.title")}
                 action={
                   <div className="flex flex-wrap justify-center gap-3">
                     {filtered && <Button variant="outline" onClick={clearFilters}>{t("dir.clear")}</Button>}
-                    {mode === "patient" ? (
+                    {!filtered && <Button asChild variant="outline"><Link href="/join/doctor">{t("dir.none.apply")}</Link></Button>}
+                    {filtered && (mode === "patient" ? (
                       <Button asChild><Link href="/symptoms">{t("dir.empty.describe")}</Link></Button>
                     ) : (
                       <Button asChild><Link href="/signup">{t("dir.empty.signup")}</Link></Button>
-                    )}
+                    ))}
                   </div>
                 }
               >
-                {t("dir.empty.body")}
+                {filtered ? t("dir.empty.body") : t("dir.none.body")}
               </EmptyBlock>
             ) : (
               <ul className="grid gap-5 lg:grid-cols-2">

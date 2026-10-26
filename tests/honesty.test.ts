@@ -135,3 +135,19 @@ describe("booking a video visit", () => {
     expect(res.body.message).toMatch(/aren't available/);
   });
 });
+
+describe("the emergency number", () => {
+  it("has no default: it is exactly what the operator configured, and null until then", async () => {
+    delete process.env.EMERGENCY_NUMBER;
+    delete process.env.VITE_EMERGENCY_NUMBER;
+    expect((await request(app).get("/api/config")).body.emergencyNumber).toBeNull();
+    process.env.EMERGENCY_NUMBER = "112";
+    try {
+      expect((await request(app).get("/api/config")).body.emergencyNumber).toBe("112");
+      process.env.EMERGENCY_NUMBER = "<script>alert(1)</script>";
+      expect((await request(app).get("/api/config")).body.emergencyNumber).toBeNull(); // only a plausible number is ever served
+    } finally {
+      delete process.env.EMERGENCY_NUMBER;
+    }
+  });
+});

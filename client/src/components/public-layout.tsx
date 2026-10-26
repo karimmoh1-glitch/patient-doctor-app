@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { Phone } from "lucide-react";
-import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
+import { useEmergency } from "@/lib/emergency";
 import { useI18n } from "@/lib/i18n";
 import { useAppConfig } from "@/hooks/use-app-config";
 import Logo from "@/components/logo";
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
  */
 export default function PublicLayout({ children, narrow = false, wide = false }: { children: React.ReactNode; narrow?: boolean; wide?: boolean }) {
   const { t } = useI18n();
+  const emergency = useEmergency();
   const config = useAppConfig();
   const contact = config?.support;
   const hasContact = !!(contact?.phone || contact?.email);
@@ -32,9 +33,13 @@ export default function PublicLayout({ children, narrow = false, wide = false }:
       <div className="bg-destructive text-destructive-foreground">
         <p className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-2 text-center font-medium">
           {t("emergency.question")}
-          <a href={EMERGENCY_TEL} className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 font-bold underline">
-            <Phone className="h-5 w-5" aria-hidden="true" /> {t("emergency.call", { number: EMERGENCY_NUMBER })}
-          </a>
+          {emergency.tel ? (
+            <a href={emergency.tel} className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 font-bold underline">
+              <Phone className="h-5 w-5" aria-hidden="true" /> {t("emergency.call", { number: emergency.label })}
+            </a>
+          ) : (
+            <span className="font-bold">{t("emergency.call", { number: emergency.label })}</span>
+          )}
         </p>
       </div>
       <header className="border-b border-border bg-card/95">

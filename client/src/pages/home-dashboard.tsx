@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/status-badge";
 import QueryState from "@/components/query-state";
 import { greeting, formatRelativeDay, formatClock, timeAgo } from "@/lib/format";
-import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
+import EmergencyAction from "@/components/emergency-action";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { appointmentTypeLabel } from "@/lib/labels";
 import type { AuthUser } from "@/hooks/use-auth";
@@ -127,9 +127,7 @@ export default function HomeDashboard({ user }: { user: AuthUser }) {
                   <ToDoRow href="/care-team" icon={Phone} title={t("home.contactDoctor")} detail={t("home.contactDoctor.detail")} />
                   <ToDoRow href="/help" icon={ListChecks} title={t("home.usingHelp")} />
                 </ul>
-                <Button asChild size="lg" variant="destructive" className="w-full sm:w-auto">
-                  <a href={EMERGENCY_TEL}><Siren aria-hidden="true" /> {t("home.emergencyButton", { number: EMERGENCY_NUMBER })}</a>
-                </Button>
+                <EmergencyAction messageKey="home.emergencyButton" icon={Siren} className="w-full sm:w-auto" />
               </section>
             </>
           );

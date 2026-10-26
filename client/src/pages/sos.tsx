@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
+import EmergencyAction from "@/components/emergency-action";
+import { useEmergency } from "@/lib/emergency";
 import { useI18n } from "@/lib/i18n";
 import { Ltr } from "@/components/ltr";
 
@@ -27,6 +28,7 @@ interface EmergencyProfile {
 
 export default function Sos() {
   const { t } = useI18n();
+  const emergency = useEmergency();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [note, setNote] = useState("");
@@ -90,13 +92,11 @@ export default function Sos() {
         <CardHeader>
           <CardTitle as="h2" className="text-2xl">{t("pt.sos.dangerTitle")}</CardTitle>
           <CardDescription className="text-lg">
-            {t("pt.sos.dangerBody", { number: EMERGENCY_NUMBER })}
+            {t("pt.sos.dangerBody", { number: emergency.label })}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button asChild variant="destructive" size="lg" className="min-h-20 w-full text-2xl">
-            <a href={EMERGENCY_TEL}><Phone className="!size-7" aria-hidden="true" /> {t("emergency.callNow", { number: EMERGENCY_NUMBER })}</a>
-          </Button>
+          <EmergencyAction messageKey="emergency.callNow" icon={Phone} className="min-h-20 w-full text-2xl" iconClassName="!size-7" />
         </CardContent>
       </Card>
 
@@ -133,7 +133,7 @@ export default function Sos() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {connected.length === 0 && <p className="text-lg">{t("pt.sos.noConnected", { number: EMERGENCY_NUMBER })}</p>}
+          {connected.length === 0 && <p className="text-lg">{t("pt.sos.noConnected", { number: emergency.label })}</p>}
           {connected.map((p) => (
             <div key={p.id} className="space-y-3 rounded-xl border-2 border-input p-4">
               <p className="text-xl font-semibold">{p.doctor?.name}</p>

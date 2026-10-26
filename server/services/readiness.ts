@@ -27,7 +27,7 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
   add("cron-secret", (env.CRON_SECRET ?? "").length >= 24, "fail", "CRON_SECRET is set", "CRON_SECRET is missing or short: reminders cannot be delivered");
   add("email", !!env.RESEND_API_KEY, "warn", "An email provider is configured", "No email provider: password resets and email reminders cannot be sent");
   add("support", !!(env.SUPPORT_PHONE || env.SUPPORT_EMAIL), "warn", "A support contact is published", "No support phone or email is configured; the Help page says nobody can be reached");
-  add("emergency-number", !!env.VITE_EMERGENCY_NUMBER, "warn", "The emergency number is set for this country", "VITE_EMERGENCY_NUMBER is not set: the default (911) is shown");
+  add("emergency-number", !!(env.EMERGENCY_NUMBER || env.VITE_EMERGENCY_NUMBER), "fail", "An emergency number is configured for this deployment's jurisdiction (it must still be reviewed by a person)", "EMERGENCY_NUMBER is not set: emergency controls say \"your local emergency number\" and offer no dial link until the jurisdiction's number is confirmed and configured");
 
   // Database protection (docs/SECURITY.md): the application should run as the restricted role with row-level security enforced.
   add("rls-enforced", !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on", "fail",

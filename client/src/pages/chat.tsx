@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { ErrorBlock, LoadingBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { formatRelativeDay, formatDateTime } from "@/lib/format";
-import { EMERGENCY_NUMBER } from "@/lib/emergency";
+import { useEmergency } from "@/lib/emergency";
 import { useI18n } from "@/lib/i18n";
 import { appointmentTypeLabel } from "@/lib/labels";
 import type { AuthUser } from "@/hooks/use-auth";
@@ -84,6 +84,7 @@ interface PendingMessage {
 
 export default function ChatPage({ pairingId, user, backHref }: { pairingId: string; user: AuthUser; backHref: string }) {
   const { t } = useI18n();
+  const emergency = useEmergency();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<PendingMessage[]>([]);
@@ -136,7 +137,7 @@ export default function ChatPage({ pairingId, user, backHref }: { pairingId: str
 
       {isPatient && (
         <p role="note" className="rounded-xl border-2 border-input bg-card p-4 text-lg">
-          {t("pt.chat.note", { name: counterpartName, number: EMERGENCY_NUMBER })}
+          {t("pt.chat.note", { name: counterpartName, number: emergency.label })}
         </p>
       )}
 

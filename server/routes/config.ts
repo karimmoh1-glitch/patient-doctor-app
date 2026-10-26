@@ -10,7 +10,11 @@ const router = Router();
 // aren't configured (a fake "online" agent, a video button that goes nowhere).
 // Nothing here is a secret or identifies a person.
 router.get("/", async (_req, res) => {
+  // Where this deployment operates decides the number; there is deliberately no default.
+  const configured = (process.env.EMERGENCY_NUMBER || process.env.VITE_EMERGENCY_NUMBER || "").trim();
+  const emergencyNumber = /^[0-9+\-() ]{2,20}$/.test(configured) ? configured : null;
   res.json({
+    emergencyNumber,
     features: {
       // Real, configured capabilities only. Add a flag here when — and only
       // when — an integration is wired up and tested.

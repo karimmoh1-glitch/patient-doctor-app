@@ -29,6 +29,7 @@ const t: Partial<Record<Key, string>> = {
   "settings.signOut.yes": "نعم، سجّل خروجي",
   "settings.signOut.no": "لا، ابقَ مسجّلًا",
   "emergency.question": "هل لديك حالة طارئة؟",
+  "emergency.local": "رقم الطوارئ المحلي",
   "emergency.call": "اتصل بـ {number}",
   "emergency.callNow": "اتصل بـ {number} الآن",
   "public.footer": "تساعدك أفيلا في العثور على طبيب ومتابعة رعايتك. وهي ليست خدمة طوارئ ولا تقدّم نصائح طبية.",

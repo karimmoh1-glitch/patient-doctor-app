@@ -163,3 +163,23 @@ test.describe("account controls in Settings", () => {
     expect(again.status()).toBe(401);
   });
 });
+
+test.describe("emergency information", () => {
+  test("without a configured number there is no dial link and no assumed country", async ({ page }) => {
+    await page.route("**/api/config", async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      await route.fulfill({ response: res, json: { ...body, emergencyNumber: null } });
+    });
+    await page.goto("/");
+    await expect(page.getByText(/your local emergency number/i).first()).toBeVisible();
+    await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
+    await expect(page.getByText("911")).toHaveCount(0);
+  });
+
+  test("with a configured number the control dials exactly that number", async ({ page }) => {
+    await page.goto("/");
+    const link = page.getByRole("link", { name: /call 911/i }).first();
+    await expect(link).toHaveAttribute("href", "tel:911");
+  });
+});

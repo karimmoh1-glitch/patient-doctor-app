@@ -27,6 +27,7 @@ export default {
   "settings.signOut.yes": "Yes, sign me out",
   "settings.signOut.no": "No, stay signed in",
   "emergency.question": "Having an emergency?",
+  "emergency.local": "your local emergency number",
   "emergency.call": "Call {number}",
   "emergency.callNow": "Call {number} now",
   "public.footer": "Avela helps you find a doctor and keep track of your care. It is not an emergency service and it does not give medical advice.",

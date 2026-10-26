@@ -127,7 +127,7 @@ describe("what a production server refuses to start with", () => {
 describe("the readiness check before real patients", () => {
   const realEnv = {
     NODE_ENV: "production", JWT_SECRET: "x".repeat(40), APP_URL: "https://avela.example.org", CRON_SECRET: "y".repeat(30),
-    RESEND_API_KEY: "re_x", SUPPORT_EMAIL: "help@example.org", VITE_EMERGENCY_NUMBER: "999",
+    RESEND_API_KEY: "re_x", SUPPORT_EMAIL: "help@example.org", EMERGENCY_NUMBER: "999",
   } as NodeJS.ProcessEnv;
 
   it("blocks a deployment that still has fixture accounts, a demo setting, an owner connection, or no scheduler", async () => {

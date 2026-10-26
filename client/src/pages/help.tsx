@@ -3,7 +3,7 @@ import { Phone, Mail, MessageCircle, Siren, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useAppConfig } from "@/hooks/use-app-config";
-import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
+import EmergencyAction from "@/components/emergency-action";
 import { useI18n } from "@/lib/i18n";
 import { Ltr } from "@/components/ltr";
 import PageHeader from "@/components/page-header";
@@ -30,9 +30,7 @@ export default function Help({ signedIn = true }: { signedIn?: boolean }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
-          <Button asChild size="lg" variant="destructive">
-            <a href={EMERGENCY_TEL}><Phone aria-hidden="true" /> {t("emergency.callNow", { number: EMERGENCY_NUMBER })}</a>
-          </Button>
+          <EmergencyAction messageKey="emergency.callNow" icon={Phone} />
           <Button asChild size="lg" variant="outline"><Link href="/sos">{t("help.more")}</Link></Button>
         </CardContent>
       </Card>

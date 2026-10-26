@@ -37,6 +37,7 @@ export default defineConfig({
       DB_ENFORCE_RLS: "on",
       JWT_SECRET: "prod-smoke-only-secret-that-is-long-enough-to-pass",
       APP_URL: "https://smoke.avela.invalid",
+      EMERGENCY_NUMBER: "911",
     },
   },
 });

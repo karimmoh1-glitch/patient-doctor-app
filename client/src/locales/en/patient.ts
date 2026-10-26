@@ -112,7 +112,7 @@ export default {
   "pt.sos.myLocation": "My location: {url}",
   "pt.sos.notSent": "The message to {name} was NOT sent. {error} Please call instead.",
   "pt.sos.dangerTitle": "Is someone in danger right now?",
-  "pt.sos.dangerBody": "Call {number} or your local emergency number. Avela is not an emergency service. No one here is watching for urgent messages, and we cannot send help.",
+  "pt.sos.dangerBody": "Call {number}. Avela is not an emergency service. No one here is watching for urgent messages, and we cannot send help.",
   "pt.sos.callContactDefault": "Call my emergency contact",
   "pt.sos.infoSummary": "Information for the people helping me",
   "pt.sos.noInfo": "You haven't added any yet. {link}.",

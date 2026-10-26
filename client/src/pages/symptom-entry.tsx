@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
-import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
+import EmergencyAction from "@/components/emergency-action";
 import { useI18n } from "@/lib/i18n";
 
 export default function SymptomEntry() {
@@ -42,9 +42,7 @@ export default function SymptomEntry() {
         <p className="mt-1">
           {t("pt.symptom.emergencyBody")}
         </p>
-        <Button asChild variant="destructive" size="lg" className="mt-3 w-full sm:w-auto">
-          <a href={EMERGENCY_TEL}><Phone aria-hidden="true" /> {t("emergency.call", { number: EMERGENCY_NUMBER })}</a>
-        </Button>
+        <div className="mt-3"><EmergencyAction messageKey="emergency.call" icon={Phone} className="w-full sm:w-auto" /></div>
       </section>
 
       <div>
