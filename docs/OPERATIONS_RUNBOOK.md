@@ -91,7 +91,7 @@ Result 2026-10-26: all checks pass. It proves the procedure and the schema's res
 1. In Neon, create a branch from a point in time (or restore a snapshot) into a **new** branch. Never the primary.
 2. Take that branch's owner URL. `DATABASE_URL=<branch owner url> npm run db:migrate` must print "No pending migrations."
 3. Roles are not part of a logical or branch-level copy on every provider: confirm `avela_runtime` exists and can log in; if not, `npm run db:create-app-role`.
-4. `DATABASE_URL=<branch owner url> npm run verify:production -- ` (database checks) and compare counts of `users`, `messages`, `audit_logs` with the source.
+4. `DATABASE_URL=<branch owner url> npm run verify:production` (its database checks) and compare counts of `users`, `messages`, `audit_logs` with the source.
 5. Point a **preview** deployment at the branch with `APP_DATABASE_URL`/`DB_ENFORCE_RLS=on`; run `LIVE_URL=<preview> npm run test:live`.
 6. Record: when the restore point was, how long each step took, anything that differed. Delete the branch.
 
