@@ -77,6 +77,7 @@ buttons. Create a real first administrator with `ADMIN_EMAIL=… ADMIN_NAME=… 
 | `npm run typecheck` | TypeScript, client and server |
 | `npm test` | Vitest against a real Postgres `*_test` database: authorization, concurrency, scheduling, doctor verification, prescriptions, reminders, privacy, audit, email, honesty, translations |
 | `npm run test:e2e` | Playwright (phone profile) with axe checks in English and Arabic, against the dev server on a throwaway database |
+| `LIVE_URL=… EXPECTED_COMMIT=$(git rev-parse HEAD) npm run test:live` | Read-only browser tests against a **deployed** site (landing, registration, sign-in, reloads, Arabic/RTL, the demo patient and doctor screens, what each role is refused, the commit that is running) |
 | `npm run build && npm run test:prod` | Playwright against the **built** app with the production content-security policy: landing page, every script chunk, fonts, sign-in and the signed-in screens for all four roles, nested-route refresh, Arabic/RTL |
 
 Test databases: `TEST_DATABASE_URL`, `E2E_DATABASE_URL`, `PROD_SMOKE_DATABASE_URL` (names must end in `_test`; the
@@ -91,12 +92,15 @@ harness refuses to wipe anything else). CI (`.github/workflows/ci.yml`) runs all
 | `npm run db:migrate` | Apply pending SQL migrations (never use `db:push` on a real database) |
 | `npm run db:seed` | Demo data |
 | `npm run admin:create` | Create an administrator from environment variables |
+| `npm run verify:production` | List the blockers that remain before real patients (exit code 1 while any exists) |
+| `npm run demo:retire` | Deactivate demonstration accounts without deleting anything (dry run unless `--apply`) |
+| `npm run erase:user -- <id>` | Carry out an account-deletion request (dry run unless `--apply`) |
 
 ## Documentation
 
 [`AUDIT.md`](docs/AUDIT.md) findings and running checklist · [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·
 [`DATA_FLOW.md`](docs/DATA_FLOW.md) where information goes · [`INTEGRATIONS.md`](docs/INTEGRATIONS.md) ·
-[`SAFETY_AND_COMPLIANCE.md`](docs/SAFETY_AND_COMPLIANCE.md) decisions that need humans · [`OPERATIONS.md`](docs/OPERATIONS.md)
+[`SAFETY_AND_COMPLIANCE.md`](docs/SAFETY_AND_COMPLIANCE.md) decisions that need humans · [`SECURITY.md`](docs/SECURITY.md) boundaries and risks · [`REAL_PATIENT_READINESS.md`](docs/REAL_PATIENT_READINESS.md) the gate before real data · [`OPERATIONS.md`](docs/OPERATIONS.md)
 
 ## Before real patients
 

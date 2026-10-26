@@ -133,3 +133,18 @@ Status key: `[x]` done and verified by tests, `[~]` partial, `[ ]` not built.
 - [ ] Row-level security in the database (authorization is enforced in the application layer and tested there)
 - [ ] Data export / deletion, MFA, retention policy
 - [ ] Review of Arabic by fluent speakers and clinicians; legal review of privacy and terms
+
+## 10. Phase B checklist: verification and hardening
+
+- [x] Production smoke detects the previously broken build (re-proved: fails on the circular chunk split, passes on the fix)
+- [x] CI executes build and browser tests on GitHub; first run found a real regression (medications start date compared in UTC), fixed and covered
+- [x] Deployed build stamped with its commit (`/version.json`, `/api/health`); live browser tests check it
+- [x] Reminder delivery: atomic in-app delivery, bounded email retries, abandoned-send recovery, failure recording, health view, honest patient wording
+- [x] Demo isolation: marked accounts refused when demo is off; production refuses demo mode without acknowledgement; `verify:production`, `demo:retire`
+- [x] Database-level protection: append-only audit log and prescription history; authorized prescriptions frozen
+- [x] Route inventory test (every endpoint, anonymous) and role access matrix
+- [x] Suspended / pending doctor boundaries tested with before/after controls
+- [x] Account: sign out everywhere, data export, deletion request, operator erasure, weak-password refusal, single-use recovery links
+- [x] Logging: error kinds only, enforced by a test
+- [~] Row-level security: evaluated, **not** enabled (see SECURITY.md)
+- [ ] Multi-factor authentication, HttpOnly cookie sessions, independent credential verification, penetration test, incident response, retention policy
