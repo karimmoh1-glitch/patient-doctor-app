@@ -8,6 +8,7 @@
  * List open requests with:  npm run erase:user -- --list
  */
 import "dotenv/config";
+import "./asOperator";
 import path from "path";
 import { pool } from "../server/db";
 import { eraseUser } from "../server/services/erasure";

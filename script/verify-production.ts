@@ -5,6 +5,7 @@
  * are set. It never prints a secret or any patient information.
  */
 import "dotenv/config";
+import "./asOperator";
 import { pool } from "../server/db";
 import { checkReadiness } from "../server/services/readiness";
 

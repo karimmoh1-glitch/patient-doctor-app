@@ -76,12 +76,17 @@ buttons. Create a real first administrator with `ADMIN_EMAIL=… ADMIN_NAME=… 
 | --- | --- |
 | `npm run typecheck` | TypeScript, client and server |
 | `npm test` | Vitest against a real Postgres `*_test` database: authorization, concurrency, scheduling, doctor verification, prescriptions, reminders, privacy, audit, email, honesty, translations |
+| `npm run test:rls` | The same Vitest suite, but the application connects as the **restricted database role** with row-level security enforced (see `docs/SECURITY.md`) |
 | `npm run test:e2e` | Playwright (phone profile) with axe checks in English and Arabic, against the dev server on a throwaway database |
+| `npm run test:e2e:rls` | The same browser tests with the server connected as the restricted database role |
 | `LIVE_URL=… EXPECTED_COMMIT=$(git rev-parse HEAD) npm run test:live` | Read-only browser tests against a **deployed** site (landing, registration, sign-in, reloads, Arabic/RTL, the demo patient and doctor screens, what each role is refused, the commit that is running) |
 | `npm run build && npm run test:prod` | Playwright against the **built** app with the production content-security policy: landing page, every script chunk, fonts, sign-in and the signed-in screens for all four roles, nested-route refresh, Arabic/RTL |
 
 Test databases: `TEST_DATABASE_URL`, `E2E_DATABASE_URL`, `PROD_SMOKE_DATABASE_URL` (names must end in `_test`; the
-harness refuses to wipe anything else). CI (`.github/workflows/ci.yml`) runs all of the above against a Postgres service.
+harness refuses to wipe anything else). CI (`.github/workflows/ci.yml`) runs all of the above against a Postgres service,
+including the two restricted-role runs and a production-dependency advisory gate. See `docs/TESTING.md` (including the
+investigation of intermittent slow test runs) and `docs/SCHEDULER.md` (how reminders are triggered, and what is and is
+not yet proven).
 
 ## Scripts
 

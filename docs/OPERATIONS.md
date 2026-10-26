@@ -30,10 +30,17 @@ command, which also applies pending migrations (needs `DATABASE_URL` at build ti
 ## Scheduled jobs
 
 Reminders (and the daily expiry of finished prescriptions) run when something calls `GET /api/cron/reminders` with
-`Authorization: Bearer $CRON_SECRET`. With no `CRON_SECRET` the endpoint answers 503 and the app tells patients that
-automatic reminders are off. Vercel Cron (see `vercel.json`) sends the header itself, but the free plan allows only
-a daily run; `.github/workflows/reminders.yml` calls it every five minutes once `AVELA_URL` and `CRON_SECRET` are
-repository secrets. The app counts delivery as "active" only if a run completed in the last two hours.
+`Authorization: Bearer $CRON_SECRET`, about every five minutes. **The full design, the choice of caller, setup,
+monitoring and recovery are in `docs/SCHEDULER.md`.** In short:
+
+- With no `CRON_SECRET` the endpoint answers 503 and the app tells patients that automatic reminders are off.
+- Only one run executes at a time (a database lease); a late call answers `202`. A failed run answers `500`.
+- `GET /api/health/scheduler` is a public check for an uptime monitor: `200` only while the last run succeeded within
+  20 minutes. `SCHEDULER_HEARTBEAT_URL` and `OPS_ALERT_EMAIL` push signals outward (see the scheduler document).
+- Callers: a Cloudflare Worker (`ops/scheduler-worker/`, recommended; needs the operator's login), the GitHub workflow
+  `.github/workflows/reminders.yml` (best-effort; **observed not to fire for this repository**), and Vercel Cron in
+  `vercel.json` (once a day on the current plan). The app calls delivery "active" only if a run **succeeded within the last
+  20 minutes** (`REMINDER_MAX_RUN_AGE_MINUTES`), never because a workflow file exists.
 
 ## Administrators
 
@@ -59,9 +66,8 @@ pass is not evidence the deployed bundle works.
   if the latest run failed, `stale` if no recent success, `not_configured` without `CRON_SECRET`. A workflow file
   existing proves nothing: check `GET /api/config` → `features.reminderDelivery` and the admin view.
 - Failures are logged as a kind only (`[reminders] run failed: Error`), never a message, address or medicine.
-- Environment: `CRON_SECRET` (long, random; the scheduler sends it as a bearer token), `RESEND_API_KEY` + `EMAIL_FROM`
-  (email reminders), `REMINDER_LOOKBACK_MINUTES` (default 180), `REMINDER_MAX_RUN_AGE_MINUTES` (default 20).
-  GitHub repository secrets for `.github/workflows/reminders.yml`: `AVELA_URL`, `CRON_SECRET`.
+- Environment: see the table in `docs/SCHEDULER.md`. GitHub repository secrets for `.github/workflows/reminders.yml`:
+  `AVELA_URL`, `CRON_SECRET` (the workflow now **fails** if either is missing instead of passing without doing anything).
 
 ## Demo mode: switching it off for a real deployment
 
@@ -77,6 +83,24 @@ To retire a demonstration that shares a database with anything real (do not do t
 3. Unset `DEMO_MODE` and `DEMO_MODE_ACKNOWLEDGED`; set a real administrator with `npm run admin:create`.
 4. `npm run verify:production` must print no `FAIL`.
 The demonstration site must use its **own** database. Never point a real deployment at it.
+
+What `demo:retire --apply` changes, exactly (one transaction; it runs with the **owner** connection even if
+`APP_DATABASE_URL` is set in your shell, which a restricted role could not do):
+1. `users.deactivated_at = now()` for every account with `is_demo` (4 seeded accounts), so they cannot sign in.
+2. `user_devices.revoked_at = now()` for those accounts' open sessions, so existing sessions end on their next request.
+3. `doctor_profiles.active = false` for seeded demonstration doctors (`source = 'seed'`), hiding them from the directory.
+
+Nothing is deleted. Not irreversible in data terms; to undo (this brings the published demo password back to life, so
+only on a deployment that is meant to be a demo):
+`UPDATE users SET deactivated_at = NULL WHERE is_demo; UPDATE doctor_profiles SET active = true WHERE source = 'seed';`
+(revoked sessions stay revoked; people sign in again). **Do not run it on the live demo site**: that is what it is for.
+
+Rehearsed on a scratch database against a production build running as the restricted role, in this order and with
+these outcomes: a demo patient signed in and read their data (200); dry run changed nothing; `--apply` left 0 active
+demo accounts, kept all 4 rows, revoked the open session and hid all 12 seeded doctors; restarted with demo mode off,
+demo sign-in answered 404, the published password and a wrong password received byte-identical 401 bodies, the old
+session was refused (401), the directory listed no one, and production refused to start in demo mode without
+`DEMO_MODE_ACKNOWLEDGED=true`.
 
 ## Checking that a deployment is the commit you meant to ship
 

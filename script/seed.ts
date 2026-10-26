@@ -3,6 +3,7 @@
  * database. Usage: npm run db:seed
  */
 import "dotenv/config";
+import "./asOperator";
 import { pool } from "../server/db";
 import { storage } from "../server/storage";
 import bcrypt from "bcryptjs";

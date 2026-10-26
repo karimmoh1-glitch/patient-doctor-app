@@ -9,6 +9,7 @@
  * it is reversible and no audit history is lost. Real accounts are untouched.
  */
 import "dotenv/config";
+import "./asOperator";
 import { pool } from "../server/db";
 
 async function main() {

@@ -325,3 +325,18 @@ describe.skipIf(!ENFORCED)("the running application, as the restricted role (npm
     }
   });
 });
+
+describe("operator scripts", () => {
+  it("always load the owner connection, never the application's restricted role", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const name of ["create-admin", "seed", "retire-demo", "erase-user", "verify-production"]) {
+      const src = readFileSync(`script/${name}.ts`, "utf8");
+      const operator = src.indexOf('import "./asOperator"');
+      const database = src.search(/from "\.\.\/server\/(db|storage)"/);
+      const dotenv = src.indexOf('import "dotenv/config"');
+      expect(operator, `${name} imports asOperator`).toBeGreaterThanOrEqual(0);
+      expect(operator, `${name}: asOperator comes before the database module`).toBeLessThan(database);
+      if (dotenv >= 0) expect(operator, `${name}: asOperator comes after dotenv, which may define APP_DATABASE_URL`).toBeGreaterThan(dotenv);
+    }
+  });
+});

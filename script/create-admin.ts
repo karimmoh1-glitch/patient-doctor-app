@@ -9,6 +9,7 @@
  * as an argument or in a repository file.
  */
 import "dotenv/config";
+import "./asOperator";
 import bcrypt from "bcryptjs";
 import { pool } from "../server/db";
 import { storage } from "../server/storage";
