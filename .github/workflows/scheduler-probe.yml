@@ -1,0 +1,19 @@
+name: Scheduler probe
+
+# Diagnostic only, with no secrets and no network calls: it records whether GitHub
+# starts `schedule` runs for this repository at all, and how late. Compare its
+# run times with "Deliver reminders". Delete it once the scheduler is settled.
+
+on:
+  schedule:
+    - cron: "11,26,41,56 * * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: |
+          echo "event=${{ github.event_name }} schedule='${{ github.event.schedule }}'"
+          echo "started=$(date -u +%FT%TZ)"

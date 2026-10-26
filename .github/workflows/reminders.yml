@@ -8,23 +8,37 @@ name: Deliver reminders
 #
 # Set two repository secrets: AVELA_URL (e.g. https://avela-taupe.vercel.app)
 # and CRON_SECRET (the same value as the CRON_SECRET environment variable on
-# the host). Without them this workflow does nothing.
+# the host). Without them this workflow FAILS, so a missing secret is never a green tick.
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Off the :00/:05 marks, where GitHub's scheduler is busiest and most likely to delay or drop runs.
+    - cron: "2-57/5 * * * *"
   workflow_dispatch:
+
+# Two runs never overlap; the server also refuses to run the job twice at once.
+concurrency:
+  group: deliver-reminders
+  cancel-in-progress: false
 
 jobs:
   deliver:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     env:
       AVELA_URL: ${{ secrets.AVELA_URL }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
-      - name: Call the reminder endpoint
-        if: ${{ env.AVELA_URL != '' && env.CRON_SECRET != '' }}
+      - name: Refuse to look healthy without configuration
         run: |
-          curl --fail --silent --show-error --max-time 60 \
+          if [ -z "$AVELA_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::AVELA_URL and CRON_SECRET repository secrets are required; no reminders were triggered."
+            exit 1
+          fi
+      - name: Call the reminder endpoint
+        run: |
+          curl --fail --silent --show-error --max-time 45 \
+            --retry 3 --retry-delay 5 --retry-all-errors \
+            -H "X-Avela-Scheduler: github-actions" \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AVELA_URL%/}/api/cron/reminders"
