@@ -77,7 +77,7 @@ test("the inbox shows what is unread, search stays in my conversations, and open
   await expect(page.getByRole("status").filter({ hasText: "Unread messages: 1" })).toBeVisible();
 
   await page.getByRole("searchbox", { name: "Search your messages" }).fill("zebrafish");
-  await expect(page.getByRole("link", { name: /zebrafish/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /zebrafish/ }).first()).toBeVisible();
   await page.getByRole("searchbox", { name: "Search your messages" }).fill("this appears in nobody's conversation");
   await expect(page.getByText("No messages found.")).toBeVisible();
 

@@ -134,6 +134,9 @@ export const pairingRequests = pgTable("pairing_requests", {
   // "Specialist", "Dentist") — falls back to the doctor's specialty in the
   // UI when null, so setting one is optional.
   relationshipLabel: varchar("relationship_label"),
+  // How the connection began: the patient asked ("request"), or the patient confirmed a clinician's invitation ("invitation").
+  connectedVia: varchar("connected_via").notNull().default("request"),
+  invitationId: varchar("invitation_id"),
   requestedAt: timestamp("requested_at").defaultNow(),
   respondedAt: timestamp("responded_at"),
 }, (table) => [
@@ -262,3 +265,19 @@ export const credentialEvents = pgTable("credential_events", {
   note: text("note"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const pairingInvitations = pgTable("pairing_invitations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  doctorProfileId: varchar("doctor_profile_id").notNull().references(() => doctorProfiles.id),
+  createdByUserId: varchar("created_by_user_id").notNull().references(() => users.id),
+  tokenHash: varchar("token_hash").notNull(),
+  codeHash: varchar("code_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  status: varchar("status").notNull().default("pending"), // pending | accepted | revoked
+  acceptedByUserId: varchar("accepted_by_user_id").references(() => users.id),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  pairingRequestId: varchar("pairing_request_id").references(() => pairingRequests.id),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PairingInvitation = typeof pairingInvitations.$inferSelect;

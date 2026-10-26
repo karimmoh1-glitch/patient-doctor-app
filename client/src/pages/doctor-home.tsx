@@ -105,6 +105,7 @@ export default function DoctorHome({ user }: { user: AuthUser }) {
               </Card>
 
               <div className="flex flex-wrap gap-3">
+                <Button asChild variant="outline"><Link href="/doctor/connect">{t("dconn.link")}</Link></Button>
                 <Button asChild variant="outline"><Link href="/doctor/availability">{t("nav.d.hours")}</Link></Button>
                 <Button asChild variant="outline"><Link href="/doctor/profile">{t("nav.d.profile")}</Link></Button>
               </div>

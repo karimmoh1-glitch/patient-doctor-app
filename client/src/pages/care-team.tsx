@@ -64,6 +64,7 @@ export default function CareTeam() {
         </div>
         <div className="flex flex-wrap gap-3">
           <Button asChild variant="outline"><Link href="/messages"><MessageCircle aria-hidden="true" /> {t("pt.messages")}</Link></Button>
+          <Button asChild variant="outline"><Link href="/connect">{t("conn.title")}</Link></Button>
           <Button asChild><Link href="/symptoms"><Search aria-hidden="true" /> {t("home.findDoctor")}</Link></Button>
         </div>
       </div>

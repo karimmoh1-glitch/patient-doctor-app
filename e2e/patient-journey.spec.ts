@@ -47,7 +47,7 @@ test.describe("an older patient's first week", () => {
     await request.getByRole("button", { name: "View symptoms" }).click();
     await expect(request.getByText(/cough and a fever/)).toBeVisible();
     await request.getByRole("button", { name: "Accept" }).click();
-    await expect(doctor.page.getByText("No pending requests").or(doctor.page.locator("div", { hasText: name }).filter({ hasText: "Connected" }).first())).toBeVisible();
+    await expect(doctor.page.getByText("No pending requests").or(doctor.page.locator("div", { hasText: name }).filter({ hasText: "Connected" }).first()).first()).toBeVisible();
 
     // --- Patient books a real slot ---
     await page.reload();

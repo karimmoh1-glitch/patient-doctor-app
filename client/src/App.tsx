@@ -29,6 +29,8 @@ const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
+const DoctorConnect = lazy(() => import("@/pages/doctor-connect"));
+const Connect = lazy(() => import("@/pages/connect"));
 const DoctorAssist = lazy(() => import("@/pages/doctor-assist"));
 const HealthProfile = lazy(() => import("@/pages/health-profile"));
 const AdminCredentials = lazy(() => import("@/pages/admin-credentials"));
@@ -184,6 +186,14 @@ function AppContent() {
   const { simpleMode, setSimpleMode } = useSimpleMode();
   const [location, setLocation] = useLocation();
 
+  // A patient who opened a doctor's code before signing in picks up where they left off: the code was kept for this tab only.
+  useEffect(() => {
+    if (user?.role !== "patient" || location !== "/") return;
+    try {
+      if (sessionStorage.getItem("avela.pending-connect")) setLocation("/connect");
+    } catch { /* nothing kept */ }
+  }, [user?.id, user?.role, location, setLocation]);
+
   useEffect(() => {
     if (user && ["/login", "/signup", "/join/doctor", "/get-started"].includes(location)) {
       let target = "/";
@@ -334,6 +344,10 @@ function AppContent() {
 
       <Route path="/doctor/requests">
         <DoctorGate user={user} {...shellProps}><DoctorRequests /></DoctorGate>
+      </Route>
+      <Route path="/connect"><Connect user={user} /></Route>
+      <Route path="/doctor/connect">
+        <DoctorGate user={user} {...shellProps}><DoctorConnect /></DoctorGate>
       </Route>
       <Route path="/doctor/assist/:patientUserId?">
         {(params) => <DoctorGate user={user} {...shellProps}><DoctorAssist patientUserId={params.patientUserId} /></DoctorGate>}
