@@ -29,6 +29,7 @@ const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
+const MyReminders = lazy(() => import("@/pages/my-reminders"));
 const DoctorConnect = lazy(() => import("@/pages/doctor-connect"));
 const Connect = lazy(() => import("@/pages/connect"));
 const DoctorAssist = lazy(() => import("@/pages/doctor-assist"));
@@ -302,6 +303,9 @@ function AppContent() {
       </Route>
       <Route path="/profile">
         {user?.role === "patient" ? <Authenticated user={user} {...shellProps}><Profile user={user} /></Authenticated> : <Blocked user={user} />}
+      </Route>
+      <Route path="/my-reminders">
+        <Gate user={user} role="patient" {...shellProps}><MyReminders /></Gate>
       </Route>
       <Route path="/health-profile/:section?">
         {(params) => <Gate user={user} role="patient" {...shellProps}><HealthProfile section={params.section} /></Gate>}

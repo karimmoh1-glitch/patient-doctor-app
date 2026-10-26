@@ -45,7 +45,7 @@ const PATIENT_NAV: NavItem[] = [
   { href: "/appointments", labelKey: "nav.appointments", shortKey: "nav.appointments.short", icon: CalendarDays },
   {
     href: "/my-health", labelKey: "nav.health", shortKey: "nav.health.short", icon: HeartPulse,
-    owns: ["/medications", "/prescriptions", "/timeline", "/documents", "/care-circle", "/profile", "/notifications", "/health-profile"],
+    owns: ["/medications", "/prescriptions", "/timeline", "/documents", "/care-circle", "/profile", "/notifications", "/health-profile", "/my-reminders"],
   },
 ];
 

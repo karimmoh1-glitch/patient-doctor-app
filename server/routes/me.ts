@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { exportProfile } from "../services/healthProfile";
+import { listReminders } from "../services/personalReminders";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { makeLimiter, userKey } from "../middleware/rateLimit";
@@ -72,6 +73,7 @@ router.get("/export", requireAuth, requireRole("patient"), exportLimiter, async 
     whoCanSeeWhat: grants.map((g) => ({ shared: { medicines: g.shareMedications, documents: g.shareDocuments, appointments: g.shareAppointments, everything: g.shareFullHistory }, since: g.grantedAt, endedAt: g.revokedAt })),
     careCircle: circle.map((c) => ({ name: c.name, relationship: c.relationshipLabel, status: c.status })),
     healthInformation: await exportProfile(userId),
+    personalReminders: (await listReminders(userId)).map((r) => ({ kind: r.kind, title: r.title, notes: r.notes, status: r.status, recurrence: r.recurrence, times: r.times, weekdays: r.weekdays, anchorDate: r.anchorDate, endDate: r.endDate, timezone: r.timezone, renewalDate: r.renewalDate, renewalInterval: r.renewalInterval, offsetsDays: r.offsetsDays, cancelByDate: r.cancelByDate, amountMinor: r.amountMinor, currency: r.currency, emailEnabled: r.emailEnabled })),
     assistantConversation: ai.map((m) => ({ role: m.role, text: m.content, at: m.createdAt })),
   });
 });

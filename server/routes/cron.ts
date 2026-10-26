@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { makeLimiter } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { dispatchAppointmentReminders, dispatchDueReminders, REMINDER_JOB } from "../services/reminderService";
+import { dispatchPersonalReminders } from "../services/personalReminders";
 import { runScheduledJob, schedulerSource } from "../services/schedulerRun";
 import { systemAccess } from "../middleware/systemAccess";
 
@@ -42,6 +43,13 @@ async function runReminders(req: any, res: any) {
         run: async (ctx) => {
           const r = await dispatchDueReminders(now, { emailEnabled, deadline: ctx.deadline });
           return { counts: { considered: r.considered, due: r.due, inApp: r.inApp, emailSent: r.emailSent, emailFailed: r.emailFailed, emailRetried: r.emailRetried, truncated: r.truncated }, errors: r.errors };
+        },
+      },
+      {
+        name: "personalReminders",
+        run: async (ctx) => {
+          const r = await dispatchPersonalReminders(now, { emailEnabled, deadline: ctx.deadline });
+          return { counts: { personalConsidered: r.considered, personalDue: r.due, personalInApp: r.inApp, personalEmailSent: r.emailSent, personalEmailFailed: r.emailFailed, personalEmailSuppressed: r.emailSuppressed, personalEmailRetried: r.emailRetried, personalTruncated: r.truncated }, errors: r.errors };
         },
       },
       { name: "appointmentNotices", run: async () => ({ counts: { appointmentNotices: await dispatchAppointmentReminders(now) } }) },

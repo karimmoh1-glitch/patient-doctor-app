@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { bigint, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { medications } from "./health";
 
@@ -75,3 +75,52 @@ export const dataRequests = pgTable("data_requests", {
 
 export type MedicationReminder = typeof medicationReminders.$inferSelect;
 export type InsertMedicationReminder = typeof medicationReminders.$inferInsert;
+
+export const PERSONAL_KINDS = ["medication", "appointment", "task", "bill", "subscription", "other"] as const;
+export type PersonalKind = (typeof PERSONAL_KINDS)[number];
+
+export const personalReminders = pgTable("personal_reminders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  patientUserId: varchar("patient_user_id").notNull().references(() => users.id),
+  kind: varchar("kind").notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  notes: text("notes"),
+  recurrence: varchar("recurrence"),
+  times: jsonb("times").$type<string[]>().notNull().default(["09:00"]),
+  weekdays: jsonb("weekdays").$type<number[]>().notNull().default([0, 1, 2, 3, 4, 5, 6]),
+  anchorDate: varchar("anchor_date"),
+  startDate: varchar("start_date"),
+  endDate: varchar("end_date"),
+  timezone: varchar("timezone").notNull(),
+  renewalDate: varchar("renewal_date"),
+  renewalInterval: varchar("renewal_interval"),
+  offsetsDays: jsonb("offsets_days").$type<number[]>().notNull().default([3]),
+  cancelByDate: varchar("cancel_by_date"),
+  amountMinor: bigint("amount_minor", { mode: "number" }),
+  currency: varchar("currency", { length: 3 }),
+  healthEntryId: varchar("health_entry_id"),
+  status: varchar("status").notNull().default("active"),
+  emailEnabled: boolean("email_enabled").notNull().default(false),
+  showTitleInEmail: boolean("show_title_in_email").notNull().default(false),
+  quietStart: varchar("quiet_start"),
+  quietEnd: varchar("quiet_end"),
+  snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PersonalReminder = typeof personalReminders.$inferSelect;
+
+export const personalReminderDeliveries = pgTable("personal_reminder_deliveries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reminderId: varchar("reminder_id").notNull().references(() => personalReminders.id, { onDelete: "cascade" }),
+  dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+  channel: varchar("channel").notNull(),
+  status: varchar("status").notNull().default("pending"),
+  occurrence: varchar("occurrence").notNull().default("due"),
+  offsetDays: integer("offset_days"),
+  errorCode: varchar("error_code"),
+  attempts: integer("attempts").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("personal_reminder_deliveries_once").on(t.reminderId, t.dueAt, t.channel)]);

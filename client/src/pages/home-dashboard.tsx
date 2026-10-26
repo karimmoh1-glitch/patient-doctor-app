@@ -104,8 +104,17 @@ export default function HomeDashboard({ user }: { user: AuthUser }) {
                       </>
                     ) : (
                       <>
-                        <p className="text-lg">{t("home.startFinding")}</p>
-                        <Button asChild size="lg"><Link href="/symptoms"><Search aria-hidden="true" /> {t("home.findDoctor")}</Link></Button>
+                        <p className="text-xl font-semibold">{t("home.noDoctor.title")}</p>
+                        <p className="text-lg">{t("home.noDoctor.body")}</p>
+                        <div className="flex flex-wrap gap-3">
+                          <Button asChild size="lg"><Link href="/symptoms"><Search aria-hidden="true" /> {t("home.noDoctor.find")}</Link></Button>
+                          <Button asChild size="lg" variant="outline"><Link href="/connect">{t("home.noDoctor.code")}</Link></Button>
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <Button asChild size="lg" variant="outline"><Link href="/my-reminders">{t("home.noDoctor.reminders")}</Link></Button>
+                          <Button asChild size="lg" variant="outline"><Link href="/health-profile">{t("home.noDoctor.info")}</Link></Button>
+                        </div>
+                        <p className="text-base text-muted-foreground">{t("home.noDoctor.needs")}</p>
                       </>
                     )}
                   </CardContent>

@@ -54,6 +54,7 @@ const MATRIX: Record<string, string[]> = {
   "/api/health-profile/consent": [P],
   "/api/health-profile/assist": [P],
   "/api/pairing-invitations": [D],
+  "/api/personal-reminders": [P],
   "/api/assist/patients": [D],
   "/api/assist/x": [D],
   "/api/admin/integrations": [A],

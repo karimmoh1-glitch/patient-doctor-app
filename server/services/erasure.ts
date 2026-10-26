@@ -50,6 +50,7 @@ export async function eraseUser(pool: Pool, userId: string, opts: { uploadsDir?:
     await run("assistantMessages", "DELETE FROM ai_messages WHERE user_id = $1");
     await run("notifications", "DELETE FROM notifications WHERE user_id = $1");
     await run("reminders", "DELETE FROM medication_reminders WHERE patient_user_id = $1");
+    await run("personalReminders", "DELETE FROM personal_reminders WHERE patient_user_id = $1");
     await run("sharingGrants", "UPDATE sharing_grants SET revoked_at = COALESCE(revoked_at, now()) WHERE patient_user_id = $1");
     await run("careCircle", "UPDATE care_circle_members SET name = 'Deleted', invite_email = 'deleted@invalid', token_hash = NULL, status = 'revoked' WHERE patient_user_id = $1");
     await run("resetTokens", "DELETE FROM password_reset_tokens WHERE email = (SELECT email FROM users WHERE id = $1)");
