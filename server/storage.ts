@@ -59,6 +59,7 @@ export interface IStorage {
   createAuditLog(data: InsertAuditLog): Promise<AuditLog>;
   getAuditLogsForSubject(subjectUserId: string, limit: number): Promise<AuditLog[]>;
   getRecentAuditLogs(limit: number): Promise<AuditLog[]>;
+  getAuditLogsForTarget(targetType: string, targetId: string): Promise<AuditLog[]>;
 
   updateUserLanguage(userId: string, language: string): Promise<User | undefined>;
   invalidatePasswordResetTokens(email: string): Promise<void>;
@@ -361,6 +362,10 @@ export class DbStorage implements IStorage {
   async createAuditLog(data: InsertAuditLog): Promise<AuditLog> {
     const [log] = await db.insert(auditLogs).values(data).returning();
     return log;
+  }
+
+  async getAuditLogsForTarget(targetType: string, targetId: string): Promise<AuditLog[]> {
+    return db.select().from(auditLogs).where(and(eq(auditLogs.targetType, targetType), eq(auditLogs.targetId, targetId))).orderBy(auditLogs.createdAt);
   }
 
   async getRecentAuditLogs(limit: number): Promise<AuditLog[]> {

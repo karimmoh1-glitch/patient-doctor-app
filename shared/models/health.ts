@@ -16,7 +16,7 @@ export const appointments = pgTable("appointments", {
   pairingRequestId: varchar("pairing_request_id").notNull().references(() => pairingRequests.id),
   patientUserId: varchar("patient_user_id").notNull().references(() => users.id),
   doctorProfileId: varchar("doctor_profile_id").notNull().references(() => doctorProfiles.id),
-  type: varchar("type").notNull().default("Video Visit"), // Video Visit | Phone Call | In-Person
+  type: varchar("type").notNull().default("Phone Call"), // Phone Call | In-Person (Video Visit only once a video provider exists)
   reason: text("reason").notNull(),
   scheduledAt: timestamp("scheduled_at").notNull(),
   durationMinutes: integer("duration_minutes").notNull().default(30),

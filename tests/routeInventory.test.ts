@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { getApp } from "./helpers";
-import { ROUTER_MOUNTS } from "../server/routes";
+import { ROUTER_MOUNTS, RAW_BODY_MOUNTS } from "../server/routes";
 
 let app: Express;
 beforeAll(async () => {
@@ -13,7 +13,7 @@ interface Endpoint { method: string; path: string }
 
 function endpoints(): Endpoint[] {
   const out: Endpoint[] = [];
-  for (const [prefix, router] of ROUTER_MOUNTS) {
+  for (const [prefix, router] of [...ROUTER_MOUNTS, ...RAW_BODY_MOUNTS]) {
     for (const layer of (router as any).stack) {
       if (!layer.route) continue;
       const methods = Object.keys(layer.route.methods).filter((m) => layer.route.methods[m]);
@@ -36,6 +36,7 @@ const PUBLIC: Record<string, string> = {
   "POST /api/auth/reset-password": "single-use emailed token",
   "GET /api/care-circle/invitations/validate/x": "single-use emailed token",
   "POST /api/care-circle/invitations/accept/x": "single-use emailed token",
+  "POST /api/webhooks/resend": "refused without a valid provider signature",
   "GET /api/cron/reminders": "bearer secret",
   "POST /api/cron/reminders": "bearer secret",
 };

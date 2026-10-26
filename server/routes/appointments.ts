@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
+import { runAsSystem } from "../dbContext";
 import { requireApprovedDoctor, requirePatientOrApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
@@ -178,6 +179,27 @@ router.get("/:id", requireAuth, requirePatientOrApprovedDoctor, async (req, res)
     doctor: doctor ? { id: doctor.id, name: doctor.name, specialty: doctor.specialty, bio: doctor.bio } : null,
     patientName: patient?.name || "Patient",
   });
+});
+
+// What happened to this appointment and when, for the two people it concerns. Reads the append-only audit record; who did it is
+// shown as a role ("patient", "doctor"), never a name or an account id.
+router.get("/:id/history", requireAuth, requirePatientOrApprovedDoctor, async (req, res) => {
+  const userId = (req as any).userId as string;
+  const role = (req as any).userRole as string;
+  const appointment = await storage.getAppointment(req.params.id);
+  if (!appointment) return res.status(404).json({ message: "Appointment not found" });
+  if (role === "patient" && appointment.patientUserId !== userId) return res.status(404).json({ message: "Appointment not found" });
+  if (role === "doctor") {
+    const doctorProfile = await storage.getDoctorProfileByUserId(userId);
+    if (!doctorProfile || doctorProfile.id !== appointment.doctorProfileId) return res.status(404).json({ message: "Appointment not found" });
+  }
+  // Authorised above: the audit table itself is not readable by an ordinary person, so this one read is made as the system.
+  const rows = await runAsSystem(() => storage.getAuditLogsForTarget("appointment", appointment.id));
+  const patientId = appointment.patientUserId;
+  const events = rows
+    .filter((r) => r.action.startsWith("appointment.") && r.action !== "appointment.video_joined")
+    .map((r) => ({ action: r.action.slice("appointment.".length), at: r.createdAt, by: r.actorUserId === patientId ? "patient" : "doctor" }));
+  res.json(events);
 });
 
 // Joining a video visit. Today no provider is configured, so this says so

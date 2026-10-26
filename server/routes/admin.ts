@@ -7,6 +7,8 @@ import { logAudit } from "../services/auditService";
 import { reminderHealth } from "../services/reminderService";
 import { normalizeLang } from "../services/serverText";
 import { runAsSystem } from "../dbContext";
+import { integrationRegistry } from "../services/integrations";
+import { emailDeliverySummary } from "../services/emailDeliveries";
 import {
   sendDoctorApplicationApprovedEmail,
   sendDoctorApplicationRejectedEmail,
@@ -173,6 +175,11 @@ router.get("/audit", ...adminOnly, async (req, res) => {
 router.get("/reminders/status", ...adminOnly, async (_req, res) => {
   // Counts only, across everyone's reminders: an operational read, not a view of anyone's record.
   res.json(await runAsSystem(() => reminderHealth()));
+});
+
+// What each external service is really doing, with the evidence behind each status. Counts and times only.
+router.get("/integrations", ...adminOnly, async (_req, res) => {
+  res.json({ integrations: await integrationRegistry(), emailLast7Days: await emailDeliverySummary(7) });
 });
 
 // A clinician who has lost both their phone and their recovery codes. Their second factor is removed and every session

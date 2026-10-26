@@ -162,7 +162,7 @@ export async function dispatchDueReminders(
           const body = reminder.showMedicationName ? text.bodyNamed(medicationName) : text.body;
           let ok = false;
           try {
-            ok = await sendEmail({ to: email, subject: text.subject, body, html: `<p style="font-size:16px;line-height:1.6">${escapeHtml(body)}</p>` });
+            ok = await sendEmail({ to: email, purpose: "medication_reminder", subject: text.subject, body, html: `<p style="font-size:16px;line-height:1.6">${escapeHtml(body)}</p>` });
           } catch (err: any) {
             console.error("[reminders] email send threw:", err?.name);
           }

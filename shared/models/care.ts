@@ -206,3 +206,22 @@ export const userBlocks = pgTable("user_blocks", {
   blockedUserId: varchar("blocked_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.blockerUserId, t.blockedUserId] })]);
+
+export const emailDeliveries = pgTable("email_deliveries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  provider: text("provider").notNull().default("resend"),
+  providerMessageId: text("provider_message_id").notNull(),
+  purpose: text("purpose").notNull(),
+  recipientHash: text("recipient_hash").notNull(),
+  status: text("status").notNull().default("accepted"), // accepted | delayed | delivered | bounced | complained | failed
+  statusDetail: text("status_detail"),
+  lastEventId: text("last_event_id"),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+  statusAt: timestamp("status_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type EmailDelivery = typeof emailDeliveries.$inferSelect;
+
+export const emailWebhookEvents = pgTable("email_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+});

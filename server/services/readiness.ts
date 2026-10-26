@@ -26,6 +26,7 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
   add("app-url", /^https:\/\//.test(env.APP_URL ?? ""), "fail", "APP_URL is https", "APP_URL is missing or not https (links in emails would be unsafe)");
   add("cron-secret", (env.CRON_SECRET ?? "").length >= 24, "fail", "CRON_SECRET is set", "CRON_SECRET is missing or short: reminders cannot be delivered");
   add("email", !!env.RESEND_API_KEY, "warn", "An email provider is configured", "No email provider: password resets and email reminders cannot be sent");
+  add("email-receipts", !!env.RESEND_WEBHOOK_SECRET, "warn", "E-mail delivery reports are accepted (webhook secret set)", "No RESEND_WEBHOOK_SECRET: Avela can say only that e-mail was accepted, never that it was delivered or bounced");
   add("support", !!(env.SUPPORT_PHONE || env.SUPPORT_EMAIL), "warn", "A support contact is published", "No support phone or email is configured; the Help page says nobody can be reached");
   add("emergency-number", !!(env.EMERGENCY_NUMBER || env.VITE_EMERGENCY_NUMBER), "fail", "An emergency number is configured for this deployment's jurisdiction (it must still be reviewed by a person)", "EMERGENCY_NUMBER is not set: emergency controls say \"your local emergency number\" and offer no dial link until the jurisdiction's number is confirmed and configured");
 

@@ -218,5 +218,14 @@ const t: Partial<Record<Key, string>> = {
   "pt.slot.timesOn": "الأوقات يوم {date}",
   "pt.slot.zone": "تظهر الأوقات بحسب منطقتك الزمنية ({zone}).",
   "pt.slot.doctorZone": "المنطقة الزمنية لدى {name}: {zone}.",
+  "pt.apptd.history": "ما حدث لهذه الزيارة",
+  "pt.apptd.history.item": "{when}: {what} {who}",
+  "pt.apptd.history.requested": "طُلبت",
+  "pt.apptd.history.confirmed": "تم تأكيدها",
+  "pt.apptd.history.rescheduled": "نُقلت إلى موعد جديد",
+  "pt.apptd.history.cancelled": "أُلغيت",
+  "pt.apptd.history.completed": "اكتملت",
+  "pt.apptd.history.by.patient": "من قِبلك",
+  "pt.apptd.history.by.doctor": "من قِبل الطبيب",
 };
 export default t;

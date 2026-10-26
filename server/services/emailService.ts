@@ -1,10 +1,13 @@
 import { Resend } from "resend";
+import { recordAccepted } from "./emailDeliveries";
 
 export interface EmailMessage {
   to: string;
   subject: string;
   body: string;
   html?: string;
+  /** Why this message exists (never its content): recorded with the provider's id as delivery evidence. */
+  purpose?: string;
 }
 
 // Every value interpolated into email HTML goes through this tagged
@@ -130,6 +133,7 @@ export async function sendEmail(msg: EmailMessage): Promise<boolean> {
       return false;
     }
     console.log("[EMAIL SENT] ID: " + (result.data?.id || "unknown"));
+    if (result.data?.id) await recordAccepted({ providerMessageId: result.data.id, purpose: msg.purpose ?? "other", to: msg.to });
     return true;
   } catch (err: any) {
     console.error("[EMAIL ERROR]", err?.name);
@@ -176,7 +180,7 @@ const toSpec = (m: Message): Spec => ({ subject: m.subject, heading: m.heading, 
 
 // Every value placed in the HTML is escaped, so a name or a reviewer's message
 // can never become a working link or markup in someone's inbox.
-async function deliver(to: string, lang: Lang, name: string | null, spec: Spec): Promise<boolean> {
+async function deliver(to: string, lang: Lang, name: string | null, spec: Spec, purpose: string): Promise<boolean> {
   const hi = name ? T[lang].hi(name) : "";
   const intro = hi ? `<p style="margin:0 0 12px;color:#3f3f46;font-size:16px;line-height:1.7">${escapeHtml(hi)}</p>` : "";
   const paras = spec.paragraphs.map((p) => `<p style="margin:0 0 12px;color:#3f3f46;font-size:16px;line-height:1.7">${escapeHtml(p)}</p>`).join("");
@@ -185,11 +189,11 @@ async function deliver(to: string, lang: Lang, name: string | null, spec: Spec):
     : "";
   const html = emailWrapper(escapeHtml(spec.heading), intro + paras + cta, lang);
   const text = [hi, ...spec.paragraphs, spec.cta ? `${spec.cta.label}: ${spec.cta.href}` : ""].filter(Boolean).join("\n\n");
-  return sendEmail({ to, subject: spec.subject, body: text, html });
+  return sendEmail({ to, subject: spec.subject, body: text, html, purpose });
 }
 
 export async function sendDoctorApplicationReceivedEmail(email: string, name: string, lang: Lang = "en"): Promise<void> {
-  await deliver(email, lang, name, toSpec(T[lang].received));
+  await deliver(email, lang, name, toSpec(T[lang].received), "doctor_application_received");
 }
 
 export async function sendNewDoctorApplicationAdminEmail(adminEmail: string, applicantName: string, specialty: string): Promise<void> {
@@ -197,37 +201,37 @@ export async function sendNewDoctorApplicationAdminEmail(adminEmail: string, app
     subject: `New doctor application: ${applicantName}`,
     heading: "New doctor application",
     paragraphs: [`${applicantName} applied to join as a ${specialty} doctor. Review it from the admin dashboard.`],
-  });
+  }, "new_doctor_application_admin");
 }
 
 export async function sendDoctorApplicationApprovedEmail(email: string, name: string, lang: Lang = "en"): Promise<void> {
-  await deliver(email, lang, name, toSpec(T[lang].approved));
+  await deliver(email, lang, name, toSpec(T[lang].approved), "doctor_application_approved");
 }
 
 export async function sendDoctorApplicationRejectedEmail(email: string, name: string, reason?: string, lang: Lang = "en"): Promise<void> {
-  await deliver(email, lang, name, toSpec(T[lang].rejected(reason)));
+  await deliver(email, lang, name, toSpec(T[lang].rejected(reason)), "doctor_application_rejected");
 }
 
 export async function sendDoctorInfoRequestedEmail(email: string, name: string, message: string, lang: Lang = "en"): Promise<void> {
-  await deliver(email, lang, name, toSpec(T[lang].info(message)));
+  await deliver(email, lang, name, toSpec(T[lang].info(message)), "doctor_info_requested");
 }
 
 export async function sendDoctorSuspendedEmail(email: string, name: string, lang: Lang = "en"): Promise<void> {
-  await deliver(email, lang, name, toSpec(T[lang].suspended));
+  await deliver(email, lang, name, toSpec(T[lang].suspended), "doctor_suspended");
 }
 
 export async function sendPasswordResetEmail(email: string, name: string, resetLink: string, lang: Lang = "en"): Promise<void> {
-  await deliver(email, lang, name, toSpec(T[lang].reset(resetLink)));
+  await deliver(email, lang, name, toSpec(T[lang].reset(resetLink)), "password_reset");
 }
 
 export async function sendPairingRequestedEmail(doctorEmail: string, doctorName: string, patientName: string, lang: Lang = "en"): Promise<void> {
-  await deliver(doctorEmail, lang, doctorName, toSpec(T[lang].pairingRequested(patientName)));
+  await deliver(doctorEmail, lang, doctorName, toSpec(T[lang].pairingRequested(patientName)), "pairing_requested");
 }
 
 export async function sendPairingAcceptedEmail(patientEmail: string, patientName: string, doctorName: string, lang: Lang = "en"): Promise<void> {
-  await deliver(patientEmail, lang, patientName, toSpec(T[lang].pairingAccepted(doctorName)));
+  await deliver(patientEmail, lang, patientName, toSpec(T[lang].pairingAccepted(doctorName)), "pairing_accepted");
 }
 
 export async function sendCareCircleInviteEmail(inviteeEmail: string, inviteeName: string, patientName: string, inviteLink: string, lang: Lang = "en"): Promise<boolean> {
-  return deliver(inviteeEmail, lang, inviteeName, toSpec(T[lang].invite(patientName, inviteLink)));
+  return deliver(inviteeEmail, lang, inviteeName, toSpec(T[lang].invite(patientName, inviteLink)), "care_circle_invite");
 }

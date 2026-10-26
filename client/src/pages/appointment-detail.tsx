@@ -36,6 +36,25 @@ const WHEN_STATUS: Record<string, MessageKey> = {
   confirmed: "pt.apptd.when.confirmed",
 };
 
+function History({ id }: { id: string }) {
+  const { t } = useI18n();
+  const query = useQuery<{ action: string; at: string; by: "patient" | "doctor" }[]>({ queryKey: [`/api/appointments/${id}/history`] });
+  const events = query.data ?? [];
+  if (events.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader><CardTitle as="h2" className="text-2xl">{t("pt.apptd.history")}</CardTitle></CardHeader>
+      <CardContent>
+        <ol className="space-y-2 text-lg">
+          {events.map((e, i) => (
+            <li key={i}>{t("pt.apptd.history.item", { when: formatDateTime(e.at), what: t(`pt.apptd.history.${e.action}` as MessageKey), who: t(`pt.apptd.history.by.${e.by}` as MessageKey) })}</li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AppointmentDetail({ id }: { id: string }) {
   const { t } = useI18n();
   const { toast } = useToast();
@@ -172,6 +191,7 @@ export default function AppointmentDetail({ id }: { id: string }) {
               ) : (
                 <p className="rounded-xl border-2 border-input bg-card p-4 text-lg">{t("pt.apptd.cancelled")}</p>
               )}
+              <History id={id} />
             </>
           );
         }}

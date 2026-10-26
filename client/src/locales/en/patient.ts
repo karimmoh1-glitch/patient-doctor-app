@@ -216,4 +216,13 @@ export default {
   "pt.slot.timesOn": "Times on {date}",
   "pt.slot.zone": "Times are shown in your time zone ({zone}).",
   "pt.slot.doctorZone": "{name} works in {zone}.",
+  "pt.apptd.history": "What happened to this visit",
+  "pt.apptd.history.item": "{when}: {what} {who}",
+  "pt.apptd.history.requested": "Requested",
+  "pt.apptd.history.confirmed": "Confirmed",
+  "pt.apptd.history.rescheduled": "Moved to a new time",
+  "pt.apptd.history.cancelled": "Cancelled",
+  "pt.apptd.history.completed": "Completed",
+  "pt.apptd.history.by.patient": "by you",
+  "pt.apptd.history.by.doctor": "by the doctor",
 } as const;

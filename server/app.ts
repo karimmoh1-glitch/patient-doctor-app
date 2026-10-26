@@ -9,7 +9,7 @@ import "express-async-errors";
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import { createServer, type Server } from "http";
-import { registerRoutes } from "./routes";
+import { registerRoutes, RAW_BODY_MOUNTS } from "./routes";
 import { schedulerSnapshot } from "./services/reminderService";
 import { makeLimiter } from "./middleware/rateLimit";
 
@@ -103,6 +103,7 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
     }
   });
 
+  for (const [prefix, router] of RAW_BODY_MOUNTS) app.use(prefix, router);
   app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: false }));
 

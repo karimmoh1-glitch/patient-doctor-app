@@ -42,7 +42,7 @@ export async function pingHeartbeat(ok: boolean): Promise<"sent" | "not_configur
 export async function emailOpsAlert(subject: string, lines: string[]): Promise<boolean> {
   const to = process.env.OPS_ALERT_EMAIL?.trim();
   if (!to) return false;
-  return sendEmail({ to, subject: `[Avela] ${subject}`, body: lines.join("\n") });
+  return sendEmail({ to, subject: `[Avela] ${subject}`, body: lines.join("\n"), purpose: "ops_alert" });
 }
 
 /**

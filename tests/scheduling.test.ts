@@ -110,6 +110,51 @@ describe("booking", () => {
     expect(live.filter((x) => x.scheduledAt.toISOString() === slot)).toHaveLength(1);
   });
 
+  it("lets exactly one of many simultaneous requests win a slot, and one of many reschedules win another", async () => {
+    const doctor = await createDoctor();
+    await publish(doctor);
+    const patients = await Promise.all(Array.from({ length: 8 }, () => signupPatient()));
+    const pairings = await Promise.all(patients.map(async (p) => (await connect(p, doctor)).pairingId));
+    const slots = (await slotsFor(patients[0], pairings[0])).slots;
+
+    const race = await Promise.all(patients.map((p, i) => book(p, pairings[i], slots[30])));
+    expect(race.filter((r) => r.status === 201)).toHaveLength(1);
+    expect(race.filter((r) => r.status === 409)).toHaveLength(7);
+
+    // Seven people who lost move to different free slots at once, and all but the contested one succeed; then they all
+    // try to move to a single slot and exactly one does.
+    const losers = patients.filter((_, i) => race[i].status === 409);
+    const own = await Promise.all(losers.map((p, i) => book(p, pairings[patients.indexOf(p)], slots[40 + i * 2])));
+    expect(own.every((r) => r.status === 201)).toBe(true);
+    const target = slots[70];
+    const moves = await Promise.all(own.map((r, i) => request(app).patch(`/api/appointments/${r.body.id}/reschedule`).set(auth(losers[i].token)).send({ scheduledAt: target })));
+    expect(moves.filter((r) => r.status === 200)).toHaveLength(1);
+    const live = (await storage.getAppointmentsByDoctorProfile(doctor.profileId)).filter((x) => x.status !== "cancelled");
+    expect(live.filter((x) => x.scheduledAt.toISOString() === target)).toHaveLength(1);
+    expect(new Set(live.map((x) => x.scheduledAt.toISOString())).size).toBe(live.length); // no two live visits share a start
+  });
+
+  it("keeps a history of what happened, visible to the two people involved and to no one else", async () => {
+    const doctor = await createDoctor();
+    await publish(doctor);
+    const patient = await signupPatient();
+    const stranger = await signupPatient();
+    const { pairingId } = await connect(patient, doctor);
+    const slots = (await slotsFor(patient, pairingId)).slots;
+    const made = await book(patient, pairingId, slots[12]);
+    await request(app).patch(`/api/appointments/${made.body.id}/confirm`).set(auth(doctor.token));
+    await request(app).patch(`/api/appointments/${made.body.id}/reschedule`).set(auth(patient.token)).send({ scheduledAt: slots[14] });
+    await request(app).patch(`/api/appointments/${made.body.id}/cancel`).set(auth(doctor.token));
+
+    const mine = await request(app).get(`/api/appointments/${made.body.id}/history`).set(auth(patient.token));
+    expect(mine.status).toBe(200);
+    expect(mine.body.map((e: any) => `${e.by}:${e.action}`)).toEqual(["patient:requested", "doctor:confirmed", "patient:rescheduled", "doctor:cancelled"]);
+    expect(JSON.stringify(mine.body)).not.toContain(patient.id);
+    expect((await request(app).get(`/api/appointments/${made.body.id}/history`).set(auth(doctor.token))).status).toBe(200);
+    expect((await request(app).get(`/api/appointments/${made.body.id}/history`).set(auth(stranger.token))).status).toBe(404);
+    expect((await request(app).get(`/api/appointments/${made.body.id}/history`)).status).toBe(401);
+  });
+
   it("rejects times that are not offered: off-grid, past, and outside working hours", async () => {
     const doctor = await createDoctor();
     await request(app)

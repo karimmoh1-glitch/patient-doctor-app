@@ -28,6 +28,7 @@ const Welcome = lazy(() => import("@/pages/welcome"));
 const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
+const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
 const AdminDashboard = lazy(() => import("@/pages/admin-dashboard"));
 const DoctorHome = lazy(() => import("@/pages/doctor-home"));
 const DoctorRequests = lazy(() => import("@/pages/doctor-requests"));
@@ -355,6 +356,9 @@ function AppContent() {
 
       <Route path="/admin/activity">
         <Gate user={user} role="admin" {...shellProps}><AdminActivity /></Gate>
+      </Route>
+      <Route path="/admin/integrations">
+        <Gate user={user} role="admin" {...shellProps}><AdminIntegrations /></Gate>
       </Route>
       <Route path="/admin">
         <Gate user={user} role="admin" {...shellProps}><AdminDashboard /></Gate>

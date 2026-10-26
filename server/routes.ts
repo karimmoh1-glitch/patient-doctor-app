@@ -20,6 +20,7 @@ import auditRoutes from "./routes/audit";
 import reminderRoutes from "./routes/reminders";
 import notificationRoutes from "./routes/notifications";
 import cronRoutes from "./routes/cron";
+import webhookRoutes from "./routes/webhooks";
 import configRoutes from "./routes/config";
 import meRoutes from "./routes/me";
 
@@ -50,6 +51,9 @@ export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
   ["/api/cron", cronRoutes],
   ["/api/me", meRoutes],
 ];
+
+/** Mounted BEFORE the JSON body parser: a provider's signature covers the exact bytes it sent. */
+export const RAW_BODY_MOUNTS: [string, Router][] = [["/api/webhooks", webhookRoutes]];
 
 export async function registerRoutes(_httpServer: Server, app: Express): Promise<void> {
   for (const [prefix, router] of ROUTER_MOUNTS) app.use(prefix, router);
