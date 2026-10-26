@@ -35,7 +35,7 @@ test.describe("prescriptions and reminders", () => {
     await expect(dialog).toContainText("can't be edited");
     await expect(dialog).toContainText("not sent to a pharmacy");
     await dialog.getByRole("button", { name: "Yes, I have reviewed it. Authorize" }).click();
-    await expect(doctor.page.getByText("Prescription authorized")).toBeVisible();
+    await expect(doctor.page.getByText("Prescription authorized").first()).toBeVisible();
 
     // Now the patient sees it: authorized, by whom, and plainly NOT sent to a pharmacy.
     await patient.page.reload();
@@ -52,7 +52,7 @@ test.describe("prescriptions and reminders", () => {
     await medCard.getByRole("button", { name: /Set a reminder/ }).click();
     await medCard.getByLabel("Reminder time 1").fill("07:30");
     await medCard.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(patient.page.getByText("Reminder saved")).toBeVisible();
+    await expect(patient.page.getByText("Reminder saved").first()).toBeVisible();
     await expect(medCard).toContainText("Reminders are on");
     await expect(medCard).toContainText("7:30");
     // The medicine's name is not shown in reminders unless the patient asks.

@@ -63,7 +63,7 @@ test.describe("an older patient's first week", () => {
     await dialog.getByLabel("What is the visit about?").fill("My cough is not going away");
     await dialog.getByRole("button", { name: "Request this time" }).click();
 
-    await expect(page.getByText(/still needs to confirm/)).toBeVisible();
+    await expect(page.getByText(/still needs to confirm/).first()).toBeVisible();
     const card = page.locator("div", { hasText: "My cough is not going away" }).filter({ has: page.getByRole("button", { name: "Change time" }) }).last();
     await expect(card.getByText("Waiting for the doctor to confirm this time.")).toBeVisible();
 
@@ -74,7 +74,7 @@ test.describe("an older patient's first week", () => {
     await expect(doctor.page.getByRole("button", { name: "Confirm" })).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByText("The doctor has confirmed this time.")).toBeVisible();
+    await expect(page.getByText("The doctor has confirmed this time.").first()).toBeVisible();
 
     // --- Change the time: the doctor must reconfirm, and the patient is told so ---
     await page.getByRole("button", { name: "Change time" }).click();

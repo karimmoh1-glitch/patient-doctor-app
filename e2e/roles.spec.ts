@@ -68,7 +68,7 @@ test.describe("doctor", () => {
     await expect(page.getByText(/patients can't book a visit with you/)).toBeVisible();
     await page.getByRole("button", { name: /Add hours on Monday/ }).click();
     await page.getByRole("button", { name: "Save my hours" }).click();
-    await expect(page.getByText("Your hours are saved")).toBeVisible();
+    await expect(page.getByText("Your hours are saved").first()).toBeVisible();
 
     await page.reload();
     await expect(page.getByLabel("From").first()).toHaveValue("09:00");
