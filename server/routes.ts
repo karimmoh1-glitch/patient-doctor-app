@@ -21,6 +21,8 @@ import reminderRoutes from "./routes/reminders";
 import notificationRoutes from "./routes/notifications";
 import cronRoutes from "./routes/cron";
 import webhookRoutes from "./routes/webhooks";
+import healthProfileRoutes from "./routes/healthProfile";
+import assistedProfileRoutes from "./routes/assistedProfile";
 import configRoutes from "./routes/config";
 import meRoutes from "./routes/me";
 
@@ -50,6 +52,8 @@ export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
   ["/api/notifications", notificationRoutes],
   ["/api/cron", cronRoutes],
   ["/api/me", meRoutes],
+  ["/api/health-profile", healthProfileRoutes],
+  ["/api/assist", assistedProfileRoutes],
 ];
 
 /** Mounted BEFORE the JSON body parser: a provider's signature covers the exact bytes it sent. */

@@ -1,10 +1,15 @@
 import { Link } from "wouter";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { Pill, ClipboardList, History, FileText, Users, ShieldCheck, ChevronRight } from "lucide-react";
+import { Pill, ClipboardList, History, FileText, Users, ShieldCheck, ChevronRight, HeartPulse } from "lucide-react";
 
 type Icon = React.ComponentType<{ className?: string }>;
 
 const SECTIONS: { id: string; headingKey: MessageKey; items: { href: string; labelKey: MessageKey; hintKey: MessageKey; icon: Icon }[] }[] = [
+  {
+    id: "mine",
+    headingKey: "myhealth.sec.mine",
+    items: [{ href: "/health-profile", labelKey: "hp.title", hintKey: "myhealth.hint.profileInfo", icon: HeartPulse }],
+  },
   {
     id: "medicines",
     headingKey: "myhealth.sec.medicines",

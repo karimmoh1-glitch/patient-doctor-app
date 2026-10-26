@@ -29,6 +29,8 @@ const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
+const DoctorAssist = lazy(() => import("@/pages/doctor-assist"));
+const HealthProfile = lazy(() => import("@/pages/health-profile"));
 const AdminCredentials = lazy(() => import("@/pages/admin-credentials"));
 const AdminDashboard = lazy(() => import("@/pages/admin-dashboard"));
 const DoctorHome = lazy(() => import("@/pages/doctor-home"));
@@ -291,6 +293,9 @@ function AppContent() {
       <Route path="/profile">
         {user?.role === "patient" ? <Authenticated user={user} {...shellProps}><Profile user={user} /></Authenticated> : <Blocked user={user} />}
       </Route>
+      <Route path="/health-profile/:section?">
+        {(params) => <Gate user={user} role="patient" {...shellProps}><HealthProfile section={params.section} /></Gate>}
+      </Route>
       <Route path="/my-health">
         <Gate user={user} role="patient" {...shellProps}><MyHealth /></Gate>
       </Route>
@@ -329,6 +334,9 @@ function AppContent() {
 
       <Route path="/doctor/requests">
         <DoctorGate user={user} {...shellProps}><DoctorRequests /></DoctorGate>
+      </Route>
+      <Route path="/doctor/assist/:patientUserId?">
+        {(params) => <DoctorGate user={user} {...shellProps}><DoctorAssist patientUserId={params.patientUserId} /></DoctorGate>}
       </Route>
       <Route path="/doctor/patients/:pairingId">
         {(params) => <DoctorGate user={user} {...shellProps}><DoctorPatientWorkspace pairingId={params.pairingId} /></DoctorGate>}

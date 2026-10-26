@@ -54,8 +54,17 @@ export async function eraseUser(pool: Pool, userId: string, opts: { uploadsDir?:
     await run("careCircle", "UPDATE care_circle_members SET name = 'Deleted', invite_email = 'deleted@invalid', token_hash = NULL, status = 'revoked' WHERE patient_user_id = $1");
     await run("resetTokens", "DELETE FROM password_reset_tokens WHERE email = (SELECT email FROM users WHERE id = $1)");
     await run("sessions", "UPDATE user_devices SET revoked_at = COALESCE(revoked_at, now()), name = NULL WHERE user_id = $1");
+    // What the patient wrote about their own health is erased (the entry keeps its kind, author and time, with a tombstone).
+    // What a clinician entered is kept, like other clinician-authored records (see above).
+    await run("healthEntries", `UPDATE health_entries SET data = '{"erased": true}'::jsonb, dispute_note = NULL WHERE patient_user_id = $1 AND source = 'patient_reported'`);
+    await run("healthEntryEvents", `UPDATE health_entry_events SET data = NULL, note = '[erased]' WHERE entry_id IN (SELECT id FROM health_entries WHERE patient_user_id = $1 AND source = 'patient_reported')`);
+    await run("allergyStatements", "DELETE FROM allergy_statements WHERE patient_user_id = $1");
+    await run("onboardingSections", "DELETE FROM onboarding_sections WHERE patient_user_id = $1");
+    await run("assistGrants", "UPDATE assist_grants SET revoked_at = COALESCE(revoked_at, now()) WHERE patient_user_id = $1");
     await run("account", `UPDATE users SET name = 'Deleted user', email = $2, password_hash = $3, phone = NULL, state = NULL,
         emergency_contact_name = NULL, emergency_contact_phone = NULL, allergies_text = NULL, emergency_notes = NULL,
+        date_of_birth = NULL, preferred_name = NULL, accessibility_notes = NULL, country = NULL, contact_method = NULL,
+        emergency_contact_relationship = NULL, care_preferences = '{}'::jsonb,
         deactivated_at = COALESCE(deactivated_at, now()) WHERE id = $1`,
       [userId, `deleted-${userId}@invalid.example`, crypto.randomBytes(32).toString("hex")]);
     await run("dataRequests", "UPDATE data_requests SET status = 'done', completed_at = now() WHERE user_id = $1 AND kind = 'deletion' AND status = 'open'");

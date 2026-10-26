@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, index, integer, jsonb, pgTable, text, timestamp, varchar, boolean } from "drizzle-orm/pg-core";
+import { bigint, date, index, integer, jsonb, pgTable, text, timestamp, varchar, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -29,6 +29,15 @@ export const users = pgTable("users", {
   emergencyContactPhone: varchar("emergency_contact_phone"),
   allergiesText: text("allergies_text"),
   emergencyNotes: text("emergency_notes"),
+  emergencyContactRelationship: text("emergency_contact_relationship"),
+  // Collected separately from language: a person who reads Arabic may live in either country.
+  country: varchar("country", { length: 2 }), // EG | US
+  dateOfBirth: date("date_of_birth"),
+  preferredName: text("preferred_name"),
+  contactMethod: varchar("contact_method"), // email | phone | in_app
+  accessibilityNotes: text("accessibility_notes"),
+  // Optional: { preferredClinic, appointmentFormat, caregiverNote }. Preferences only; they grant nobody anything.
+  carePreferences: jsonb("care_preferences").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at").defaultNow(),
   // Null = active. Set = blocked from login and every authenticated
   // request, checked live on every request (not just at next login).

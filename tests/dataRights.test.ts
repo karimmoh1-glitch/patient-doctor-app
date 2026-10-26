@@ -6,6 +6,7 @@ import { storage } from "../server/storage";
 import pg from "pg";
 import { pool } from "../server/db";
 import { eraseUser } from "../server/services/erasure";
+import { CONSENT_VERSION } from "../server/services/healthProfile";
 
 // Erasure is an operator action (`npm run erase:user`) that runs with the owner connection, never through the
 // application's restricted role, which cannot edit a sent message by design.
@@ -115,6 +116,33 @@ describe("erasing a person's records (an operator's job)", () => {
     // The authorized prescription still exists, immutable, now attached to an anonymous account.
     expect((await storage.getPrescription(rx.id))!.medicationName).toBe("Visible Medicine");
     expect((await pool.query("SELECT status FROM data_requests WHERE user_id = $1", [patient.id])).rows[0].status).toBe("done");
+  });
+
+  it("downloads, and then erases, health information: what the patient wrote goes, what a clinician entered stays", async () => {
+    const patient = await signupPatient({ name: "Health Erasable" });
+    const doctor = await createDoctor({ name: "Dr. Helper" });
+    await connect(patient, doctor);
+    const mine = { Authorization: `Bearer ${patient.token}` };
+    await request(app).post("/api/health-profile/consent").set(mine).send({ version: CONSENT_VERSION });
+    await request(app).put("/api/health-profile/basic").set(mine).send({ dateOfBirth: "1950-01-02", country: "EG", accessibilityNotes: "Large print" });
+    const own = (await request(app).post("/api/health-profile/entries").set(mine).send({ kind: "condition", data: { name: "Private condition" } })).body;
+    const grant = await request(app).post("/api/health-profile/assist").set(mine).send({ doctorProfileId: doctor.profileId, days: 5 });
+    const theirs = (await request(app).post(`/api/assist/${patient.id}/entries`).set(auth(doctor.token)).send({ kind: "condition", data: { name: "Clinician recorded" } })).body;
+
+    const exported = (await request(app).get("/api/me/export").set(mine)).body.healthInformation;
+    expect(exported.about).toMatchObject({ dateOfBirth: "1950-01-02", country: "EG" });
+    expect(exported.entries.map((e: any) => `${e.source}:${e.data.name}`).sort()).toEqual(["clinician_entered:Clinician recorded", "patient_reported:Private condition"]);
+    expect(exported.consents[0]).toMatchObject({ version: CONSENT_VERSION });
+    expect(exported.clinicianHelp[0].state).toBe("active");
+
+    await eraseUser(ownerPool, patient.id);
+    const rows = (await pool.query("SELECT id, data, source FROM health_entries WHERE patient_user_id = $1", [patient.id])).rows;
+    expect(rows.find((r) => r.id === own.id).data).toEqual({ erased: true });
+    expect(rows.find((r) => r.id === theirs.id).data).toMatchObject({ name: "Clinician recorded" });
+    expect((await pool.query("SELECT data, note FROM health_entry_events WHERE entry_id = $1", [own.id])).rows.every((r) => r.data === null && r.note === "[erased]")).toBe(true);
+    const u = (await pool.query("SELECT date_of_birth, country, accessibility_notes FROM users WHERE id = $1", [patient.id])).rows[0];
+    expect(u).toEqual({ date_of_birth: null, country: null, accessibility_notes: null });
+    expect((await pool.query("SELECT revoked_at FROM assist_grants WHERE id = $1", [grant.body.id])).rows[0].revoked_at).not.toBeNull();
   });
 
   it("refuses to run for a person who does not exist, and changes nothing", async () => {

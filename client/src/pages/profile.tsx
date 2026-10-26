@@ -73,10 +73,7 @@ function EmergencyInfoForm() {
             <Label htmlFor="ec-phone" className="text-base">{t("profile.emergency.phoneLabel")}</Label>
             <Input id="ec-phone" type="tel" dir="ltr" className="rtl:text-end" value={form.emergencyContactPhone ?? ""} onChange={(e) => setForm((f) => ({ ...f, emergencyContactPhone: e.target.value }))} />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="ec-allergies" className="text-base">{t("profile.emergency.allergies")}</Label>
-            <Textarea id="ec-allergies" rows={2} value={form.allergiesText ?? ""} onChange={(e) => setForm((f) => ({ ...f, allergiesText: e.target.value }))} />
-          </div>
+          <p className="text-base text-muted-foreground">{t("hp.profile.allergiesMoved")} <Link href="/health-profile/allergies" className="font-medium text-primary underline underline-offset-4">{t("hp.profile.allergiesLink")}</Link></p>
           <div className="space-y-2">
             <Label htmlFor="ec-notes" className="text-base">{t("profile.emergency.notes")}</Label>
             <Textarea id="ec-notes" rows={3} value={form.emergencyNotes ?? ""} onChange={(e) => setForm((f) => ({ ...f, emergencyNotes: e.target.value }))} />

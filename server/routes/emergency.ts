@@ -30,10 +30,13 @@ router.put("/", requireAuth, requireRole("patient"), async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Invalid emergency profile" });
 
+  // Allergies live in the health profile, with who said what; this older free-text field is no longer written to,
+  // so an old client cannot wipe it (and nothing new is stored in it).
+  const current = await storage.getUser(userId);
   const updated = await storage.updateEmergencyProfile(userId, {
     emergencyContactName: parsed.data.emergencyContactName || null,
     emergencyContactPhone: parsed.data.emergencyContactPhone || null,
-    allergiesText: parsed.data.allergiesText || null,
+    allergiesText: current?.allergiesText ?? null,
     emergencyNotes: parsed.data.emergencyNotes || null,
   });
   await logAudit({ actorUserId: userId, action: "emergency_profile.updated", targetType: "user", targetId: userId });

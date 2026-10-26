@@ -1,6 +1,7 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { exportProfile } from "../services/healthProfile";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { makeLimiter, userKey } from "../middleware/rateLimit";
@@ -70,6 +71,7 @@ router.get("/export", requireAuth, requireRole("patient"), exportLimiter, async 
     followUpTasks: followUps.map((f) => ({ title: f.title, detail: f.detail, due: f.dueDate, status: f.status })),
     whoCanSeeWhat: grants.map((g) => ({ shared: { medicines: g.shareMedications, documents: g.shareDocuments, appointments: g.shareAppointments, everything: g.shareFullHistory }, since: g.grantedAt, endedAt: g.revokedAt })),
     careCircle: circle.map((c) => ({ name: c.name, relationship: c.relationshipLabel, status: c.status })),
+    healthInformation: await exportProfile(userId),
     assistantConversation: ai.map((m) => ({ role: m.role, text: m.content, at: m.createdAt })),
   });
 });

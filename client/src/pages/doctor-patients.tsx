@@ -22,6 +22,7 @@ export default function DoctorPatients() {
       <div>
         <h1 className="text-2xl font-semibold">{t("nav.d.patients")}</h1>
         <p className="text-sm text-muted-foreground">{t("dpat.subtitle")}</p>
+        <p className="mt-2"><Link href="/doctor/assist" className="font-medium text-primary underline underline-offset-4">{t("hp.doc.link")}</Link></p>
       </div>
 
       {isLoading && <p className="text-muted-foreground">{t("common.loading")}</p>}

@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import EmergencyAction from "@/components/emergency-action";
 import { useEmergency } from "@/lib/emergency";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { Ltr } from "@/components/ltr";
 
 interface Pairing {
@@ -39,8 +39,11 @@ export default function Sos() {
 
   const { data: pairings } = useQuery<Pairing[]>({ queryKey: ["/api/pairings"] });
   const { data: profile } = useQuery<EmergencyProfile>({ queryKey: ["/api/emergency-profile"] });
+  const { data: health } = useQuery<{ allergy: { picture: "not_collected" | "has_known" | "none_known" | "unknown" } }>({ queryKey: ["/api/health-profile"] });
+  const { data: allergies } = useQuery<{ id: string; data: Record<string, string>; verified: unknown }[]>({ queryKey: ["/api/health-profile/entries?kind=allergy"] });
   const connected = pairings?.filter((p) => p.status === "accepted") ?? [];
-  const hasInfo = !!(profile?.emergencyContactName || profile?.allergiesText || profile?.emergencyNotes);
+  const allergyPicture = health?.allergy.picture ?? "not_collected";
+  const hasInfo = !!(profile?.emergencyContactName || allergyPicture !== "not_collected" || profile?.emergencyNotes);
 
   // Location is only read when the person taps the button, and only goes
   // anywhere if they then choose to send a message.
@@ -118,7 +121,15 @@ export default function Sos() {
           ) : (
             <dl className="space-y-3">
               {profile?.emergencyContactName && (<div><dt className="font-semibold">{t("pt.sos.emContact")}</dt><dd>{profile.emergencyContactName}{profile.emergencyContactPhone ? <> · <Ltr>{profile.emergencyContactPhone}</Ltr></> : ""}</dd></div>)}
-              {profile?.allergiesText && (<div><dt className="font-semibold">{t("pt.sos.allergies")}</dt><dd>{profile.allergiesText}</dd></div>)}
+              {allergyPicture !== "not_collected" && (
+                <div>
+                  <dt className="font-semibold">{t("pt.sos.allergies")}</dt>
+                  <dd>
+                    {allergyPicture === "has_known" ? (allergies ?? []).map((a) => a.data.substance).join(", ") : t(`hp.sos.allergy.${allergyPicture}` as MessageKey)}
+                    {allergyPicture === "has_known" && <span className="block text-base text-muted-foreground">{(allergies ?? []).every((a) => !!a.verified) ? t("hp.sos.checked") : t("hp.sos.notChecked")}</span>}
+                  </dd>
+                </div>
+              )}
               {profile?.emergencyNotes && (<div><dt className="font-semibold">{t("pt.sos.notes")}</dt><dd>{profile.emergencyNotes}</dd></div>)}
             </dl>
           )}
