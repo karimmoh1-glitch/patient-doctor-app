@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
-import { getApp, signupPatient, createAdmin, connect, auth, uniqueEmail, PASSWORD, prescriptionBody, signIn, completeSecondFactor } from "./helpers";
+import { getApp, signupPatient, createAdmin, connect, auth, uniqueEmail, PASSWORD, prescriptionBody, signIn, completeSecondFactor, APPROVAL } from "./helpers";
 import { storage } from "../server/storage";
 
 let app: Express;
@@ -25,7 +25,7 @@ async function suspendedDoctorWithPatient(opts: { suspend?: boolean } = {}) {
   const regToken = session.token as string;
   await request(app).put("/api/doctors/me/application").set(auth(regToken)).send(APPLICATION);
   const submitted = await request(app).post("/api/doctors/me/application/submit").set(auth(regToken));
-  await request(app).post(`/api/admin/doctor-applications/${submitted.body.id}/approve`).set(auth(admin.token));
+  await request(app).post(`/api/admin/doctor-applications/${submitted.body.id}/approve`).set(auth(admin.token)).send(APPROVAL);
   const approvedLogin = (await signIn(email)).token as string;
   const profile = (await storage.getDoctorProfileByUserId(session.user.id))!;
   const doctor = { id: session.user.id as string, email, token: approvedLogin, profileId: profile.id };

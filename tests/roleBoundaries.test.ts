@@ -47,6 +47,8 @@ const MATRIX: Record<string, string[]> = {
   "/api/admin/reminders/status": [A],
   "/api/admin/message-reports": [A],
   "/api/admin/integrations": [A],
+  "/api/admin/credentials": [A],
+  "/api/admin/credentials/x/history": [A],
   "/api/appointments": [P],
   "/api/appointments/slots": [P],
   "/api/appointments/doctor": [D],
