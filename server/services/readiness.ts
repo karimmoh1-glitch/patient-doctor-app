@@ -34,7 +34,9 @@ async function readiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]
     "No demo setting is present", "DEMO_MODE or DEMO_MODE_ACKNOWLEDGED is set: remove it (production refuses to start with it)");
   add("app-url", /^https:\/\//.test(env.APP_URL ?? ""), "fail", "APP_URL is https", "APP_URL is missing or not https (links in emails would be unsafe)");
   add("cron-secret", (env.CRON_SECRET ?? "").length >= 24, "fail", "CRON_SECRET is set", "CRON_SECRET is missing or short: reminders cannot be delivered");
-  add("email", !!env.RESEND_API_KEY, "warn", "An email provider is configured", "No email provider: password resets and email reminders cannot be sent");
+  add("email", !!env.RESEND_API_KEY, "fail", "An email provider is configured", "No email provider: password resets and email confirmation cannot reach anyone, so a locked-out person has no way back");
+  // The built-in default sender belongs to a domain nobody here has verified: providers refuse or spam-fold mail from it.
+  add("email-from", !env.RESEND_API_KEY || !!env.EMAIL_FROM?.trim(), "fail", "The sender address is set explicitly", "EMAIL_FROM is not set: mail would go out from the built-in default address, on a domain that has not been verified for sending");
   add("email-receipts", !!env.RESEND_WEBHOOK_SECRET, "warn", "E-mail delivery reports are accepted (webhook secret set)", "No RESEND_WEBHOOK_SECRET: Avela can say only that e-mail was accepted, never that it was delivered or bounced");
   add("support", !!(env.SUPPORT_PHONE || env.SUPPORT_EMAIL), "warn", "A support contact is published", "No support phone or email is configured; the Help page says nobody can be reached");
   const emergency = emergencyDataReviewed(env);

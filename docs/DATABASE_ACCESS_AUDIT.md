@@ -141,6 +141,9 @@ Every SECURITY DEFINER function fixes `search_path = public, pg_temp` (test: "gi
 | F7 | `checkReadiness` counted users and scheduler calls through whatever identity was ambient; through the restricted role with nobody established every count would be zero and "no demo account is active" would pass for the wrong reason | Medium | Runs as system | `productionGuards.test.ts` (readiness) |
 | F8 | After a patient ends a connection, the doctor keeps the visit record, including the patient's name and stated reason, for visits they delivered *or are booked to deliver* | Decision | **Not changed** — product/clinical/legal call (D-02). Pinned by a test so a change is deliberate | "a documented exception…" in `accessEndsEverywhere.test.ts` |
 | F9 | `password_hash` is readable by the user's own session and by the server; column-level privileges would break `SELECT *` queries throughout the application | Accepted | Row policy limits it to the account itself (and the server); passwords are bcrypt hashes | — |
+| F11 | **Real caregivers were invisible to row-level security.** Migration 0014's `app_is_caregiver_of` looked for membership status `'accepted'`; the application's value is `'active'` (invited \| active \| revoked). Under the restricted role (live in production since 2026-10-26) a caregiver therefore saw an empty overview. The 0014 tests inserted `'accepted'` by hand and agreed with the bug; it surfaced when the browser suite ran against the restricted role after `users` got a policy | High (fails closed, but breaks a feature, and shows how a policy can disagree with the application) | `app_is_caregiver_of` corrected in 0024; fixtures now use the real status | "shows a real caregiver the patient's name, today's medicines and upcoming visits" (goes through the real invitation and checks content; fails against the old helper), `e2e/roles.spec.ts` under `test:e2e:rls` |
+| F12 | No bounce or complaint suppression: invitations and reminders kept being sent to addresses that bounced permanently or complained | Medium | `isSuppressed` before every non-essential send | `emailDeliveries.test.ts` "suppression after a bounce or a complaint" |
+| F13 | Scheduler source was a self-chosen label: anyone holding the shared cron secret (a GitHub workflow) could appear as the dedicated scheduler | Medium | The server attests a caller by which secret it presents (`CRON_SECRET_CLOUDFLARE`); a claim is recorded as `claimed:…` | `scheduler.test.ts` "who called: attested by secret, not by label" |
 | F10 | `doctor_applications.password_hash` is a legacy column ("new registrations keep the password only on the user row"); 0 rows in production | Low | Left (empty); candidate for a later drop | — |
 
 ## 8. Unresolved exceptions (read these)
@@ -151,3 +154,23 @@ Every SECURITY DEFINER function fixes `search_path = public, pg_temp` (test: "gi
 4. **F8** above.
 5. **The test database is PostgreSQL 16**, production's is 18.6. The fingerprint comparison found no difference in what the migrations produce, but behaviour is not proven identical across versions (move CI to a PostgreSQL 18 service container).
 6. Coarse policies by design (docs/SECURITY.md): they do not check which sections a patient shared or individual caregiver permissions; the application narrows further.
+
+## 9. Where each required adversarial scenario is tested
+
+Each runs under the restricted role (`npm run test:rls`, and the browser suite with `test:e2e:rls`) as well as the owner connection; the direct-SQL ones connect as `avela_app`
+whatever the application under test uses.
+
+| Scenario | Direct (SQL as the restricted role) | Through the API |
+| --- | --- | --- |
+| One patient cannot read another's profile or records | `rls.test.ts` "follows the written matrix for every kind of person"; `rlsIdentityTables.test.ts` users | `authorization.test.ts`, `dataRights.test.ts`, per-feature suites |
+| A clinician cannot reach an unrelated patient | same matrix (D2 vs A); users, doctor_profiles | `accessEndsEverywhere.test.ts` (six doctor endpoints before/after), `roleBoundaries.test.ts` |
+| One organization cannot reach another's records | org tables in `rls.test.ts` | `orgs.test.ts`, `reviewFindings.test.ts` |
+| A caregiver is limited to their active grant | "makes a caregiver read-only"; users/profile visibility | `careCircle.test.ts`; `accessEndsEverywhere.test.ts` (content, revocation, other patients) |
+| A revoked grant stops at once, everywhere | "stops showing a patient to a doctor the moment the connection ends or the doctor is suspended" | `accessEndsEverywhere.test.ts` (connection ended, sharing withdrawn, caregiver revoked, doctor deactivated), `authorization.test.ts` |
+| Suspended or unverified clinicians lose privileges | suspension in the matrix; a suspended clinician cannot re-activate themself | `suspendedDoctor.test.ts`, `doctorOnboarding.test.ts`, `credentials.test.ts` |
+| Ordinary users cannot create or become administrators | `rlsIdentityTables.test.ts` "never lets the application make or become an administrator…" (even with system access) | `accessEndsEverywhere.test.ts` "nobody can become an administrator…", `auth.test.ts`, `doctorOnboarding.test.ts` |
+| Authentication tables and user records only through intended paths | sessions, single-use tokens, authenticator secrets, recovery codes, `users` | `routeInventory.test.ts`, `mfa.test.ts`, `auth.test.ts` |
+| Privileged functions cannot be invoked by unauthorised roles | "lets nobody but the owner run the database's functions…" | — |
+| Runtime connections cannot bypass or administer | `rls.test.ts` "the restricted role really is restricted"; `rlsIdentityTables.test.ts` "cannot be talked into reading around the policies" | `productionGuards.test.ts`, the server's own refusal (`rls.test.ts`) |
+| Nothing broke: login, MFA, recovery, pairing, admin operations | — | the whole suite under the restricted role (574 tests) and `test:e2e:rls` |
+| Every table is behind RLS and classified | `rlsIdentityTables.test.ts`, `dbClassification.test.ts`, `npm run audit:db` | — |
