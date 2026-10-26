@@ -1,0 +1,36 @@
+name: Check the deployed site
+
+# Drives the DEPLOYED site in a real browser, read-only, as a visitor would (landing,
+# registration, sign-in, reloads, Arabic, the demo patient and doctor, and what each is
+# refused). It never types a password. Run it after every deploy, or let it run daily.
+# Needs the repository secret AVELA_URL. On a real (non-demo) deployment the demo
+# sign-in tests are expected to fail: that is the point of them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: "Commit the site should be running (blank to skip the check)"
+        required: false
+  schedule:
+    - cron: "17 6 * * *"
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      LIVE_URL: ${{ secrets.AVELA_URL }}
+      EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run the live checks
+        if: ${{ env.LIVE_URL != '' }}
+        run: npm run test:live
+      - name: Keep failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: live-results, path: test-results/, retention-days: 7 }
