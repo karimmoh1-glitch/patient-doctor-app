@@ -107,6 +107,7 @@ test.describe("large text", () => {
 
 test.describe("getting human help", () => {
   test("a patient can find the help page from any screen, and it says exactly what is and isn't staffed", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("avela.country", "US")); // the person's own choice of country
     await signInAs(page, "patient@avela.dev");
     await page.goto("/my-health");
     await page.getByRole("link", { name: /^help$/i }).click();
@@ -165,21 +166,49 @@ test.describe("account controls in Settings", () => {
 });
 
 test.describe("emergency information", () => {
-  test("without a configured number there is no dial link and no assumed country", async ({ page }) => {
+  test("a visitor who has not said which country they are in is shown no number, and is asked", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Choose your country for emergency numbers" })).toBeVisible();
+    await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
+    await expect(page.getByText("911")).toHaveCount(0);
+    await expect(page.getByText("123")).toHaveCount(0);
+  });
+
+  test("the number depends on the country the person chooses, not on their language, with no sign-in", async ({ page }) => {
+    await page.goto("/emergency");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Emergency information");
+    await expect(page.getByText("Avela is not an emergency service")).toBeVisible();
+    await page.getByRole("button", { name: "United States" }).click();
+    await expect(page.getByRole("link", { name: /Police, fire and ambulance: 911/ })).toHaveAttribute("href", "tel:911");
+    await expect(page.getByRole("link", { name: /Call 911/ }).first()).toHaveAttribute("href", "tel:911");
+
+    // Arabic text, still the United States: an Arabic reader in America gets American numbers.
+    await page.getByRole("radio", { name: "العربية" }).first().click();
+    await expect(page.getByRole("button", { name: "الولايات المتحدة" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("link", { name: /911/ }).first()).toHaveAttribute("href", "tel:911");
+
+    // Egypt, in English: three services, each its own number.
+    await page.getByRole("radio", { name: "English" }).first().click();
+    await page.getByRole("button", { name: "Egypt" }).click();
+    await expect(page.getByRole("link", { name: /Ambulance: 123/ })).toHaveAttribute("href", "tel:123");
+    await expect(page.getByRole("link", { name: /Police: 122/ })).toHaveAttribute("href", "tel:122");
+    await expect(page.getByRole("link", { name: /Fire: 180/ })).toHaveAttribute("href", "tel:180");
+    await expect(page.getByRole("link", { name: /911/ })).toHaveCount(0);
+    // Where the numbers come from, and what could not be confirmed, are one tap away.
+    await page.getByText("Where these numbers come from").click();
+    await expect(page.getByRole("link", { name: /CIA World Factbook/ })).toBeVisible();
+    await expect(page.getByText(/No page published by the Egyptian government/)).toBeVisible();
+  });
+
+  test("where numbers have not been reviewed by a person, none is shown and the person is told to use their local number", async ({ page }) => {
     await page.route("**/api/config", async (route) => {
       const res = await route.fetch();
       const body = await res.json();
-      await route.fulfill({ response: res, json: { ...body, emergencyNumber: null } });
+      await route.fulfill({ response: res, json: { ...body, emergency: { ...body.emergency, countries: { EG: { ...body.emergency.countries.EG, reviewed: false, services: null }, US: { ...body.emergency.countries.US, reviewed: false, services: null } } } } });
     });
-    await page.goto("/");
-    await expect(page.getByText(/your local emergency number/i).first()).toBeVisible();
+    await page.goto("/emergency");
+    await page.getByRole("button", { name: "Egypt" }).click();
+    await expect(page.getByText("has not yet had the emergency numbers for this country reviewed")).toBeVisible();
     await expect(page.locator('a[href^="tel:"]')).toHaveCount(0);
-    await expect(page.getByText("911")).toHaveCount(0);
-  });
-
-  test("with a configured number the control dials exactly that number", async ({ page }) => {
-    await page.goto("/");
-    const link = page.getByRole("link", { name: /call 911/i }).first();
-    await expect(link).toHaveAttribute("href", "tel:911");
   });
 });

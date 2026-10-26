@@ -1,3 +1,4 @@
+import { emergencyDataReviewed } from "./emergencyInfo";
 export interface Check {
   id: string;
   level: "fail" | "warn" | "ok";
@@ -28,7 +29,9 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
   add("email", !!env.RESEND_API_KEY, "warn", "An email provider is configured", "No email provider: password resets and email reminders cannot be sent");
   add("email-receipts", !!env.RESEND_WEBHOOK_SECRET, "warn", "E-mail delivery reports are accepted (webhook secret set)", "No RESEND_WEBHOOK_SECRET: Avela can say only that e-mail was accepted, never that it was delivered or bounced");
   add("support", !!(env.SUPPORT_PHONE || env.SUPPORT_EMAIL), "warn", "A support contact is published", "No support phone or email is configured; the Help page says nobody can be reached");
-  add("emergency-number", !!(env.EMERGENCY_NUMBER || env.VITE_EMERGENCY_NUMBER), "fail", "An emergency number is configured for this deployment's jurisdiction (it must still be reviewed by a person)", "EMERGENCY_NUMBER is not set: emergency controls say \"your local emergency number\" and offer no dial link until the jurisdiction's number is confirmed and configured");
+  const emergency = emergencyDataReviewed(env);
+  add("emergency-data", emergency.ok, "fail", "A person has reviewed the emergency numbers for every supported country",
+    `Emergency numbers not reviewed by a person for: ${emergency.missing.join(", ")}. Compare shared/emergency.ts with its sources, then set EMERGENCY_DATA_REVIEWED_BY to your name (the screens show no number in production until then)`);
 
   // Database protection (docs/SECURITY.md): the application should run as the restricted role with row-level security enforced.
   add("rls-enforced", !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on", "fail",

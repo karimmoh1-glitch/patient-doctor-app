@@ -116,6 +116,15 @@ router.get("/", directoryLimiter, async (req, res) => {
       reviewedByAvela: !!p.verifiedAt,
       timezone: p.timezone,
       nextAvailable,
+      // Why this doctor is in the list: only the filters the person actually set, each one this doctor really satisfies.
+      reasons: [
+        ...(f.specialty ? [{ type: "specialty", value: p.specialty }] : []),
+        ...(f.state ? [{ type: "state", value: p.state }] : []),
+        ...(f.language ? [{ type: "language", value: f.language }] : []),
+        ...(f.modality ? [{ type: "modality", value: f.modality }] : []),
+        ...(f.available === "true" && nextAvailable ? [{ type: "availability", value: nextAvailable }] : []),
+        ...(f.q ? [{ type: "name", value: f.q }] : []),
+      ],
     })),
   );
 });

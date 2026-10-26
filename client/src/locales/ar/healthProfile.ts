@@ -228,4 +228,12 @@ export default {
   "hp.sos.notChecked": "أدخلتها أنت أو طبيب؛ لم يُتحقق من الجميع",
   "hp.profile.allergiesMoved": "أصبحت الحساسية تُحفظ مع باقي معلوماتك الصحية ليتضح من قال ماذا.",
   "hp.profile.allergiesLink": "انتقل إلى الحساسية.",
+  "dir.why": "ظهر لأن: {reasons}.",
+  "dir.why.specialty": "تخصصه {value}",
+  "dir.why.state": "يمارس في {value}",
+  "dir.why.language": "يتحدث {value}",
+  "dir.why.modality": "يقدّم {value}",
+  "dir.why.availability": "لديه موعد منشور يمكنك حجزه",
+  "dir.why.name": "الاسم أو العيادة يطابق «{value}»",
+  "pt.dcard.sameState": "ظهر لأن هذا الطبيب يمارس في ولايتك {state}.",
 } as const;

@@ -21,7 +21,7 @@ async function scan(page: import("@playwright/test").Page, label: string) {
 
 // Every screen a visitor can reach, in both languages. Axe also checks that
 // the page declares the right language and that contrast holds in Arabic.
-const PUBLIC = ["/", "/get-started", "/login", "/signup", "/join/doctor", "/find-doctors", "/about", "/privacy", "/terms", "/help", "/forgot-password"];
+const PUBLIC = ["/", "/get-started", "/login", "/signup", "/join/doctor", "/find-doctors", "/about", "/privacy", "/terms", "/help", "/forgot-password", "/emergency", "/connect"];
 
 for (const locale of ["en", "ar"] as const) {
   for (const path of PUBLIC) {
@@ -59,3 +59,15 @@ test.describe("signed-in screens added in this release", () => {
     await scan(page, "prescription form");
   });
 });
+
+// The emergency screen with a country chosen and the numbers showing, in both languages.
+for (const locale of ["en", "ar"] as const) {
+  for (const country of ["EG", "US"] as const) {
+    test(`/emergency with ${country} chosen (${locale}) has no serious accessibility violations`, async ({ page }) => {
+      await page.addInitScript(([l, c]) => { localStorage.setItem("pdapp_locale", l); localStorage.setItem("avela.country", c); }, [locale, country]);
+      await page.goto("/emergency");
+      await expect(page.locator('a[href^="tel:"]').first()).toBeVisible();
+      await scan(page, `/emergency ${country} (${locale})`);
+    });
+  }
+}

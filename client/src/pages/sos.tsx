@@ -10,6 +10,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import EmergencyAction from "@/components/emergency-action";
 import { useEmergency } from "@/lib/emergency";
+import EmergencyInfo from "@/components/emergency-info";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { Ltr } from "@/components/ltr";
 
@@ -102,6 +103,8 @@ export default function Sos() {
           <EmergencyAction messageKey="emergency.callNow" icon={Phone} className="min-h-20 w-full text-2xl" iconClassName="!size-7" />
         </CardContent>
       </Card>
+
+      <EmergencyInfo />
 
       {profile?.emergencyContactPhone && (
         <Button asChild size="lg" variant="outline" className="min-h-16 w-full text-xl">

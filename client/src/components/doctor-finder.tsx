@@ -29,6 +29,7 @@ interface DoctorListing {
   modalities: string[];
   yearsExperience: number | null;
   reviewedByAvela: boolean;
+  reasons?: { type: "specialty" | "state" | "language" | "modality" | "availability" | "name"; value: string }[];
   nextAvailable: string | null;
 }
 interface Pairing { id: string; status: string; doctor: { id: string } | null }
@@ -41,6 +42,17 @@ const MODALITY_ICON = { phone: Phone, messaging: MessageCircle, in_person: UserR
  * doctor to connect. Filters run on the server against real profiles; nothing
  * here is made up, and a doctor with no published hours says so.
  */
+function reasonText(t: ReturnType<typeof useI18n>["t"], r: { type: string; value: string }): string {
+  switch (r.type) {
+    case "specialty": return t("dir.why.specialty", { value: specialtyLabel(t, r.value) });
+    case "state": return t("dir.why.state", { value: r.value });
+    case "language": return t("dir.why.language", { value: languageName(r.value) });
+    case "modality": return t("dir.why.modality", { value: modalityLabel(t, r.value) });
+    case "availability": return t("dir.why.availability");
+    default: return t("dir.why.name", { value: r.value });
+  }
+}
+
 export default function DoctorFinder({ mode, defaultState }: { mode: "public" | "patient"; defaultState?: string | null }) {
   const { t } = useI18n();
   const { toast } = useToast();
@@ -209,6 +221,11 @@ export default function DoctorFinder({ mode, defaultState }: { mode: "public" | 
                             </ul>
                           )}
                           {d.bio && <p className="text-base">{d.bio}</p>}
+                          {d.reasons && d.reasons.length > 0 && (
+                            <p className="text-base text-muted-foreground">
+                              {t("dir.why", { reasons: d.reasons.map((r) => reasonText(t, r)).join(t("pt.listSep")) })}
+                            </p>
+                          )}
                           <p className="flex items-start gap-2 text-base">
                             <CalendarClock className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                             {d.nextAvailable ? t("dir.next", { when: formatRelativeDay(d.nextAvailable) }) : t("dir.noTimes")}

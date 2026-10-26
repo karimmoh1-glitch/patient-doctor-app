@@ -34,6 +34,7 @@ export default function DoctorCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {match.bio && <p className="text-base">{match.bio}</p>}
+        <p className="text-muted-foreground">{t("pt.dcard.sameState", { state: match.state })}</p>
         {match.matchedKeywords.length > 0 && (
           <p className="text-muted-foreground">
             {t("pt.dcard.shown", { words: match.matchedKeywords.map((k) => `"${k}"`).join(t("pt.listSep")) })}

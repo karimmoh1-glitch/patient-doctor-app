@@ -17,6 +17,7 @@ import { I18nProvider, hasChosenLocale, useI18n } from "@/lib/i18n";
 import { apiRequest } from "@/lib/queryClient";
 import { WELCOME_KEY } from "@/pages/signup";
 import PublicLayout from "@/components/public-layout";
+import { setAccountCountry } from "@/lib/emergency";
 import HomeDashboard from "@/pages/home-dashboard";
 
 const DoctorApplication = lazy(() => import("@/pages/doctor-application"));
@@ -29,6 +30,7 @@ const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
+const EmergencyPage = lazy(() => import("@/pages/emergency"));
 const MyReminders = lazy(() => import("@/pages/my-reminders"));
 const DoctorConnect = lazy(() => import("@/pages/doctor-connect"));
 const Connect = lazy(() => import("@/pages/connect"));
@@ -81,6 +83,14 @@ function RouteLoading() {
 // Keeps the person's language choice and their account in step: an explicit
 // choice on this device wins and is saved to the account; on a new device the
 // account's saved language is applied.
+/** The country a signed-in person saved, offered to the emergency screens when they have not chosen one on this device. */
+function CountrySync({ user }: { user: AuthUser | null }) {
+  useEffect(() => {
+    setAccountCountry(user?.country);
+  }, [user?.country, user?.id]);
+  return null;
+}
+
 function LocaleSync({ user }: { user: AuthUser | null }) {
   const { locale, setLocale } = useI18n();
   useEffect(() => {
@@ -247,6 +257,7 @@ function AppContent() {
   return (
     <ErrorBoundary resetKey={location}>
     <LocaleSync user={user} />
+    <CountrySync user={user} />
     <Suspense fallback={<RouteLoading />}>
     <Switch>
       <Route path="/">{user ? <HomeForRole user={user} {...shellProps} /> : <Landing />}</Route>
@@ -325,6 +336,9 @@ function AppContent() {
         {user?.role === "patient" || (user?.role === "doctor" && user.doctorStatus === "approved")
           ? <Authenticated user={user} {...shellProps}><Notifications /></Authenticated>
           : <Blocked user={user} />}
+      </Route>
+      <Route path="/emergency">
+        {user ? <Authenticated user={user} {...shellProps}><EmergencyPage /></Authenticated> : <PublicLayout narrow><EmergencyPage /></PublicLayout>}
       </Route>
       <Route path="/sos">
         <Gate user={user} role="patient" {...shellProps}><Sos /></Gate>

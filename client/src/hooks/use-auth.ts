@@ -14,6 +14,8 @@ export interface AuthUser {
   state: string | null;
   /** Interface language the person chose (en | ar). */
   language?: string;
+  /** The country the person said they live in (EG or US). Separate from language. */
+  country?: "EG" | "US" | null;
   /** Doctors only: only "approved" unlocks the clinical workspace. */
   doctorStatus?: DoctorStatus;
 }

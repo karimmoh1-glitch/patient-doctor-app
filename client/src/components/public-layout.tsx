@@ -37,9 +37,10 @@ export default function PublicLayout({ children, narrow = false, wide = false }:
             <a href={emergency.tel} className="inline-flex min-h-11 items-center gap-2 rounded-md px-2 font-bold underline">
               <Phone className="h-5 w-5" aria-hidden="true" /> {t("emergency.call", { number: emergency.label })}
             </a>
-          ) : (
-            <span className="font-bold">{t("emergency.call", { number: emergency.label })}</span>
-          )}
+          ) : null}
+          <Link href="/emergency" className="inline-flex min-h-11 items-center rounded-md px-2 font-bold underline">
+            {emergency.needsCountry ? t("emergency.choose") : t("emi.title")}
+          </Link>
         </p>
       </div>
       <header className="border-b border-border bg-card/95">

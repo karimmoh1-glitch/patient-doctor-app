@@ -3,7 +3,8 @@ import { test, expect } from "@playwright/test";
 test("the landing page tells a visitor what Avela is, who it is for, and where to get emergency help", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Healthcare, closer to you.");
-  await expect(page.getByRole("link", { name: /call 911/i })).toBeVisible();
+  // No number is assumed: the visitor is asked which country they are in, and nothing is dialled until they say.
+  await expect(page.getByRole("link", { name: "Choose your country for emergency numbers" })).toBeVisible();
   const main = page.getByRole("main");
   await expect(main.getByRole("link", { name: "Find a Doctor", exact: true })).toBeVisible();
   await expect(main.getByRole("link", { name: "Join as a Doctor", exact: true })).toBeVisible();

@@ -52,7 +52,7 @@ const loginAccountLimiter = makeLimiter({
 // What the client is told about the signed-in person. doctorStatus is how the
 // interface knows whether to show the clinician workspace or the verification
 // screen; the server enforces it independently on every clinical route.
-async function sessionUser(user: { id: string; name: string; email: string; role: string; state: string | null; language: string; readReceipts?: boolean }) {
+async function sessionUser(user: { id: string; name: string; email: string; role: string; state: string | null; language: string; readReceipts?: boolean; country?: string | null }) {
   return {
     id: user.id,
     name: user.name,
@@ -61,6 +61,7 @@ async function sessionUser(user: { id: string; name: string; email: string; role
     state: user.state,
     language: user.language,
     readReceipts: user.readReceipts ?? true,
+    country: user.country ?? null,
     ...(user.role === "doctor" ? { doctorStatus: await doctorStatusFor(user.id) } : {}),
   };
 }

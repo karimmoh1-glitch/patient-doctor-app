@@ -84,7 +84,7 @@ test("a doctor the patient allows can help, is named on what they add, and loses
   await page.goto("/health-profile/review");
   await page.getByLabel("Which doctor?").selectOption({ label: "Dr. Emily Chen" });
   await page.getByRole("button", { name: "Allow this doctor" }).click();
-  await expect(page.getByText("The doctor can now help you")).toBeVisible();
+  await expect(page.getByText("The doctor can now help you").first()).toBeVisible();
   void doctorProfileId;
 
   await doctor.page.reload();

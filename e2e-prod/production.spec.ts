@@ -51,7 +51,7 @@ test.describe("the built application", () => {
       const res = await page.request.get(src);
       expect(res.status(), src).toBe(200);
     }
-    await expect(page.getByRole("link", { name: /call 911/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Choose your country for emergency numbers" })).toBeVisible();
     expect(problems).toEqual([]);
   });
 

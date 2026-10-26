@@ -39,7 +39,6 @@ export default defineConfig({
       // enforced, as it would in production. Seeding and migrations still use DATABASE_URL (the owner).
       ...(process.env.E2E_AS_APP_ROLE === "1" ? { APP_DATABASE_URL: appRoleUrl(E2E_DB), DB_ENFORCE_RLS: "on" } : {}),
       JWT_SECRET: "e2e-only-secret",
-      EMERGENCY_NUMBER: "911", // the test deployment models a US launch; a real deployment sets its own, reviewed number
       E2E_DISABLE_RATE_LIMITS: "true",
       MFA_ENCRYPTION_KEY: E2E_MFA_KEY,
       MFA_ALLOW_CODE_REUSE: "1", // fixture accounts sign in many times inside one 30-second step; refused by a production server

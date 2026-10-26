@@ -228,4 +228,12 @@ export default {
   "hp.sos.notChecked": "Entered by you or a doctor; not all checked",
   "hp.profile.allergiesMoved": "Allergies are now kept with the rest of your health information, so it is clear who said what.",
   "hp.profile.allergiesLink": "Go to allergies.",
+  "dir.why": "Shown because: {reasons}.",
+  "dir.why.specialty": "specialty is {value}",
+  "dir.why.state": "practises in {value}",
+  "dir.why.language": "speaks {value}",
+  "dir.why.modality": "offers {value}",
+  "dir.why.availability": "has a published time you can book",
+  "dir.why.name": "the name or clinic matches \"{value}\"",
+  "pt.dcard.sameState": "Shown because this doctor practises in your state, {state}.",
 } as const;
