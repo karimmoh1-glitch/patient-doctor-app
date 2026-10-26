@@ -20,8 +20,8 @@ import { generateSecret, otpauthUri, verifyTotp } from "../lib/totp";
  *    administrator. There is no self-service bypass.
  */
 
-/** Roles that must use a second factor. Patients and caregivers may be offered it later; clinicians and administrators must. */
-export const MFA_ROLES = new Set(["doctor", "admin"]);
+/** Roles that must use a second factor. Patients and caregivers may be offered it later; clinicians, organization staff and administrators must. */
+export const MFA_ROLES = new Set(["doctor", "admin", "staff"]);
 export const roleRequiresMfa = (role: string) => MFA_ROLES.has(role);
 
 const MAX_ATTEMPTS = 5;

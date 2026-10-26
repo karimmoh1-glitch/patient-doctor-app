@@ -8,6 +8,7 @@ import { reminderHealth } from "../services/reminderService";
 import { normalizeLang } from "../services/serverText";
 import { runAsSystem } from "../dbContext";
 import { verificationInput, verifyCredential, rejectCredential, suspendCredential, listCredentials, credentialHistory } from "../services/credentialService";
+import { listForReview, orgVerification, setOrgStatus } from "../services/orgs";
 import { integrationRegistry } from "../services/integrations";
 import { emailDeliverySummary } from "../services/emailDeliveries";
 import {
@@ -220,6 +221,37 @@ router.post("/credentials/:id/suspend", ...adminOnly, async (req, res) => {
   if (!updated) return res.status(409).json({ message: "Only a verified credential can be suspended." });
   await logAudit({ actorUserId: (req as any).userId, action: "credential.suspended", targetType: "credential", targetId: updated.id, subjectUserId: updated.userId });
   res.json({ id: updated.id, status: "suspended" });
+});
+
+// Organizations: Avela's reviewers record how an organization's existence and contact details were checked. Unverified is a normal state.
+router.get("/organizations", ...adminOnly, async (_req, res) => res.json(await listForReview()));
+router.post("/organizations/:id/verify", ...adminOnly, async (req, res) => {
+  const parsed = orgVerification.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Say how it was checked" });
+  try {
+    res.json(await setOrgStatus((req as any).userId, req.params.id, "verified", parsed.data));
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json({ message: err.message });
+    throw err;
+  }
+});
+router.post("/organizations/:id/suspend", ...adminOnly, async (req, res) => {
+  const note = z.object({ note: z.string().trim().min(5).max(1000) }).safeParse(req.body);
+  if (!note.success) return res.status(400).json({ message: "Say why" });
+  try {
+    res.json(await setOrgStatus((req as any).userId, req.params.id, "suspended", undefined, note.data.note));
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json({ message: err.message });
+    throw err;
+  }
+});
+router.post("/organizations/:id/unsuspend", ...adminOnly, async (req, res) => {
+  try {
+    res.json(await setOrgStatus((req as any).userId, req.params.id, "unverified"));
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json({ message: err.message });
+    throw err;
+  }
 });
 
 // What each external service is really doing, with the evidence behind each status. Counts and times only.

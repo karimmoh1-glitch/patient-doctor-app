@@ -69,6 +69,6 @@ test.describe("Arabic and right-to-left", () => {
     await page.getByLabel("اللغة المستخدمة").selectOption("ar");
     const card = page.getByRole("heading", { level: 2, name: "Dr. Fatima Malik" });
     await expect(card).toBeVisible();
-    await expect(page.locator("li", { has: card }).getByText("العربية")).toBeVisible();
+    await expect(page.locator("li", { has: card }).getByText("العربية").first()).toBeVisible();
   });
 });

@@ -62,6 +62,9 @@ export async function eraseUser(pool: Pool, userId: string, opts: { uploadsDir?:
     await run("allergyStatements", "DELETE FROM allergy_statements WHERE patient_user_id = $1");
     await run("onboardingSections", "DELETE FROM onboarding_sections WHERE patient_user_id = $1");
     await run("assistGrants", "UPDATE assist_grants SET revoked_at = COALESCE(revoked_at, now()) WHERE patient_user_id = $1");
+    // Staff notes and tasks about this person: the text goes (the record that a note existed stays).
+    await run("orgNotes", "UPDATE org_notes SET body = '[erased]' WHERE patient_user_id = $1");
+    await run("orgTasks", "UPDATE org_tasks SET title = '[erased]', status = CASE WHEN status = 'open' THEN 'cancelled' ELSE status END WHERE patient_user_id = $1");
     await run("account", `UPDATE users SET name = 'Deleted user', email = $2, password_hash = $3, phone = NULL, state = NULL,
         emergency_contact_name = NULL, emergency_contact_phone = NULL, allergies_text = NULL, emergency_notes = NULL,
         date_of_birth = NULL, preferred_name = NULL, accessibility_notes = NULL, country = NULL, contact_method = NULL,

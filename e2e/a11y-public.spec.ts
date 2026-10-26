@@ -21,7 +21,7 @@ async function scan(page: import("@playwright/test").Page, label: string) {
 
 // Every screen a visitor can reach, in both languages. Axe also checks that
 // the page declares the right language and that contrast holds in Arabic.
-const PUBLIC = ["/", "/get-started", "/login", "/signup", "/join/doctor", "/find-doctors", "/about", "/privacy", "/terms", "/help", "/forgot-password", "/emergency", "/connect"];
+const PUBLIC = ["/", "/get-started", "/login", "/signup", "/join/doctor", "/find-doctors", "/about", "/privacy", "/terms", "/help", "/forgot-password", "/emergency", "/connect", "/join-team"];
 
 for (const locale of ["en", "ar"] as const) {
   for (const path of PUBLIC) {

@@ -25,6 +25,8 @@ import healthProfileRoutes from "./routes/healthProfile";
 import assistedProfileRoutes from "./routes/assistedProfile";
 import pairingInvitationRoutes from "./routes/pairingInvitations";
 import personalReminderRoutes from "./routes/personalReminders";
+import orgRoutes from "./routes/orgs";
+import myOrganizationRoutes from "./routes/myOrganizations";
 import configRoutes from "./routes/config";
 import meRoutes from "./routes/me";
 
@@ -58,6 +60,8 @@ export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
   ["/api/assist", assistedProfileRoutes],
   ["/api/pairing-invitations", pairingInvitationRoutes],
   ["/api/personal-reminders", personalReminderRoutes],
+  ["/api/orgs", orgRoutes],
+  ["/api/my-organizations", myOrganizationRoutes],
 ];
 
 /** Mounted BEFORE the JSON body parser: a provider's signature covers the exact bytes it sent. */

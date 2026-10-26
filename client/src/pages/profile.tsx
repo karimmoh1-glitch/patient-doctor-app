@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import ConfirmAction from "@/components/confirm-action";
+import OrgVisibility from "@/components/org-visibility";
 import QueryState, { EmptyBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -261,6 +262,8 @@ export default function Profile({ user }: { user: AuthUser }) {
           {withLink(t("privacy.helpers"), <Link href="/care-circle" className="font-medium text-primary underline underline-offset-4">{t("circle.title")}</Link>)}
         </p>
       </section>
+
+      <OrgVisibility />
 
       <ActivityLog />
       <EmergencyInfoForm />

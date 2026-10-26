@@ -10,7 +10,7 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: "patient" | "doctor" | "admin" | "caregiver";
+  role: "patient" | "doctor" | "admin" | "caregiver" | "staff";
   state: string | null;
   /** Interface language the person chose (en | ar). */
   language?: string;
@@ -165,6 +165,13 @@ export function useAuth() {
     return acceptSessionBody(data);
   }, [acceptSessionBody]);
 
+  // Someone invited to an organization's staff creates their own account from the invitation (a second factor follows).
+  const registerStaff = useCallback(async (fields: { token: string; name: string; password: string; language: string }) => {
+    const res = await fetch("/api/orgs/invitations/accept-new", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(fields) });
+    if (!res.ok) throw new Error(await parseErrorMessage(res, "Registration failed"));
+    return acceptSessionBody(await res.json());
+  }, [acceptSessionBody]);
+
   // Re-reads who the server says this person is: how a doctor learns they were
   // approved (or suspended) without signing out and back in.
   const refreshUser = useCallback(async () => {
@@ -203,6 +210,7 @@ export function useAuth() {
     login,
     signup,
     registerDoctor,
+    registerStaff,
     mfaVerify,
     mfaBeginSetup,
     mfaEnable,

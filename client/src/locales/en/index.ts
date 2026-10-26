@@ -17,8 +17,9 @@ import integrations from "./integrations";
 import healthProfile from "./healthProfile";
 import pairing from "./pairing";
 import reminders from "./reminders";
+import org from "./org";
 
 // English is the source of truth and the fallback: a key missing from another
 // language shows the English text, never a blank or a raw key. Keep each key
 // in exactly one namespace file (tests/i18n.test.ts enforces it).
-export const en = { ...common, ...landing, ...auth, ...patient, ...health, ...doctor, ...admin, ...rx, ...onboarding, ...shared, ...labels, ...directory, ...legal, ...mfa, ...msg, ...integrations, ...healthProfile, ...pairing, ...reminders } as const;
+export const en = { ...common, ...landing, ...auth, ...patient, ...health, ...doctor, ...admin, ...rx, ...onboarding, ...shared, ...labels, ...directory, ...legal, ...mfa, ...msg, ...integrations, ...healthProfile, ...pairing, ...reminders, ...org } as const;

@@ -160,6 +160,7 @@ const T = {
     reset: (link: string): Message => ({ subject: "Reset your Avela password", heading: "Reset your password", p: ["We received a request to reset your Avela password. This link expires in 1 hour. If you didn't request this, you can safely ignore this email."], cta: { label: "Reset password", href: link } }),
     pairingRequested: (patient: string): Message => ({ subject: "You have a new request on Avela", heading: "New patient connection request", p: [`${patient} would like to connect with you on Avela. Review the request from your dashboard.`] }),
     pairingAccepted: (doctor: string): Message => ({ subject: "An update on your Avela request", heading: "You're connected", p: [`${doctor} accepted your connection request. You can now call them from Avela.`] }),
+    orgInvite: (org: string, role: string, link: string): Message => ({ subject: `${org} invited you to join its team on Avela`, heading: "You've been invited to a team", p: [`${org} invited you to join as ${role}. The link works for 7 days and only for this e-mail address.`], cta: { label: "Accept the invitation", href: link } }),
     invite: (patient: string, link: string): Message => ({ subject: `${patient} invited you to their Care Circle on Avela`, heading: "You've been invited to a Care Circle", p: [`${patient} has invited you to join their Care Circle on Avela, a way to stay informed on the parts of their care they've chosen to share with you.`], cta: { label: "Accept invitation", href: link } }),
   },
   ar: {
@@ -172,6 +173,7 @@ const T = {
     reset: (link: string): Message => ({ subject: "إعادة تعيين كلمة المرور في أفيلا", heading: "إعادة تعيين كلمة المرور", p: ["تلقينا طلبًا لإعادة تعيين كلمة مرورك في أفيلا. ينتهي هذا الرابط خلال ساعة واحدة. إذا لم تطلب ذلك، فيمكنك تجاهل هذه الرسالة بأمان."], cta: { label: "إعادة تعيين كلمة المرور", href: link } }),
     pairingRequested: (patient: string): Message => ({ subject: "لديك طلب جديد في أفيلا", heading: "طلب تواصل جديد من مريض", p: [`يود ${patient} التواصل معك في أفيلا. راجع الطلب من لوحتك.`] }),
     pairingAccepted: (doctor: string): Message => ({ subject: "مستجدات بشأن طلبك في أفيلا", heading: "تم الاتصال", p: [`قبل ${doctor} طلب التواصل. يمكنك الآن الاتصال به من أفيلا.`] }),
+    orgInvite: (org: string, role: string, link: string): Message => ({ subject: `دعتك ${org} للانضمام إلى فريقها في أفيلا`, heading: "تمت دعوتك إلى فريق", p: [`دعتك ${org} للانضمام بصفة ${role}. يعمل الرابط لمدة 7 أيام ولهذا البريد الإلكتروني فقط.`], cta: { label: "قبول الدعوة", href: link } }),
     invite: (patient: string, link: string): Message => ({ subject: `دعاك ${patient} إلى دائرة رعايته في أفيلا`, heading: "تمت دعوتك إلى دائرة رعاية", p: [`دعاك ${patient} للانضمام إلى دائرة رعايته في أفيلا، وهي وسيلة لتبقى على اطلاع على ما اختار مشاركته معك من رعايته.`], cta: { label: "قبول الدعوة", href: link } }),
   },
 };
@@ -230,6 +232,10 @@ export async function sendPairingRequestedEmail(doctorEmail: string, doctorName:
 
 export async function sendPairingAcceptedEmail(patientEmail: string, patientName: string, doctorName: string, lang: Lang = "en"): Promise<void> {
   await deliver(patientEmail, lang, patientName, toSpec(T[lang].pairingAccepted(doctorName)), "pairing_accepted");
+}
+
+export async function sendOrgInviteEmail(to: string, org: string, role: string, link: string, lang: Lang = "en"): Promise<boolean> {
+  return deliver(to, lang, null, toSpec(T[lang].orgInvite(org, role, link)), "org_invite");
 }
 
 export async function sendCareCircleInviteEmail(inviteeEmail: string, inviteeName: string, patientName: string, inviteLink: string, lang: Lang = "en"): Promise<boolean> {

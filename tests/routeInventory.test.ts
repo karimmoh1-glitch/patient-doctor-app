@@ -36,6 +36,8 @@ const PUBLIC: Record<string, string> = {
   "POST /api/auth/reset-password": "single-use emailed token",
   "GET /api/care-circle/invitations/validate/x": "single-use emailed token",
   "POST /api/care-circle/invitations/accept/x": "single-use emailed token",
+  "POST /api/orgs/invitations/preview": "e-mail-bound single-use token; a stranger learns nothing",
+  "POST /api/orgs/invitations/accept-new": "e-mail-bound single-use token; creates a staff account that still needs a second factor",
   "POST /api/webhooks/resend": "refused without a valid provider signature",
   "GET /api/cron/reminders": "bearer secret",
   "POST /api/cron/reminders": "bearer secret",

@@ -30,6 +30,9 @@ const Notifications = lazy(() => import("@/pages/notifications"));
 const DoctorProfile = lazy(() => import("@/pages/doctor-profile"));
 const AdminActivity = lazy(() => import("@/pages/admin-activity"));
 const AdminIntegrations = lazy(() => import("@/pages/admin-integrations"));
+const OrgPage = lazy(() => import("@/pages/org"));
+const JoinTeam = lazy(() => import("@/pages/join-team"));
+const AdminOrganizations = lazy(() => import("@/pages/admin-organizations"));
 const EmergencyPage = lazy(() => import("@/pages/emergency"));
 const MyReminders = lazy(() => import("@/pages/my-reminders"));
 const DoctorConnect = lazy(() => import("@/pages/doctor-connect"));
@@ -178,6 +181,9 @@ function HomeForRole({ user, simpleMode, ...rest }: ShellProps) {
       </Authenticated>
     );
   }
+  if (user.role === "staff") {
+    return <Authenticated user={user} simpleMode={simpleMode} {...rest}><OrgPage user={user} /></Authenticated>;
+  }
   if (user.role === "admin") {
     return <Authenticated user={user} simpleMode={simpleMode} {...rest}><AdminDashboard /></Authenticated>;
   }
@@ -192,7 +198,7 @@ function HomeForRole({ user, simpleMode, ...rest }: ShellProps) {
 }
 
 function AppContent() {
-  const { user, login, signup, registerDoctor, mfaVerify, mfaBeginSetup, mfaEnable, finishSignIn, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
+  const { user, login, signup, registerDoctor, registerStaff, mfaVerify, mfaBeginSetup, mfaEnable, finishSignIn, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
   const mfa = useMemo(() => ({ verify: mfaVerify, beginSetup: mfaBeginSetup, enable: mfaEnable, finish: finishSignIn }), [mfaVerify, mfaBeginSetup, mfaEnable, finishSignIn]);
   const { simpleMode, setSimpleMode } = useSimpleMode();
   const [location, setLocation] = useLocation();
@@ -362,6 +368,15 @@ function AppContent() {
 
       <Route path="/doctor/requests">
         <DoctorGate user={user} {...shellProps}><DoctorRequests /></DoctorGate>
+      </Route>
+      <Route path="/join-team"><JoinTeam user={user} registerStaff={registerStaff} mfa={mfa} /></Route>
+      <Route path="/org/:orgId?/:section?">
+        {(params) => user?.role === "staff"
+          ? <Authenticated user={user} {...shellProps}><OrgPage user={user} orgId={params.orgId} section={params.section} /></Authenticated>
+          : <DoctorGate user={user} {...shellProps}>{user && <OrgPage user={user} orgId={params.orgId} section={params.section} />}</DoctorGate>}
+      </Route>
+      <Route path="/admin/organizations">
+        <Gate user={user} role="admin" {...shellProps}><AdminOrganizations /></Gate>
       </Route>
       <Route path="/connect"><Connect user={user} /></Route>
       <Route path="/doctor/connect">

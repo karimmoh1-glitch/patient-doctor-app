@@ -5,3 +5,4 @@ export * from "./models/careCircle";
 export * from "./models/notifications";
 export * from "./models/reminders";
 export * from "./models/profile";
+export * from "./models/orgs";

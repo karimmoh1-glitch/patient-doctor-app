@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   Home, Stethoscope, CalendarDays, HeartPulse, LogOut, Siren, LifeBuoy, Settings as SettingsIcon,
-  Inbox, UserCog, Users, Gauge, Clock, Bell, ClipboardCheck, UserRound, ScrollText, Plug, BadgeCheck,
+  Inbox, UserCog, Users, Gauge, Clock, Bell, ClipboardCheck, UserRound, ScrollText, Plug, BadgeCheck, Building2,
   MessagesSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,7 @@ const DOCTOR_NAV: NavItem[] = [
   { href: "/doctor/messages", labelKey: "nav.d.messages", icon: MessagesSquare, owns: ["/chat"] },
   { href: "/doctor/appointments", labelKey: "nav.d.appointments", shortKey: "nav.d.appointments.short", icon: CalendarDays },
   { href: "/doctor/availability", labelKey: "nav.d.hours", shortKey: "nav.d.hours.short", icon: Clock },
+  { href: "/org", labelKey: "nav.org", icon: Building2, sidebarOnly: true },
   { href: "/doctor/profile", labelKey: "nav.d.profile", icon: UserRound, owns: ["/notifications"], sidebarOnly: true },
 ];
 
@@ -69,10 +70,12 @@ function navFor(user: AuthUser): NavItem[] {
   if (user.role === "patient") return PATIENT_NAV;
   if (user.role === "doctor") return user.doctorStatus === "approved" ? DOCTOR_NAV : UNAPPROVED_DOCTOR_NAV;
   if (user.role === "caregiver") return [{ href: "/caregiver", labelKey: "nav.caregiver", icon: Gauge }];
+  if (user.role === "staff") return [{ href: "/org", labelKey: "nav.org", icon: Building2 }];
   return [
     { href: "/admin", labelKey: "nav.admin", icon: UserCog, exact: true },
     { href: "/admin/activity", labelKey: "nav.admin.activity", icon: ScrollText },
     { href: "/admin/credentials", labelKey: "nav.admin.credentials", icon: BadgeCheck },
+    { href: "/admin/organizations", labelKey: "nav.admin.organizations", icon: Building2 },
     { href: "/admin/integrations", labelKey: "nav.admin.integrations", icon: Plug },
   ];
 }

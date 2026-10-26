@@ -137,6 +137,8 @@ export const pairingRequests = pgTable("pairing_requests", {
   // How the connection began: the patient asked ("request"), or the patient confirmed a clinician's invitation ("invitation").
   connectedVia: varchar("connected_via").notNull().default("request"),
   invitationId: varchar("invitation_id"),
+  // The patient decides whether the clinician's organization staff may see their name and appointment times.
+  orgStaffVisible: boolean("org_staff_visible").notNull().default(true),
   requestedAt: timestamp("requested_at").defaultNow(),
   respondedAt: timestamp("responded_at"),
 }, (table) => [

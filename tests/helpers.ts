@@ -192,3 +192,10 @@ export const APPROVAL = {
     expiresAt: new Date(Date.now() + 365 * 86_400_000).toISOString(),
   },
 };
+
+/** An organization staff account (its own kind of account, second factor like a clinician). Not yet a member of anything. */
+export async function createStaff(name = "Test Staff"): Promise<TestUser> {
+  const email = uniqueEmail("staff");
+  const user = await storage.createUser({ name, email, passwordHash: TEST_HASH, role: "staff", state: null, phone: null, deactivatedAt: null, emailVerifiedAt: new Date() } as any);
+  return { id: user.id, email, token: await login(email) };
+}

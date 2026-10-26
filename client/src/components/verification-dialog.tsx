@@ -9,7 +9,7 @@ import { useI18n } from "@/lib/i18n";
 
 // Approving is also verifying the licence, so the reviewer says how it was checked, what they saw, and until when it is valid.
 // That record is what lets Avela say "checked by a person" instead of "verified".
-export function VerificationDialog({ trigger, title, description, confirmLabel, onSubmit }: { trigger: React.ReactNode; title: string; description: string; confirmLabel: string; onSubmit: (verification: { source: string; evidenceNote: string; expiresAt: string }) => Promise<void> }) {
+export function VerificationDialog({ trigger, title, description, confirmLabel, withExpiry = true, onSubmit }: { trigger: React.ReactNode; title: string; description: string; confirmLabel: string; withExpiry?: boolean; onSubmit: (verification: { source: string; evidenceNote: string; expiresAt: string }) => Promise<void> }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState("document_review");
@@ -48,11 +48,11 @@ export function VerificationDialog({ trigger, title, description, confirmLabel, 
             <Textarea id="verify-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} aria-describedby="verify-note-hint" />
             <p id="verify-note-hint" className="text-sm text-muted-foreground">{t("admin.verify.note.hint")}</p>
           </div>
-          <div className="space-y-2">
+          {withExpiry && <div className="space-y-2">
             <Label htmlFor="verify-expires" className="text-base">{t("admin.verify.expires")}</Label>
             <Input id="verify-expires" type="date" value={expires} onChange={(e) => setExpires(e.target.value)} />
             <p className="text-sm text-muted-foreground">{t("admin.verify.expires.hint")}</p>
-          </div>
+          </div>}
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
