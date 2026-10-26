@@ -118,6 +118,9 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
 
   await registerRoutes(httpServer, app);
 
+  // Anything under /api that no route handled does not exist (JSON, never the web page).
+  app.use("/api", (_req, res) => res.status(404).json({ message: "Not found" }));
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     // Multer's own upload-limit errors (e.g. LIMIT_FILE_SIZE) bypass any
     // route-level try/catch entirely — they're raised by its middleware

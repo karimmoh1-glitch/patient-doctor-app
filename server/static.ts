@@ -12,7 +12,12 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  app.use("*", (_req, res) => {
+  // The web app answers page requests only. A non-page request (any other method, or anything under /api that no
+  // route handled) is "not found", never the HTML page with a success status.
+  app.use("*", (req, res) => {
+    if ((req.method !== "GET" && req.method !== "HEAD") || req.originalUrl.startsWith("/api")) {
+      return res.status(404).json({ message: "Not found" });
+    }
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

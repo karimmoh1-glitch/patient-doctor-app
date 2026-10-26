@@ -27,7 +27,14 @@ export default async function globalSetup() {
   }
   await runMigrations(PROD_DB);
   execFileSync("npx", ["tsx", "script/seed.ts"], {
-    env: { ...process.env, DATABASE_URL: PROD_DB, NODE_ENV: "development" },
+    env: { ...process.env, DATABASE_URL: PROD_DB, NODE_ENV: "development", SEED_AS_REAL_ACCOUNTS: "1" },
     stdio: "pipe",
   });
+  // One account is deliberately left marked as a fixture: the production server must refuse it and not list it.
+  const mark = new pg.Pool({ connectionString: PROD_DB });
+  try {
+    await mark.query("UPDATE users SET is_demo = true WHERE email = 'fixture.doctor3@avela.dev'");
+  } finally {
+    await mark.end();
+  }
 }

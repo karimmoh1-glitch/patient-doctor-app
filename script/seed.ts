@@ -58,6 +58,10 @@ async function publishDemoHours(doctorProfileId: string, timezone: string) {
   await replaceAvailability(doctorProfileId, timezone, windows);
 }
 
+// Fixture accounts are marked is_demo so a production server refuses them. The production-build smoke test needs accounts a
+// production server will ACCEPT, to exercise every role signing in; it sets SEED_AS_REAL_ACCOUNTS=1 on its own throwaway database.
+const FIXTURE = process.env.SEED_AS_REAL_ACCOUNTS !== "1";
+
 async function main() {
   if (process.env.NODE_ENV === "production") {
     throw new Error("Refusing to seed demo data into a production environment (NODE_ENV=production).");
@@ -84,7 +88,7 @@ async function main() {
     phone: null,
     deactivatedAt: null,
     emailVerifiedAt: null,
-    isDemo: true,
+    isDemo: FIXTURE,
   });
   console.log(`Admin: ${admin.email} / ${DEMO_PASSWORD}`);
 
@@ -101,7 +105,7 @@ async function main() {
     emergencyNotes: "Prefers hospitals within Bay Area Health Network. Hard of hearing — please speak clearly.",
     deactivatedAt: null,
     emailVerifiedAt: null,
-    isDemo: true,
+    isDemo: FIXTURE,
   });
   console.log(`Patient: ${patient.email} / ${DEMO_PASSWORD} (CA) — "${patient.name}"`);
 
@@ -115,7 +119,7 @@ async function main() {
     phone: null,
     deactivatedAt: null,
     emailVerifiedAt: null,
-    isDemo: true,
+    isDemo: FIXTURE,
   });
   const careCircleInvite = await storage.createCareCircleInvite({
     patientUserId: patient.id,
@@ -143,7 +147,7 @@ async function main() {
     phone: DEMO_DOCTORS[0].phone,
     deactivatedAt: null,
     emailVerifiedAt: null,
-    isDemo: true,
+    isDemo: FIXTURE,
   });
   const firstProfile = await storage.createDoctorProfile({
     userId: doctorUser.id,
@@ -174,7 +178,7 @@ async function main() {
       phone: d.phone,
       deactivatedAt: null,
       emailVerifiedAt: null,
-      isDemo: true,
+      isDemo: FIXTURE,
     });
     const profile = await storage.createDoctorProfile({
       userId: user.id,

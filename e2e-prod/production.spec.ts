@@ -124,3 +124,19 @@ test.describe("the built application", () => {
     expect(problems).toEqual([]);
   });
 });
+
+test.describe("a production server and fixture accounts", () => {
+  test("refuses an account still marked as a fixture, and never lists its provider profile", async ({ page, request }) => {
+    const login = await request.post("/api/auth/login", { data: { email: "fixture.doctor3@avela.dev", password: PASSWORD } });
+    const wrong = await request.post("/api/auth/login", { data: { email: "fixture.doctor3@avela.dev", password: "not-the-password" } });
+    expect(login.status()).toBe(401);
+    expect(await login.json()).toEqual(await wrong.json());
+    const names = (await (await request.get("/api/doctors")).json()).map((d: any) => d.name);
+    expect(names.length).toBeGreaterThan(5); // the other, accepted accounts are listed
+    expect(names).not.toContain("Dr. Priya Nair"); // the profile of fixture.doctor3
+    await page.goto("/login");
+    await expect(page.getByRole("button", { name: /demo/i })).toHaveCount(0);
+    expect(await (await request.post("/api/auth/demo-login", { data: { role: "patient" } })).status()).not.toBe(200);
+    expect(await (await request.get("/api/config")).json()).not.toHaveProperty("demoMode");
+  });
+});

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { appRoleUrl } from "./tests/fastCommit";
 
 // Runs the BUILT application (`npm run build` first) exactly as it ships:
 // NODE_ENV=production, the production CSP, static bundle served from
@@ -29,12 +30,13 @@ export default defineConfig({
     env: {
       NODE_ENV: "production",
       PORT: String(PROD_PORT),
+      // A production-safe configuration, as a real deployment must have it (server/config.ts refuses to start otherwise):
+      // the owner connection for migrations, the restricted role for requests with row-level security enforced.
       DATABASE_URL: PROD_DB,
-      JWT_SECRET: "prod-smoke-only-secret",
-      DEMO_MODE: "true",
-      // A demonstration in production needs this second, deliberate switch (see server/config.ts).
-      DEMO_MODE_ACKNOWLEDGED: "true",
-      APP_URL: `http://localhost:${PROD_PORT}`,
+      APP_DATABASE_URL: appRoleUrl(PROD_DB),
+      DB_ENFORCE_RLS: "on",
+      JWT_SECRET: "prod-smoke-only-secret-that-is-long-enough-to-pass",
+      APP_URL: "https://smoke.avela.invalid",
     },
   },
 });
