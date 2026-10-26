@@ -54,6 +54,9 @@ export async function runMigrations(databaseUrl: string, dir = path.resolve(proc
         client.release();
       }
     }
+    // Keep the restricted runtime role's privileges in step with the tables that exist now, so a
+    // table added by a later migration is covered without anyone having to remember (migration 0014).
+    await pool.query("DO $$ BEGIN IF to_regproc('avela_apply_grants') IS NOT NULL THEN PERFORM avela_apply_grants(); END IF; END $$");
   } finally {
     await pool.end();
   }

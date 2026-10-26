@@ -26,8 +26,9 @@ describe("prescription lifecycle", () => {
 
     expect((await request(app).get("/api/prescriptions").set(auth(patient.token))).body).toEqual([]);
     // …and cannot be tracked, refilled or ordered while it's a draft.
-    expect((await request(app).post(`/api/prescriptions/${draft.body.id}/track`).set(auth(patient.token))).status).toBe(409);
-    expect((await request(app).post(`/api/prescriptions/${draft.body.id}/refill`).set(auth(patient.token))).status).toBe(409);
+    // 409 from the application; with the restricted database role the draft is not even visible to the patient (404).
+    expect([404, 409]).toContain((await request(app).post(`/api/prescriptions/${draft.body.id}/track`).set(auth(patient.token))).status);
+    expect([404, 409]).toContain((await request(app).post(`/api/prescriptions/${draft.body.id}/refill`).set(auth(patient.token))).status);
 
     const authorized = await request(app).post(`/api/prescriptions/${draft.body.id}/authorize`).set(auth(doctor.token)).send({ confirm: true });
     expect(authorized.status).toBe(200);

@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
 import { reminderHealth } from "../services/reminderService";
 import { normalizeLang } from "../services/serverText";
+import { runAsSystem } from "../dbContext";
 import {
   sendDoctorApplicationApprovedEmail,
   sendDoctorApplicationRejectedEmail,
@@ -169,7 +170,8 @@ router.get("/audit", ...adminOnly, async (req, res) => {
 // Is automatic reminder delivery really working? Counts and timestamps only:
 // nothing here names a patient or a medicine.
 router.get("/reminders/status", ...adminOnly, async (_req, res) => {
-  res.json(await reminderHealth());
+  // Counts only, across everyone's reminders: an operational read, not a view of anyone's record.
+  res.json(await runAsSystem(() => reminderHealth()));
 });
 
 export default router;

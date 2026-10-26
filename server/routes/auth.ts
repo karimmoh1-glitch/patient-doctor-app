@@ -14,6 +14,7 @@ import { generateSecureToken, hashToken } from "../services/tokenService";
 import { sendPasswordResetEmail } from "../services/emailService";
 import { z } from "zod";
 import { isDemoMode } from "../config";
+import { systemAccess } from "../middleware/systemAccess";
 
 const router = Router();
 
@@ -71,7 +72,7 @@ const signupBodySchema = z.object({
   language: z.enum(["en", "ar"]).optional(),
 });
 
-router.post("/signup", authLimiter, async (req, res) => {
+router.post("/signup", systemAccess, authLimiter, async (req, res) => {
   const parsed = signupBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid signup details" });
@@ -117,7 +118,7 @@ const loginBodySchema = z.object({
   password: z.string().min(1),
 });
 
-router.post("/login", loginIpLimiter, loginAccountLimiter, async (req, res) => {
+router.post("/login", systemAccess, loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const parsed = loginBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Email and password are required" });
@@ -151,7 +152,7 @@ const DEMO_ACCOUNTS: Record<string, string> = {
   doctor: "doctor@avela.dev",
 };
 
-router.post("/demo-login", authLimiter, async (req, res) => {
+router.post("/demo-login", systemAccess, authLimiter, async (req, res) => {
   if (!isDemoMode()) return res.status(404).json({ message: "Not found" });
   const email = DEMO_ACCOUNTS[String(req.body?.role)];
   const user = email ? await storage.getUserByEmail(email) : undefined;
@@ -163,7 +164,7 @@ router.post("/demo-login", authLimiter, async (req, res) => {
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
 
-router.post("/forgot-password", authLimiter, async (req, res) => {
+router.post("/forgot-password", systemAccess, authLimiter, async (req, res) => {
   const parsed = forgotPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "A valid email is required" });
@@ -193,7 +194,7 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8).max(200),
 });
 
-router.post("/reset-password", authLimiter, async (req, res) => {
+router.post("/reset-password", systemAccess, authLimiter, async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid request" });

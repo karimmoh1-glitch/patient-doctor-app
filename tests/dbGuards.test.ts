@@ -36,15 +36,15 @@ describe("append-only records", () => {
     const { patient } = await authorized();
     const [row] = (await storage.getAuditLogsForSubject(patient.id, 5));
     expect(row).toBeTruthy();
-    await refused(() => db.execute(sql`UPDATE audit_logs SET action = 'nothing.happened' WHERE id = ${row.id}`), /append-only/);
-    await refused(() => db.execute(sql`DELETE FROM audit_logs WHERE id = ${row.id}`), /append-only/);
+    await refused(() => db.execute(sql`UPDATE audit_logs SET action = 'nothing.happened' WHERE id = ${row.id}`), /append-only|permission denied/); // the trigger for the table owner; the missing privilege for the restricted runtime role
+    await refused(() => db.execute(sql`DELETE FROM audit_logs WHERE id = ${row.id}`), /append-only|permission denied/); // the trigger for the table owner; the missing privilege for the restricted runtime role
   });
 
   it("a prescription's history cannot be rewritten", async () => {
     const { rx } = await authorized();
     const [event] = await storage.getPrescriptionEvents(rx.id);
-    await refused(() => db.execute(sql`UPDATE prescription_events SET event = 'drafted' WHERE id = ${event.id}`), /append-only/);
-    await refused(() => db.execute(sql`DELETE FROM prescription_events WHERE prescription_id = ${rx.id}`), /append-only/);
+    await refused(() => db.execute(sql`UPDATE prescription_events SET event = 'drafted' WHERE id = ${event.id}`), /append-only|permission denied/); // the trigger for the table owner; the missing privilege for the restricted runtime role
+    await refused(() => db.execute(sql`DELETE FROM prescription_events WHERE prescription_id = ${rx.id}`), /append-only|permission denied/); // the trigger for the table owner; the missing privilege for the restricted runtime role
   });
 });
 

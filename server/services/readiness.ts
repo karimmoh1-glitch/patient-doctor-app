@@ -30,6 +30,13 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
   add("emergency-number", !!env.VITE_EMERGENCY_NUMBER, "warn", "The emergency number is set for this country", "VITE_EMERGENCY_NUMBER is not set: the default (911) is shown");
   add("ai-phi", !(env.OPENAI_API_KEY && env.AI_PHI_PROCESSING_CONFIRMED === "true"), "warn", "No health information is sent to an AI provider", "Health information may be sent to an AI provider: confirm the agreement exists");
 
+  // Database protection (docs/SECURITY.md): the application should run as the restricted role with row-level security enforced.
+  add("rls-enforced", !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on", "fail",
+    "The application connects as the restricted database role with row-level security enforced",
+    "APP_DATABASE_URL and DB_ENFORCE_RLS=on are not both set: the application runs with full database privileges (npm run db:create-app-role)");
+  add("heartbeat", !!env.SCHEDULER_HEARTBEAT_URL, "warn", "A heartbeat monitor is notified after each scheduler run", "No SCHEDULER_HEARTBEAT_URL: nothing outside Avela notices if the scheduler stops calling");
+  add("ops-alert", !!env.OPS_ALERT_EMAIL, "warn", "Scheduler failures are e-mailed to an operator", "No OPS_ALERT_EMAIL: a failing scheduler is visible only in the admin screen");
+
   const count = async (sql: string) => Number((await db.query(sql)).rows[0]?.n ?? 0);
   const activeDemo = await count("SELECT count(*)::int AS n FROM users WHERE is_demo AND deactivated_at IS NULL");
   add("demo-accounts", activeDemo === 0, "fail", "No demo account is active", `${activeDemo} demo account(s) are still active (npm run demo:retire)`);
@@ -40,5 +47,17 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
   const lastRun = await db.query("SELECT last_success_at FROM job_runs WHERE job = 'reminders'");
   const ageMin = lastRun.rows[0]?.last_success_at ? (Date.now() - new Date(lastRun.rows[0].last_success_at).getTime()) / 60_000 : Infinity;
   add("reminder-job", ageMin <= 30, "fail", "The reminder scheduler ran successfully in the last 30 minutes", "The reminder scheduler has not run successfully in the last 30 minutes");
+  const appRole = await db.query("SELECT r.rolcanlogin, r.rolsuper, r.rolbypassrls FROM pg_roles r WHERE r.rolname = 'avela_runtime'");
+  const role = appRole.rows[0];
+  add("app-role", !!role && role.rolcanlogin && !role.rolsuper && !role.rolbypassrls, "fail",
+    "The restricted login role (avela_runtime) exists and cannot bypass row-level security",
+    "The restricted login role avela_runtime does not exist (npm run db:create-app-role)");
+
+  // Has anything really been calling the scheduler? Our own records, not a workflow file. One call is expected every 5 minutes.
+  const calls = await count("SELECT count(*)::int AS n FROM job_run_history WHERE job = 'reminders' AND outcome <> 'skipped_overlap' AND started_at > now() - interval '24 hours'");
+  add("scheduler-history", calls >= 0.9 * 288, "fail", `The scheduler called ${calls} times in the last 24 hours`, `The scheduler called only ${calls} times in the last 24 hours (about 288 expected)`);
+  const sources = await db.query("SELECT DISTINCT source FROM job_run_history WHERE job = 'reminders' AND started_at > now() - interval '24 hours'");
+  const dependable = sources.rows.some((r) => r.source !== "github-actions" && r.source !== "unknown");
+  add("scheduler-caller", dependable, "warn", "A dedicated scheduler (not only GitHub's best-effort schedule) is calling", "Only GitHub Actions' best-effort schedule (or an unnamed caller) has called in the last 24 hours");
   return out;
 }

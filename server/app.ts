@@ -131,7 +131,7 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
     const status = err.status || err.statusCode || 500;
     const message = status < 500 && err.message ? err.message : "Internal Server Error";
 
-    if (!isTest) console.error("Internal Server Error:", describeErrorForLog(err));
+    if (!isTest || process.env.LOG_TEST_ERRORS) console.error("Internal Server Error:", describeErrorForLog(err));
 
     if (res.headersSent) {
       return next(err);

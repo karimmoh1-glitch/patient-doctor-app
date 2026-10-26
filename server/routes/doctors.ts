@@ -13,6 +13,7 @@ import { logAudit } from "../services/auditService";
 import { getAvailability, getNextOpenSlots, isValidTimezone, replaceAvailability, validateAvailabilityWindows } from "../services/schedulingService";
 import { SPECIALTIES, US_STATES } from "@shared/specialties";
 import { LANGUAGE_CODES, MODALITIES, PROFESSIONAL_ROLES } from "@shared/languages";
+import { systemAccess } from "../middleware/systemAccess";
 import {
   sendDoctorApplicationReceivedEmail,
   sendNewDoctorApplicationAdminEmail,
@@ -139,7 +140,7 @@ const registerSchema = z.object({
   language: z.enum(["en", "ar"]).optional(),
 });
 
-router.post("/register", applyLimiter, async (req, res) => {
+router.post("/register", systemAccess, applyLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid registration" });
   const { name, email, password, language } = parsed.data;

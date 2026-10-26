@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { storage } from "../storage";
 import { isDemoMode } from "../config";
+import { enterUser, runAsSystem } from "../dbContext";
 import { clearSessionCookie, cookieRequestAllowed, isWebClient, readSessionCookie, setSessionCookie } from "./session";
 
 // The insecure fallback secret is only ever allowed in an explicit local
@@ -115,15 +116,20 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!decoded.deviceId) {
       return res.status(401).json({ message: "Invalid or expired token" });
     }
-    const device = await storage.getUserDeviceByDeviceId(decoded.deviceId);
-    if (!device || device.userId !== decoded.userId || device.revokedAt) {
+    // Who this session belongs to has to be looked up before anyone is known, so these reads are system
+    // reads; from the next line on, the rest of the request is this person and nothing else.
+    const { device, user } = await runAsSystem(async () => {
+      const device = await storage.getUserDeviceByDeviceId(decoded.deviceId!);
+      if (!device || device.userId !== decoded.userId || device.revokedAt) return { device: undefined, user: undefined };
+      storage.touchUserDevice(decoded.deviceId!).catch(() => {});
+      return { device, user: await storage.getUser(decoded.userId) };
+    });
+    if (!device) {
       return res.status(401).json({ message: "Your session has ended. Please sign in again." });
     }
-    storage.touchUserDevice(decoded.deviceId).catch(() => {});
 
     // Checked on every request, not just at login, so deactivating a user
     // mid-session cuts their access immediately.
-    const user = await storage.getUser(decoded.userId);
     if (!user || user.deactivatedAt) {
       return res.status(401).json({ message: "This account has been deactivated" });
     }
@@ -137,6 +143,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     (req as any).userId = decoded.userId;
     (req as any).userRole = user.role;
     (req as any).deviceId = decoded.deviceId || null;
+    enterUser(user.id);
     next();
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });

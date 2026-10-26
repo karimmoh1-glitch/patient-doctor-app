@@ -4,6 +4,7 @@ import { makeLimiter } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { dispatchAppointmentReminders, dispatchDueReminders, REMINDER_JOB } from "../services/reminderService";
 import { runScheduledJob, schedulerSource } from "../services/schedulerRun";
+import { systemAccess } from "../middleware/systemAccess";
 
 const router = Router();
 
@@ -54,7 +55,7 @@ async function runReminders(req: any, res: any) {
   res.json({ ok: true, runId: summary.runId, ...summary.result });
 }
 
-router.get("/reminders", guessLimiter, runReminders);
-router.post("/reminders", guessLimiter, runReminders);
+router.get("/reminders", systemAccess, guessLimiter, runReminders);
+router.post("/reminders", systemAccess, guessLimiter, runReminders);
 
 export default router;

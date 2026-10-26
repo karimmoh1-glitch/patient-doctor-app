@@ -2,6 +2,7 @@ import { eq, and, desc, isNull, inArray, sql as sqlOp } from "drizzle-orm";
 
 export type PairingStatus = "requested" | "accepted" | "declined" | "cancelled" | "ended";
 import { db } from "./db";
+import { runAsSystem } from "./dbContext";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
@@ -478,7 +479,12 @@ export class DbStorage implements IStorage {
     });
   }
 
+  // An administrator acting on someone else's account: it ends that doctor's sessions, which are theirs.
   async suspendDoctor(applicationId: string, reviewerUserId: string, reason?: string) {
+    return runAsSystem(() => this.suspendDoctorUnscoped(applicationId, reviewerUserId, reason));
+  }
+
+  private async suspendDoctorUnscoped(applicationId: string, reviewerUserId: string, reason?: string) {
     return db.transaction(async (tx) => {
       const [application] = await tx
         .update(doctorApplications)
@@ -989,7 +995,13 @@ export class DbStorage implements IStorage {
       .returning();
   }
 
+  // Asked about another person's notices (to avoid sending a second "new message" nudge), so it is a
+  // server check, not something the asking person may read for themselves.
   async hasUnreadNotification(userId: string, kind: string, link: string) {
+    return runAsSystem(() => this.hasUnreadNotificationUnscoped(userId, kind, link));
+  }
+
+  private async hasUnreadNotificationUnscoped(userId: string, kind: string, link: string) {
     const [row] = await db
       .select({ id: notifications.id })
       .from(notifications)
@@ -998,9 +1010,14 @@ export class DbStorage implements IStorage {
     return !!row;
   }
 
+  // A notice is usually for someone other than the person whose action caused it (the doctor is told
+  // about a request, the patient about a prescription), so writing it is the server's job, not the
+  // acting person's: it runs with system access and returns the row it wrote.
   async createNotification(data: InsertNotification) {
-    const [row] = await db.insert(notifications).values(data).returning();
-    return row;
+    return runAsSystem(async () => {
+      const [row] = await db.insert(notifications).values(data).returning();
+      return row;
+    });
   }
 
   async getNotificationsForUser(userId: string, limit: number) {

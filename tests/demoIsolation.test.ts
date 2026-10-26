@@ -99,7 +99,7 @@ describe("the readiness check before real patients", () => {
     await demoAccount("admin"); // active demo account in this database
     const checks = await checkReadiness({ ...realEnv, DEMO_MODE: "true", CRON_SECRET: "" }, pool);
     const failing = checks.filter((c) => c.level === "fail").map((c) => c.id);
-    expect(failing).toEqual(expect.arrayContaining(["demo-off", "demo-accounts", "cron-secret"]));
+    expect(failing).toEqual(expect.arrayContaining(["demo-off", "demo-accounts", "cron-secret", "rls-enforced", "app-role", "scheduler-history"]));
   });
 
   it("reports each blocker without printing any secret", async () => {

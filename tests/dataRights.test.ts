@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { getApp, signupPatient, createDoctor, connect, auth, issuePrescription, prescriptionBody, PASSWORD } from "./helpers";
 import { storage } from "../server/storage";
+import pg from "pg";
 import { pool } from "../server/db";
 import { eraseUser } from "../server/services/erasure";
+
+// Erasure is an operator action (`npm run erase:user`) that runs with the owner connection, never through the
+// application's restricted role, which cannot edit a sent message by design.
+const ownerPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+afterAll(() => ownerPool.end());
 
 let app: Express;
 beforeAll(async () => {
@@ -89,7 +95,7 @@ describe("erasing a person's records (an operator's job)", () => {
     const { patient, doctor, rx } = await patientWithRecords();
     await request(app).post("/api/me/delete-request").set(auth(patient.token)).send({ confirm: true, password: PASSWORD });
 
-    const report = await eraseUser(pool, patient.id);
+    const report = await eraseUser(ownerPool, patient.id);
     expect(report.erased.account).toBe(1);
 
     const user = (await storage.getUser(patient.id))!;
@@ -112,6 +118,6 @@ describe("erasing a person's records (an operator's job)", () => {
   });
 
   it("refuses to run for a person who does not exist, and changes nothing", async () => {
-    await expect(eraseUser(pool, "00000000-0000-0000-0000-000000000000")).rejects.toThrow(/No such user/);
+    await expect(eraseUser(ownerPool, "00000000-0000-0000-0000-000000000000")).rejects.toThrow(/No such user/);
   });
 });

@@ -97,24 +97,39 @@ const LIVE_STATUSES = ["requested", "confirmed"] as const;
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function loadSchedule(executor: Pick<Tx, "select">, doctorProfileId: string, window: Interval, excludeAppointmentId?: string) {
+type Executor = Pick<Tx, "select" | "execute">;
+
+/** pg returns a timestamp-without-time-zone as text; ours are always UTC. */
+const asUtc = (v: unknown): Date => (v instanceof Date ? v : new Date(String(v).replace(" ", "T") + (/[zZ]|[+-]\d\d(:?\d\d)?$/.test(String(v)) ? "" : "Z")));
+
+/**
+ * When each of these doctors is already booked inside the window: only the start and length, never whose
+ * visit it is. Goes through a narrow database function, so a patient looking for a free time can see
+ * what is taken without being able to read anyone else's appointment (see migration 0014).
+ */
+async function busyIntervals(executor: Executor, doctorIds: string[], window: Interval, excludeAppointmentId?: string): Promise<Map<string, Interval[]>> {
+  const out = new Map<string, Interval[]>();
+  if (!doctorIds.length) return out;
+  const ids = sql.join(doctorIds.map((id) => sql`${id}`), sql`, `);
+  const res = await executor.execute(sql`
+    SELECT doctor_profile_id, scheduled_at, duration_minutes
+      FROM app_busy_intervals(ARRAY[${ids}]::text[], ${window.start.toISOString()}::timestamp, ${window.end.toISOString()}::timestamp, ${excludeAppointmentId ?? null}::text)`);
+  for (const row of res.rows as { doctor_profile_id: string; scheduled_at: unknown; duration_minutes: number }[]) {
+    const start = asUtc(row.scheduled_at);
+    const list = out.get(row.doctor_profile_id) ?? [];
+    list.push({ start, end: new Date(start.getTime() + row.duration_minutes * 60_000) });
+    out.set(row.doctor_profile_id, list);
+  }
+  return out;
+}
+
+async function loadSchedule(executor: Executor, doctorProfileId: string, window: Interval, excludeAppointmentId?: string) {
   const [doctor] = await executor.select().from(doctorProfiles).where(eq(doctorProfiles.id, doctorProfileId));
   const rules = await executor
     .select({ weekday: doctorAvailability.weekday, startMinute: doctorAvailability.startMinute, endMinute: doctorAvailability.endMinute })
     .from(doctorAvailability)
     .where(eq(doctorAvailability.doctorProfileId, doctorProfileId));
-  const conditions = [
-    eq(appointments.doctorProfileId, doctorProfileId),
-    inArray(appointments.status, [...LIVE_STATUSES]),
-    lt(appointments.scheduledAt, window.end),
-    gt(sql`${appointments.scheduledAt} + (${appointments.durationMinutes} * interval '1 minute')`, window.start),
-  ];
-  if (excludeAppointmentId) conditions.push(ne(appointments.id, excludeAppointmentId));
-  const live = await executor.select().from(appointments).where(and(...conditions));
-  const busy: Interval[] = live.map((a) => ({
-    start: a.scheduledAt,
-    end: new Date(a.scheduledAt.getTime() + a.durationMinutes * 60_000),
-  }));
+  const busy = (await busyIntervals(executor, [doctorProfileId], window, excludeAppointmentId)).get(doctorProfileId) ?? [];
   return { doctor, rules, busy };
 }
 
@@ -128,19 +143,14 @@ export async function getNextOpenSlots(doctors: { id: string; timezone: string }
   if (!doctors.length) return out;
   const ids = doctors.map((d) => d.id);
   const horizonEnd = new Date(now.getTime() + (Math.min(days, MAX_HORIZON_DAYS) + 2) * 86_400_000);
-  const [rules, live] = await Promise.all([
+  const [rules, busyByDoctor] = await Promise.all([
     db.select().from(doctorAvailability).where(inArray(doctorAvailability.doctorProfileId, ids)),
-    db.select().from(appointments).where(and(
-      inArray(appointments.doctorProfileId, ids),
-      inArray(appointments.status, [...LIVE_STATUSES]),
-      lt(appointments.scheduledAt, horizonEnd),
-      gt(sql`${appointments.scheduledAt} + (${appointments.durationMinutes} * interval '1 minute')`, now),
-    )),
+    busyIntervals(db, ids, { start: now, end: horizonEnd }),
   ]);
   for (const d of doctors) {
     const mine = rules.filter((r) => r.doctorProfileId === d.id).map((r) => ({ weekday: r.weekday, startMinute: r.startMinute, endMinute: r.endMinute }));
     if (!mine.length) continue;
-    const busy = live.filter((a) => a.doctorProfileId === d.id).map((a) => ({ start: a.scheduledAt, end: new Date(a.scheduledAt.getTime() + a.durationMinutes * 60_000) }));
+    const busy = busyByDoctor.get(d.id) ?? [];
     const first = generateSlots({ rules: mine, timezone: d.timezone, now, days, busy })[0];
     if (first) out.set(d.id, first);
   }

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { appRoleUrl } from "./tests/fastCommit";
 
 export const E2E_PORT = 3101;
 export const E2E_DB = process.env.E2E_DATABASE_URL || "postgresql://karimmohamed@localhost:5432/patient_doctor_app_e2e_test";
@@ -32,6 +33,9 @@ export default defineConfig({
       NODE_ENV: "development",
       PORT: String(E2E_PORT),
       DATABASE_URL: E2E_DB,
+      // `npm run test:e2e:rls`: the server runs as the restricted database role with row-level security
+      // enforced, as it would in production. Seeding and migrations still use DATABASE_URL (the owner).
+      ...(process.env.E2E_AS_APP_ROLE === "1" ? { APP_DATABASE_URL: appRoleUrl(E2E_DB), DB_ENFORCE_RLS: "on" } : {}),
       JWT_SECRET: "e2e-only-secret",
       E2E_DISABLE_RATE_LIMITS: "true",
     },
