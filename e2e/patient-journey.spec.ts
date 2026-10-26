@@ -93,7 +93,7 @@ test.describe("an older patient's first week", () => {
 
     await page.getByRole("button", { name: "Cancel visit" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Yes, cancel it" }).click();
-    await expect(page.getByText("Appointment cancelled")).toBeVisible();
+    await expect(page.getByText("Appointment cancelled").first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Earlier" })).toBeVisible();
 
     await doctor.context.close();
