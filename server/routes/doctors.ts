@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { makeLimiter } from "../middleware/rateLimit";
 import { z } from "zod";
 import { storage } from "../storage";
+import { credentialSummaryForUser } from "../services/credentialService";
 import { requireAuth, requireRole, issueSession } from "../middleware/auth";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { doctorStatusFor } from "../services/doctorStatus";
@@ -289,6 +290,7 @@ router.get("/me/profile", requireAuth, requireApprovedDoctor, async (req, res) =
     id: p.id, name: p.name, specialty: p.specialty, state: p.state, bio: p.bio, clinic: p.clinic,
     languages: p.languages, modalities: p.modalities, phone: p.phone, timezone: p.timezone,
     licenseNumber: p.licenseNumber, licensingBody: p.licensingBody, verifiedAt: p.verifiedAt,
+    credential: await credentialSummaryForUser((req as any).userId),
   });
 });
 

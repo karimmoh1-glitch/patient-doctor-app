@@ -94,4 +94,12 @@ export default {
   "admin.rem.gap": "Longest silence between calls",
   "admin.rem.gap.value": "{count} minutes",
   "admin.rem.sources": "Called by",
+  "admin.verify.source": "How was the licence checked?",
+  "admin.verify.source.document_review": "I read the licence document the applicant provided",
+  "admin.verify.source.registry_lookup": "I looked it up in the licensing body's public register",
+  "admin.verify.source.issuer_confirmation": "The licensing body confirmed it to me",
+  "admin.verify.note": "What did you check?",
+  "admin.verify.note.hint": "For example: the register entry, its name and number matched the application. Only reviewers see this. At least 10 characters.",
+  "admin.verify.expires": "Valid until",
+  "admin.verify.expires.hint": "The date the licence expires. After this date the doctor is no longer shown to patients until it is renewed.",
 } as const;

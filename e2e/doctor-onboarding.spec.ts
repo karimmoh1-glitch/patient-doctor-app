@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { newSession, signInAs, uniqueEmail, NEW_PASSWORD, completeAuthenticatorSetup, registerDoctorViaApi } from "./helpers";
+import { newSession, signInAs, uniqueEmail, NEW_PASSWORD, completeAuthenticatorSetup, registerDoctorViaApi, APPROVAL } from "./helpers";
 
 test.describe("becoming a doctor on Avela", () => {
   test("registers, completes the application, waits for review, answers a request for more information, and is approved by a person", async ({ page, browser }) => {
@@ -79,7 +79,9 @@ test.describe("becoming a doctor on Avela", () => {
     await admin.page.goto("/admin");
     const again = admin.page.getByRole("listitem").filter({ hasText: "TX-778899" });
     await again.getByRole("button", { name: /^Approve/ }).click();
-    await admin.page.getByRole("alertdialog").getByRole("button", { name: "Yes, approve" }).click();
+    const approveDialog = admin.page.getByRole("dialog");
+    await approveDialog.getByLabel("What did you check?").fill("Register entry matched the name and number.");
+    await approveDialog.getByRole("button", { name: "Yes, approve" }).click();
     await admin.context.close();
 
     await page.reload();
@@ -105,7 +107,7 @@ test.describe("becoming a doctor on Avela", () => {
 
     const admin = await newSession(browser, "admin@avela.dev");
     const ah = { Authorization: `Bearer ${admin.session.token}` };
-    await admin.page.request.post(`/api/admin/doctor-applications/${sub.id}/approve`, { headers: ah });
+    await admin.page.request.post(`/api/admin/doctor-applications/${sub.id}/approve`, { headers: ah, data: APPROVAL });
     await admin.page.goto("/admin");
     await admin.page.getByRole("radio", { name: /Approved/ }).click();
     const card = admin.page.getByRole("listitem").filter({ hasText: "S-1" });

@@ -121,7 +121,12 @@ export async function registerDoctorViaApi(page: Page, name: string, email: stri
 /** An administrator approves an application, through the API. */
 export async function approveViaApi(browser: Browser, applicationId: string) {
   const admin = await newSession(browser, "admin@avela.dev");
-  const res = await admin.page.request.post(`/api/admin/doctor-applications/${applicationId}/approve`, { headers: { Authorization: `Bearer ${admin.session.token}` } });
+  const res = await admin.page.request.post(`/api/admin/doctor-applications/${applicationId}/approve`, { headers: { Authorization: `Bearer ${admin.session.token}` }, data: APPROVAL });
   expect(res.ok()).toBeTruthy();
   await admin.context.close();
 }
+
+/** What an administrator supplies when approving a clinician through the API. */
+export const APPROVAL = {
+  verification: { source: "document_review", evidenceNote: "Licence certificate sighted; number matches.", expiresAt: new Date(Date.now() + 365 * 86_400_000).toISOString() },
+};

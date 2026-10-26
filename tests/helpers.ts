@@ -183,3 +183,12 @@ export async function issuePrescription(doctor: TestUser, pairingRequestId: stri
   if (authorized.status !== 200) throw new Error(`authorize failed: ${authorized.status} ${JSON.stringify(authorized.body)}`);
   return authorized.body as { id: string; status: string; [k: string]: any };
 }
+
+/** What an administrator must supply to approve a clinician: how the licence was checked, what was seen, and its expiry. */
+export const APPROVAL = {
+  verification: {
+    source: "document_review" as const,
+    evidenceNote: "Licence certificate sighted; number matches the application.",
+    expiresAt: new Date(Date.now() + 365 * 86_400_000).toISOString(),
+  },
+};

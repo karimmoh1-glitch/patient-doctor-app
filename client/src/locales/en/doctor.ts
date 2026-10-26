@@ -124,4 +124,10 @@ export default {
   "dhome.att.drafts_other": "{count} prescription drafts are waiting for your review",
   "dhome.upcoming": "Coming up this week",
   "dhome.upcoming.none": "Nothing else is booked for the next 7 days.",
+  "dprof.cred.verified": "Your licence was checked by a person on the Avela team and is valid until {date}. After that you are not shown to patients until it is renewed.",
+  "dprof.cred.expired": "Your licence check expired on {date}. You are not shown to patients until a reviewer renews it. Contact the Avela team with your renewed licence.",
+  "dprof.cred.suspended": "Your licence check was suspended by a reviewer. You are not shown to patients. Contact the Avela team.",
+  "dprof.cred.rejected": "Your licence check was not accepted. Contact the Avela team.",
+  "dprof.cred.pending": "Your licence has not been checked yet.",
+  "dprof.cred.submitted": "Your licence has not been checked yet.",
 } as const;

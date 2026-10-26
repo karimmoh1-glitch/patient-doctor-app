@@ -10,13 +10,15 @@ import { CheckGroup, Field } from "@/components/form-field";
 import { Ltr } from "@/components/ltr";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { formatDate } from "@/lib/format";
 import { modalityLabel, specialtyLabel } from "@/lib/labels";
 import { CLINICIAN_LANGUAGES, MODALITIES } from "@shared/languages";
 
 interface Profile {
   id: string; name: string; specialty: string; state: string; bio: string | null; clinic: string | null; languages: string[]; modalities: string[];
   phone: string; licenseNumber: string | null; licensingBody: string | null; verifiedAt: string | null;
+  credential: { status: "submitted" | "pending" | "verified" | "rejected" | "suspended" | "expired"; source: string | null; checkedAt: string | null; expiresAt: string | null } | null;
 }
 
 // The fields a doctor may change themselves. Licence, specialty and state are
@@ -73,6 +75,11 @@ function ProfileForm({ profile }: { profile: Profile }) {
           <div><dt className="text-base font-semibold text-muted-foreground">{t("onb.f.state")}</dt><dd className="text-lg">{profile.state}</dd></div>
           <div><dt className="text-base font-semibold text-muted-foreground">{t("onb.f.license")}</dt><dd className="text-lg"><Ltr>{profile.licenseNumber ?? "—"}</Ltr></dd></div>
         </dl>
+        {profile.credential && (
+          <p role="status" className={`rounded-xl border-2 p-3 text-base ${profile.credential.status === "verified" ? "border-primary/40 bg-secondary" : "border-ochre bg-sand text-sand-foreground"}`}>
+            {t(`dprof.cred.${profile.credential.status}` as MessageKey, { date: profile.credential.expiresAt ? formatDate(profile.credential.expiresAt) : "", how: profile.credential.source ? t(`admin.verify.source.${profile.credential.source}` as MessageKey) : "" })}
+          </p>
+        )}
         <p className="text-base text-muted-foreground">{t("dprof.lockedNote")}</p>
       </section>
 

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { eq } from "drizzle-orm";
-import { getApp, signupPatient, createAdmin, createDoctor, connect, auth, uniqueEmail, PASSWORD, completeSecondFactor, signIn } from "./helpers";
+import { getApp, signupPatient, createAdmin, createDoctor, connect, auth, uniqueEmail, PASSWORD, completeSecondFactor, signIn, APPROVAL } from "./helpers";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { users } from "@shared/schema";
@@ -122,7 +122,7 @@ describe("review by an administrator", () => {
   it("approval creates the profile, marks it reviewed, lists the doctor with languages, and unlocks clinical routes", async () => {
     const admin = await createAdmin();
     const doc = await submitted();
-    const approve = await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(admin.token));
+    const approve = await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(admin.token)).send(APPROVAL);
     expect(approve.status).toBe(200);
 
     const profile = await storage.getDoctorProfileByUserId(doc.id);
@@ -144,8 +144,8 @@ describe("review by an administrator", () => {
     const a2 = await createAdmin();
     const doc = await submitted();
     const [r1, r2] = await Promise.all([
-      request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(a1.token)),
-      request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(a2.token)),
+      request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(a1.token)).send(APPROVAL),
+      request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(a2.token)).send(APPROVAL),
     ]);
     expect([r1.status, r2.status].filter((s) => s === 200)).toHaveLength(1);
   });
@@ -182,7 +182,7 @@ describe("review by an administrator", () => {
   it("suspension signs the doctor out, hides them, and blocks care; reinstating restores them", async () => {
     const admin = await createAdmin();
     const doc = await submitted();
-    await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(admin.token));
+    await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(admin.token)).send(APPROVAL);
     const patient = await signupPatient({ state: "TX" });
     const profile = (await storage.getDoctorProfileByUserId(doc.id))!;
     const connection = await connect(patient, { id: doc.id, email: doc.email, token: doc.token, profileId: profile.id });
@@ -210,11 +210,11 @@ describe("review by an administrator", () => {
     const approved = await createDoctor();
     for (const who of [patient, approved]) {
       expect((await request(app).get("/api/admin/doctor-applications").set(auth(who.token))).status).toBe(403);
-      expect((await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(who.token))).status).toBe(403);
+      expect((await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(who.token)).send(APPROVAL)).status).toBe(403);
       expect((await request(app).get("/api/admin/audit").set(auth(who.token))).status).toBe(403);
     }
     // A doctor cannot approve themselves.
-    expect((await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(doc.token))).status).toBe(403);
+    expect((await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(doc.token)).send(APPROVAL)).status).toBe(403);
   });
 
   it("the audit view lists who did what, without any metadata", async () => {
@@ -232,7 +232,7 @@ describe("an approved doctor's own profile", () => {
   it("can edit the permitted fields but never licence, specialty or region", async () => {
     const admin = await createAdmin();
     const doc = await submitted();
-    await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(admin.token));
+    await request(app).post(`/api/admin/doctor-applications/${doc.applicationId}/approve`).set(auth(admin.token)).send(APPROVAL);
     const ok = await request(app).patch("/api/doctors/me/profile").set(auth(doc.token)).send({ bio: "New bio", languages: ["en", "ar", "fr"] });
     expect(ok.status).toBe(200);
     expect((await storage.getDoctorProfileByUserId(doc.id))!.languages).toEqual(["en", "ar", "fr"]);
@@ -248,7 +248,7 @@ describe("finding doctors", () => {
     const doc = await register(`Dir ${Math.random().toString(36).slice(2, 7)}`);
     await request(app).put("/api/doctors/me/application").set(auth(doc.token)).send({ ...COMPLETE, displayName: `Dr. Dir ${doc.email.slice(0, 6)}`, ...over });
     const sub = await request(app).post("/api/doctors/me/application/submit").set(auth(doc.token));
-    await request(app).post(`/api/admin/doctor-applications/${sub.body.id}/approve`).set(auth(admin.token));
+    await request(app).post(`/api/admin/doctor-applications/${sub.body.id}/approve`).set(auth(admin.token)).send(APPROVAL);
     return { ...doc, profile: (await storage.getDoctorProfileByUserId(doc.id))! };
   }
 

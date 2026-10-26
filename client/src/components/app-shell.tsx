@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   Home, Stethoscope, CalendarDays, HeartPulse, LogOut, Siren, LifeBuoy, Settings as SettingsIcon,
-  Inbox, UserCog, Users, Gauge, Clock, Bell, ClipboardCheck, UserRound, ScrollText, Plug,
+  Inbox, UserCog, Users, Gauge, Clock, Bell, ClipboardCheck, UserRound, ScrollText, Plug, BadgeCheck,
   MessagesSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,7 @@ function navFor(user: AuthUser): NavItem[] {
   return [
     { href: "/admin", labelKey: "nav.admin", icon: UserCog, exact: true },
     { href: "/admin/activity", labelKey: "nav.admin.activity", icon: ScrollText },
+    { href: "/admin/credentials", labelKey: "nav.admin.credentials", icon: BadgeCheck },
     { href: "/admin/integrations", labelKey: "nav.admin.integrations", icon: Plug },
   ];
 }

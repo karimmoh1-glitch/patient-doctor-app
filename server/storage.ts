@@ -1,5 +1,8 @@
 import { eq, and, desc, isNull, inArray, sql as sqlOp } from "drizzle-orm";
 
+/** How the reviewer checked the licence: recorded with the approval, never implied by it. */
+export interface ApprovalCredential { source: "document_review" | "registry_lookup" | "issuer_confirmation"; evidenceNote: string; expiresAt: Date }
+
 export type PairingStatus = "requested" | "accepted" | "declined" | "cancelled" | "ended";
 import { db } from "./db";
 import { runAsSystem } from "./dbContext";
@@ -7,7 +10,7 @@ import { fixtureAccountsAllowed } from "./config";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
-  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, messageReports, userBlocks, medications, medicationLogs, pharmacies, pharmacyOrders,
+  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, messageReports, userBlocks, doctorCredentials, credentialEvents, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
   type UserDevice, type InsertUserDevice,
@@ -85,7 +88,7 @@ export interface IStorage {
    * the doctor's public profile. Role and ownership never come from request
    * input. If any step fails nothing is kept.
    */
-  approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string): Promise<
+  approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential): Promise<
     | { ok: true; profile: DoctorProfile; application: DoctorApplication }
     | { ok: false; reason: "not_reviewable" | "incomplete_application" }
   >;
@@ -466,7 +469,12 @@ export class DbStorage implements IStorage {
     return application;
   }
 
-  async approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string) {
+  async approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential) {
+    // The administrator acts on someone else's account, and the credential tables are written only with system access.
+    return runAsSystem(() => this.approveDoctorApplicationUnscoped(applicationId, reviewerUserId, timezone, credential));
+  }
+
+  private async approveDoctorApplicationUnscoped(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential) {
     return db.transaction(async (tx) => {
       const [application] = await tx
         .update(doctorApplications)
@@ -507,7 +515,18 @@ export class DbStorage implements IStorage {
         })
         .returning();
       await tx.update(users).set({ state, phone: application.phone }).where(eq(users.id, application.userId));
-      return { ok: true, profile, application } as const;
+
+      // The licence is verified by this approval, with the evidence the reviewer gave; the NPI (if any) stays pending.
+      const now = new Date();
+      const rows: (typeof doctorCredentials.$inferInsert)[] = [{
+        applicationId: application.id, userId: application.userId, kind: "license", identifier: application.licenseNumber, jurisdiction: state, issuer: application.licensingBody,
+        status: "verified", source: credential.source, evidenceNote: credential.evidenceNote, reviewerUserId, reviewedAt: now, expiresAt: credential.expiresAt,
+      }];
+      if (application.npiNumber) rows.push({ applicationId: application.id, userId: application.userId, kind: "npi", identifier: application.npiNumber, status: "pending" });
+      const created = await tx.insert(doctorCredentials).values(rows).onConflictDoNothing().returning();
+      await tx.insert(credentialEvents).values(created.map((c) => ({ credentialId: c.id, fromStatus: null, toStatus: c.status, actorUserId: c.status === "verified" ? reviewerUserId : null, source: c.source, note: c.status === "verified" ? credential.evidenceNote : null })));
+      await tx.update(doctorProfiles).set({ credentialExpiresAt: credential.expiresAt }).where(eq(doctorProfiles.id, profile.id));
+      return { ok: true, profile: { ...profile, credentialExpiresAt: credential.expiresAt }, application } as const;
     }).catch((err) => {
       if (err?.name === "TransactionRollbackError") return { ok: false, reason: "incomplete_application" } as const;
       throw err;
@@ -580,7 +599,8 @@ export class DbStorage implements IStorage {
   }
 
   private listable() {
-    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`);
+    // Active, able to answer, and not past the expiry of the licence a reviewer verified (no recorded expiry: nothing to enforce).
+    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`, sqlOp`(${doctorProfiles.credentialExpiresAt} IS NULL OR ${doctorProfiles.credentialExpiresAt} > now())`);
     return fixtureAccountsAllowed()
       ? base
       : and(base, sqlOp`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${doctorProfiles.userId} AND u.is_demo)`);

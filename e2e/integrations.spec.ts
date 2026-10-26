@@ -26,6 +26,8 @@ for (const locale of ["en", "ar"] as const) {
     await expect(admin.page.locator("html")).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
     const results = await new AxeBuilder({ page: admin.page }).withTags(TAGS).analyze();
     expect(results.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
+    // The language choice is saved on the shared administrator account: put it back so later specs see English.
+    await admin.page.request.patch("/api/auth/me/preferences", { headers: { "X-Avela-Client": "web" }, data: { language: "en" } });
     await admin.context.close();
   });
 }

@@ -82,6 +82,8 @@ export const doctorProfiles = pgTable("doctor_profiles", {
   // Set only when an administrator approved the profile.
   verifiedAt: timestamp("verified_at"),
   verifiedByUserId: varchar("verified_by_user_id").references(() => users.id),
+  // Earliest expiry among the verified licences; the profile is not listed once it passes. Null: nothing recorded.
+  credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_doctor_profiles_state_specialty").on(table.state, table.specialty),
@@ -224,4 +226,39 @@ export type EmailDelivery = typeof emailDeliveries.$inferSelect;
 export const emailWebhookEvents = pgTable("email_webhook_events", {
   eventId: text("event_id").primaryKey(),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const CREDENTIAL_STATUSES = ["submitted", "pending", "verified", "rejected", "suspended", "expired"] as const;
+export type CredentialStatus = (typeof CREDENTIAL_STATUSES)[number];
+export const CREDENTIAL_SOURCES = ["document_review", "registry_lookup", "issuer_confirmation"] as const;
+export type CredentialSource = (typeof CREDENTIAL_SOURCES)[number];
+
+export const doctorCredentials = pgTable("doctor_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: varchar("application_id").notNull().references(() => doctorApplications.id),
+  userId: varchar("user_id").references(() => users.id),
+  kind: varchar("kind").notNull(), // license | npi
+  identifier: varchar("identifier").notNull(),
+  jurisdiction: varchar("jurisdiction"),
+  issuer: text("issuer"),
+  status: varchar("status").notNull().default("pending"),
+  source: varchar("source"),
+  evidenceNote: text("evidence_note"),
+  reviewerUserId: varchar("reviewer_user_id").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type DoctorCredential = typeof doctorCredentials.$inferSelect;
+
+export const credentialEvents = pgTable("credential_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  credentialId: varchar("credential_id").notNull().references(() => doctorCredentials.id),
+  fromStatus: varchar("from_status"),
+  toStatus: varchar("to_status").notNull(),
+  actorUserId: varchar("actor_user_id").references(() => users.id),
+  source: varchar("source"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

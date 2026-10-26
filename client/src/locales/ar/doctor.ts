@@ -126,5 +126,11 @@ const t: Partial<Record<Key, string>> = {
   "dhome.att.drafts_other": "{count} مسودة وصفة تنتظر مراجعتك",
   "dhome.upcoming": "القادم هذا الأسبوع",
   "dhome.upcoming.none": "لا شيء آخر محجوز خلال الأيام السبعة القادمة.",
+  "dprof.cred.verified": "فحص أحد أعضاء فريق أفيلا ترخيصك وهو ساري حتى {date}. بعد ذلك لا تظهر للمرضى حتى يُجدَّد.",
+  "dprof.cred.expired": "انتهى فحص ترخيصك في {date}. لا تظهر للمرضى حتى يجدده أحد المراجعين. تواصل مع فريق أفيلا مع ترخيصك المجدَّد.",
+  "dprof.cred.suspended": "أوقف أحد المراجعين فحص ترخيصك. لا تظهر للمرضى. تواصل مع فريق أفيلا.",
+  "dprof.cred.rejected": "لم يُقبل فحص ترخيصك. تواصل مع فريق أفيلا.",
+  "dprof.cred.pending": "لم يُفحص ترخيصك بعد.",
+  "dprof.cred.submitted": "لم يُفحص ترخيصك بعد.",
 };
 export default t;

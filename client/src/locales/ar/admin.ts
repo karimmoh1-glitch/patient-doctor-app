@@ -96,5 +96,13 @@ const t: Partial<Record<Key, string>> = {
   "admin.rem.gap": "أطول فترة بلا استدعاء",
   "admin.rem.gap.value": "{count} دقيقة",
   "admin.rem.sources": "الجهة المستدعية",
+  "admin.verify.source": "كيف جرى التحقق من الترخيص؟",
+  "admin.verify.source.document_review": "اطّلعت على وثيقة الترخيص التي قدّمها المتقدم",
+  "admin.verify.source.registry_lookup": "بحثت عنه في السجل العلني للجهة المانحة للترخيص",
+  "admin.verify.source.issuer_confirmation": "أكدت لي الجهة المانحة للترخيص صحته",
+  "admin.verify.note": "ماذا فحصت؟",
+  "admin.verify.note.hint": "مثال: تطابق اسم صاحب الترخيص ورقمه في السجل مع الطلب. يراه المراجعون فقط. 10 أحرف على الأقل.",
+  "admin.verify.expires": "ساري حتى",
+  "admin.verify.expires.hint": "تاريخ انتهاء الترخيص. بعد هذا التاريخ لا يظهر الطبيب للمرضى حتى يُجدَّد.",
 };
 export default t;

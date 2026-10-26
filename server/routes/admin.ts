@@ -7,6 +7,7 @@ import { logAudit } from "../services/auditService";
 import { reminderHealth } from "../services/reminderService";
 import { normalizeLang } from "../services/serverText";
 import { runAsSystem } from "../dbContext";
+import { verificationInput, verifyCredential, rejectCredential, suspendCredential, listCredentials, credentialHistory } from "../services/credentialService";
 import { integrationRegistry } from "../services/integrations";
 import { emailDeliverySummary } from "../services/emailDeliveries";
 import {
@@ -86,10 +87,16 @@ router.post("/doctor-applications/:id/approve", ...adminOnly, async (req, res) =
   const application = await storage.getDoctorApplication(req.params.id);
   if (!application) return res.status(404).json({ message: "Application not found" });
 
+  // Approving is also verifying the licence: the reviewer must say how it was checked, what they saw, and until when it is valid.
+  const verification = verificationInput.safeParse(req.body?.verification);
+  if (!verification.success) {
+    return res.status(400).json({ message: verification.error.issues[0]?.message || "Say how the licence was checked", code: "verification_required" });
+  }
   const result = await storage.approveDoctorApplication(
     application.id,
     reviewerId,
     defaultTimezoneForState(application.licensedStates?.[0] ?? "NY"),
+    verification.data,
   );
   if (!result.ok) {
     return res.status(409).json({
@@ -99,7 +106,7 @@ router.post("/doctor-applications/:id/approve", ...adminOnly, async (req, res) =
           : "This application is not waiting for review.",
     });
   }
-  await logAudit({ actorUserId: reviewerId, action: "doctor_application.approved", targetType: "doctor_application", targetId: application.id, subjectUserId: null });
+  await logAudit({ actorUserId: reviewerId, action: "doctor_application.approved", targetType: "doctor_application", targetId: application.id, subjectUserId: null, metadata: { credentialSource: verification.data.source, expiresAt: verification.data.expiresAt.toISOString() } });
   sendDoctorApplicationApprovedEmail(application.email, application.name, await applicantLang(application)).catch(() => {});
   res.json({ id: application.id, status: "approved" });
 });
@@ -175,6 +182,44 @@ router.get("/audit", ...adminOnly, async (req, res) => {
 router.get("/reminders/status", ...adminOnly, async (_req, res) => {
   // Counts only, across everyone's reminders: an operational read, not a view of anyone's record.
   res.json(await runAsSystem(() => reminderHealth()));
+});
+
+// Credentials: who has been checked, how, and when each stops being valid. Evidence notes are for reviewers only.
+router.get("/credentials", ...adminOnly, async (req, res) => {
+  const filter = ["all", "expiring", "expired", "open"].includes(String(req.query.filter)) ? (String(req.query.filter) as "all" | "expiring" | "expired" | "open") : "all";
+  res.json(await listCredentials(filter));
+});
+
+router.get("/credentials/:id/history", ...adminOnly, async (req, res) => {
+  res.json(await credentialHistory(req.params.id));
+});
+
+router.post("/credentials/:id/verify", ...adminOnly, async (req, res) => {
+  const parsed = verificationInput.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Say how it was checked" });
+  const updated = await verifyCredential(req.params.id, (req as any).userId, parsed.data);
+  if (!updated) return res.status(409).json({ message: "This credential cannot be verified from its current state." });
+  await logAudit({ actorUserId: (req as any).userId, action: "credential.verified", targetType: "credential", targetId: updated.id, subjectUserId: updated.userId });
+  res.json({ id: updated.id, status: "verified" });
+});
+
+const noteSchema = z.object({ note: z.string().trim().min(5, "Say why").max(1000) });
+router.post("/credentials/:id/reject", ...adminOnly, async (req, res) => {
+  const parsed = noteSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Say why" });
+  const updated = await rejectCredential(req.params.id, (req as any).userId, parsed.data.note);
+  if (!updated) return res.status(409).json({ message: "This credential cannot be rejected from its current state." });
+  await logAudit({ actorUserId: (req as any).userId, action: "credential.rejected", targetType: "credential", targetId: updated.id, subjectUserId: updated.userId });
+  res.json({ id: updated.id, status: "rejected" });
+});
+
+router.post("/credentials/:id/suspend", ...adminOnly, async (req, res) => {
+  const parsed = noteSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Say why" });
+  const updated = await suspendCredential(req.params.id, (req as any).userId, parsed.data.note);
+  if (!updated) return res.status(409).json({ message: "Only a verified credential can be suspended." });
+  await logAudit({ actorUserId: (req as any).userId, action: "credential.suspended", targetType: "credential", targetId: updated.id, subjectUserId: updated.userId });
+  res.json({ id: updated.id, status: "suspended" });
 });
 
 // What each external service is really doing, with the evidence behind each status. Counts and times only.
