@@ -83,6 +83,10 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
+  // API responses are "no-store", so the browser does not read a body nobody asked for; a caller that ignores the
+  // response (a language sync, a toggle) would leave the request "in flight" for as long as the page lives. Draining
+  // a clone finishes it and leaves the original readable for callers that do want it.
+  res.clone().arrayBuffer().catch(() => {});
   return res;
 }
 

@@ -91,7 +91,6 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
   // ("public, max-age=0, must-revalidate") would allow a shared cache to keep them.
   app.use("/api", (_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Vary", "Cookie, Authorization");
     next();
   });
 

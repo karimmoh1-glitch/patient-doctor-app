@@ -94,7 +94,7 @@ deployment, passed 18 of 18 with no retries.
 | R12 | A direct database write by the owner could change a status column | Low | documented in `SECURITY.md` | Owner credentials kept off the application | — | — | — |
 | R13 | A time-of-day-dependent browser spec went undetected until a late commit | Fixed | `28ef346` | Spec picks a later, always-complete day | `e2e/patient-journey.spec.ts` | — | — |
 | R14 | A readiness check counted a manual call and a daily cron as a "dedicated scheduler" (false PASS) | Fixed | `03f6d58` | One named source must make 90% of expected calls; manual checks not counted | `tests/productionGuards.test.ts` | — | — |
-| R15 | API responses carried the host's default `Cache-Control: public, max-age=0, must-revalidate` | Fixed in `main`, not deployed | live headers | `no-store` on `/api` | `tests/operationsHealth.test.ts` | — | — |
+| R15 | API responses carried the host's default `Cache-Control: public, max-age=0, must-revalidate` | Fixed in `main`, not deployed | live headers | `no-store` on `/api`. The first attempt broke 10+ browser specs in CI (an API response whose body nobody reads stays "in flight" under no-store, so `networkidle` waits never ended); caught by CI, fixed by draining unread bodies in `apiRequest`; full local browser suite 145 passed | `tests/operationsHealth.test.ts`, `e2e/*` | — | — |
 
 ## What Avela does not do (state it to every user)
 
