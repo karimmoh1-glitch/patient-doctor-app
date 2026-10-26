@@ -83,4 +83,10 @@ export default {
   "admin.rem.stuck": "Started but never finished",
   "admin.rem.overdue": "Overdue: never delivered",
   "admin.rem.nextHour": "Due in the next hour",
+  "admin.rem.calls": "Scheduler calls in the last 24 hours",
+  "admin.rem.calls.value": "{count} (about {expected} expected, one every {interval} minutes)",
+  "admin.rem.noCalls": "none recorded",
+  "admin.rem.gap": "Longest silence between calls",
+  "admin.rem.gap.value": "{count} minutes",
+  "admin.rem.sources": "Called by",
 } as const;

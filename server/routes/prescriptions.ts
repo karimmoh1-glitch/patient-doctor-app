@@ -75,7 +75,7 @@ function draftFields(d: z.infer<typeof prescriptionFields>) {
 // Creates a DRAFT. Nothing is visible to the patient until it is authorized.
 router.post("/", requireAuth, requireApprovedDoctor, async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid prescription" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid prescription" });
   if (parsed.data.controlledSubstance) return res.status(422).json({ message: CONTROLLED_MESSAGE, code: "controlled_substance" });
 
   const userId = (req as any).userId as string;
@@ -118,7 +118,7 @@ router.patch("/:id", requireAuth, requireApprovedDoctor, async (req, res) => {
   const prescription = await ownDraftOrActive(req, res);
   if (!prescription) return;
   const parsed = editSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid prescription" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid prescription" });
   if (parsed.data.controlledSubstance) return res.status(422).json({ message: CONTROLLED_MESSAGE, code: "controlled_substance" });
   if (prescription.status !== "draft") {
     return res.status(409).json({ message: "An authorized prescription can't be edited. Cancel it and write a new one." });

@@ -84,7 +84,7 @@ router.get("/", ...patientOnly, async (req, res) => {
 router.put("/:medicationId", ...patientOnly, async (req, res) => {
   const userId = (req as any).userId as string;
   const parsed = reminderSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid reminder" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid reminder" });
   const medication = await storage.getMedication(req.params.medicationId);
   if (!medication || medication.patientUserId !== userId) return res.status(404).json({ message: "Medication not found" });
   if (!medication.active) return res.status(409).json({ message: "This medicine isn't being tracked right now" });

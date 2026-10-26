@@ -85,5 +85,11 @@ const t: Partial<Record<Key, string>> = {
   "admin.rem.stuck": "بدأت ولم تكتمل",
   "admin.rem.overdue": "متأخرة: لم تُسلَّم أبدًا",
   "admin.rem.nextHour": "مستحقة خلال الساعة القادمة",
+  "admin.rem.calls": "استدعاءات المجدول خلال آخر 24 ساعة",
+  "admin.rem.calls.value": "{count} (المتوقع نحو {expected}، مرة كل {interval} دقائق)",
+  "admin.rem.noCalls": "لا توجد استدعاءات مسجلة",
+  "admin.rem.gap": "أطول فترة بلا استدعاء",
+  "admin.rem.gap.value": "{count} دقيقة",
+  "admin.rem.sources": "الجهة المستدعية",
 };
 export default t;

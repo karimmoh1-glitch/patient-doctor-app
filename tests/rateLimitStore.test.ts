@@ -22,7 +22,7 @@ const opts = (windowMs: number, limit = 1000) => ({ windowMs, limit }) as any;
 /** An app whose only route is limited by the given store, to stand in for one server instance. */
 function instance(store: PgRateLimitStore, limit: number) {
   const app = express();
-  app.set("trust proxy", true);
+  app.set("trust proxy", 1);
   app.get("/x", makeLimiter({ windowMs: 60_000, limit, message: "slow down", store }), (_req, res) => res.json({ ok: true }));
   return app;
 }

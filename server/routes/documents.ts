@@ -109,7 +109,7 @@ router.post("/", requireAuth, requireRole("patient"), upload.single("file"), asy
   const parsed = metaSchema.safeParse(req.body);
   if (!parsed.success) {
     if (req.file) fs.unlink(req.file.path, () => {});
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "A title is required" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "A title is required" });
   }
   const userId = (req as any).userId as string;
 

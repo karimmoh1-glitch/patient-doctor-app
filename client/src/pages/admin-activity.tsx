@@ -12,6 +12,7 @@ interface Health {
   job: { lastSuccessAt: string | null; minutesSinceSuccess: number | null; lastError: string | null; consecutiveFailures: number };
   last24h: { scheduled: number; delivered: number; emailAccepted: number; emailFailed: number; emailGaveUp: number; stuckPending: number; overdue: number };
   nextHour: number;
+  scheduler: { expectedIntervalMinutes: number; callsLast24h: number; okLast24h: number; failedLast24h: number; skippedOverlapLast24h: number; bySource: Record<string, number>; longestGapMinutes: number | null };
 }
 
 // Whether reminders are really going out. Counts and times only.
@@ -42,6 +43,14 @@ function ReminderHealth() {
                   <div><dt className="text-base font-semibold text-muted-foreground">{t("admin.rem.lastSuccess")}</dt>
                     <dd className="text-lg">{h.job.lastSuccessAt ? `${formatDateTime(h.job.lastSuccessAt)} (${t("admin.rem.minutesAgo", { count: h.job.minutesSinceSuccess ?? 0 })})` : t("admin.rem.never")}</dd></div>
                   <div><dt className="text-base font-semibold text-muted-foreground">{t("admin.rem.failures")}</dt><dd className="text-lg">{h.job.consecutiveFailures}</dd></div>
+                  <div><dt className="text-base font-semibold text-muted-foreground">{t("admin.rem.calls")}</dt>
+                    <dd className="text-lg">{h.scheduler.callsLast24h === 0 ? t("admin.rem.noCalls") : t("admin.rem.calls.value", { count: h.scheduler.callsLast24h, expected: Math.round(1440 / h.scheduler.expectedIntervalMinutes), interval: h.scheduler.expectedIntervalMinutes })}</dd></div>
+                  <div><dt className="text-base font-semibold text-muted-foreground">{t("admin.rem.gap")}</dt>
+                    <dd className="text-lg">{h.scheduler.longestGapMinutes === null ? t("admin.rem.noCalls") : t("admin.rem.gap.value", { count: h.scheduler.longestGapMinutes })}</dd></div>
+                  {Object.keys(h.scheduler.bySource).length > 0 && (
+                    <div className="sm:col-span-2"><dt className="text-base font-semibold text-muted-foreground">{t("admin.rem.sources")}</dt>
+                      <dd className="text-lg">{Object.entries(h.scheduler.bySource).map(([name, n]) => `${name} × ${n}`).join(" · ")}</dd></div>
+                  )}
                   {rows.map(([k, v]) => (
                     <div key={k}><dt className="text-base font-semibold text-muted-foreground">{t(k)}</dt><dd className="text-lg">{v}</dd></div>
                   ))}

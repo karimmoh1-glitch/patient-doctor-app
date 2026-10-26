@@ -49,7 +49,7 @@ router.post("/orders", requireAuth, requireRole("patient"), async (req, res) => 
   }
   const parsed = createOrderSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid pharmacy order" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid pharmacy order" });
   }
   const userId = (req as any).userId as string;
 

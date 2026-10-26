@@ -58,7 +58,7 @@ router.get("/slots", requireAuth, requireRole("patient"), async (req, res) => {
 router.post("/", requireAuth, requireRole("patient"), async (req, res) => {
   const parsed = createAppointmentSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid appointment request" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid appointment request" });
   }
   const patientUserId = (req as any).userId as string;
   const pairing = await getAcceptedPairingForPatient(patientUserId, parsed.data.pairingRequestId);
@@ -285,7 +285,7 @@ router.post("/:id/complete", requireAuth, requireApprovedDoctor, async (req, res
   }
   const parsed = completeSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Doctor notes are required" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Doctor notes are required" });
   }
 
   const followUpDate = parsed.data.followUpDate ? new Date(parsed.data.followUpDate) : null;

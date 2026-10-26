@@ -141,7 +141,7 @@ const registerSchema = z.object({
 
 router.post("/register", applyLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid registration" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid registration" });
   const { name, email, password, language } = parsed.data;
   const weak = weakPasswordReason(password, { email, name });
   if (weak) return res.status(400).json({ message: weak });
@@ -243,7 +243,7 @@ router.put("/me/application", requireAuth, requireRole("doctor"), async (req, re
   const application = await storage.getDoctorApplicationByUserId(userId);
   if (!application) return res.status(404).json({ message: "No application for this account" });
   const parsed = applicationDraftSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid details" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid details" });
 
   const { state, ...rest } = parsed.data;
   const fields: Record<string, unknown> = { ...rest };
@@ -298,7 +298,7 @@ router.get("/me/profile", requireAuth, requireApprovedDoctor, async (req, res) =
 
 router.patch("/me/profile", requireAuth, requireApprovedDoctor, async (req, res) => {
   const parsed = profileEditSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid profile" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid profile" });
   const p = (req as any).doctorProfile;
   const updated = await storage.updateDoctorProfileSelf(p.id, parsed.data as any);
   await logAudit({ actorUserId: (req as any).userId, action: "doctor.profile_updated", targetType: "doctor_profile", targetId: p.id });

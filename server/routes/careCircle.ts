@@ -61,7 +61,7 @@ const DEFAULT_PERMISSIONS = {
 router.post("/", requireAuth, requireRole("patient"), inviteSendLimiter, async (req, res) => {
   const parsed = inviteSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid invite" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid invite" });
   }
   const patientUserId = (req as any).userId as string;
   const patient = await storage.getUser(patientUserId);

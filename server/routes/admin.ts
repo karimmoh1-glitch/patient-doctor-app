@@ -106,7 +106,7 @@ const reasonSchema = z.object({ reason: z.string().trim().max(1000).optional() }
 router.post("/doctor-applications/:id/request-info", ...adminOnly, async (req, res) => {
   const reviewerId = (req as any).userId as string;
   const parsed = messageSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "A message is required" });
+  if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "A message is required" });
   const updated = await storage.requestDoctorApplicationInfo(req.params.id, reviewerId, parsed.data.message);
   if (!updated) return res.status(409).json({ message: "This application is not waiting for review." });
   await logAudit({ actorUserId: reviewerId, action: "doctor_application.info_requested", targetType: "doctor_application", targetId: updated.id, subjectUserId: null });

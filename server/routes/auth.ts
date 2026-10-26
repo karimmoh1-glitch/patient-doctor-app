@@ -73,7 +73,7 @@ const signupBodySchema = z.object({
 router.post("/signup", authLimiter, async (req, res) => {
   const parsed = signupBodySchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid signup details" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid signup details" });
   }
   const { name, email, password, state, phone, language } = parsed.data;
   const weak = weakPasswordReason(password, { email, name });
@@ -203,7 +203,7 @@ const resetPasswordSchema = z.object({
 router.post("/reset-password", authLimiter, async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid request" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid request" });
   }
   const { token, password } = parsed.data;
 

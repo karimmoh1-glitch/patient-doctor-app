@@ -17,7 +17,7 @@ const createReportSchema = z.object({
 router.post("/", requireAuth, requireRole("patient"), async (req, res) => {
   const parsed = createReportSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid symptom report" });
+    return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid symptom report" });
   }
   const userId = (req as any).userId as string;
   const user = await storage.getUser(userId);
