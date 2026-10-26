@@ -20,7 +20,8 @@
     "admin:create": "tsx script/create-admin.ts",
     "verify:production": "tsx script/verify-production.ts",
     "demo:retire": "tsx script/retire-demo.ts",
-    "test:live": "playwright test -c playwright.live.config.ts"
+    "test:live": "playwright test -c playwright.live.config.ts",
+    "erase:user": "tsx script/erase-user.ts"
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.3.0",
