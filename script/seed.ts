@@ -80,6 +80,7 @@ async function main() {
     phone: null,
     deactivatedAt: null,
     emailVerifiedAt: null,
+    isDemo: true,
   });
   console.log(`Admin: ${admin.email} / ${DEMO_PASSWORD}`);
 
@@ -96,6 +97,7 @@ async function main() {
     emergencyNotes: "Prefers hospitals within Bay Area Health Network. Hard of hearing — please speak clearly.",
     deactivatedAt: null,
     emailVerifiedAt: null,
+    isDemo: true,
   });
   console.log(`Patient: ${patient.email} / ${DEMO_PASSWORD} (CA) — "${patient.name}"`);
 
@@ -109,6 +111,7 @@ async function main() {
     phone: null,
     deactivatedAt: null,
     emailVerifiedAt: null,
+    isDemo: true,
   });
   const careCircleInvite = await storage.createCareCircleInvite({
     patientUserId: patient.id,
@@ -136,6 +139,7 @@ async function main() {
     phone: DEMO_DOCTORS[0].phone,
     deactivatedAt: null,
     emailVerifiedAt: null,
+    isDemo: true,
   });
   const firstProfile = await storage.createDoctorProfile({
     userId: doctorUser.id,

@@ -6,6 +6,7 @@ import { storage } from "../storage";
 import { requireAuth, requireRole, createDeviceForLogin, signToken } from "../middleware/auth";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { doctorStatusFor } from "../services/doctorStatus";
+import { weakPasswordReason } from "../lib/password";
 import { normalizeLang } from "../services/serverText";
 import { isDemoMode } from "../config";
 import { logAudit } from "../services/auditService";
@@ -72,7 +73,11 @@ const directoryQuery = z.object({
   q: z.string().trim().max(80).optional(),
 });
 
-router.get("/", async (req, res) => {
+// Open to anyone, and each request costs a few queries per doctor, so it is rate
+// limited per address and returns at most 100 doctors (search narrows the rest).
+const directoryLimiter = makeLimiter({ windowMs: 60 * 1000, limit: 120, message: "Too many searches. Please wait a moment." });
+
+router.get("/", directoryLimiter, async (req, res) => {
   const parsed = directoryQuery.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ message: "Those filters aren't valid" });
   const f = parsed.data;
@@ -89,7 +94,7 @@ router.get("/", async (req, res) => {
     const needle = f.q.toLowerCase();
     profiles = profiles.filter((p) => p.name.toLowerCase().includes(needle) || (p.clinic ?? "").toLowerCase().includes(needle));
   }
-  profiles = profiles.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200);
+  profiles = profiles.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 100);
 
   // Only a time is revealed, never which slots are taken or by whom.
   const withNext = await Promise.all(
@@ -142,6 +147,8 @@ router.post("/register", applyLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid registration" });
   const { name, email, password, language } = parsed.data;
+  const weak = weakPasswordReason(password, { email, name });
+  if (weak) return res.status(400).json({ message: weak });
 
   if (await storage.getUserByEmail(email)) {
     return res.status(409).json({ message: "An account with this email already exists" });

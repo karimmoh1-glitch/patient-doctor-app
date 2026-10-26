@@ -27,7 +27,7 @@ router.post("/transcribe", requireAuth, requireRole("patient"), speechLimiter, u
     const text = await transcribe(req.file.buffer, req.file.mimetype);
     res.json({ text });
   } catch (err: any) {
-    console.error("[SPEECH] Transcription failed:", err.message);
+    console.error("[SPEECH] Transcription failed:", err?.name);
     res.status(500).json({ message: "Transcription failed. Please try typing instead." });
   }
 });

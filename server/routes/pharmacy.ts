@@ -17,7 +17,7 @@ function sequenceFor(fulfillmentType: string): readonly string[] {
   return fulfillmentType === "delivery" ? DELIVERY_SEQUENCE : PICKUP_SEQUENCE;
 }
 
-router.get("/pharmacies", requireAuth, async (_req, res) => {
+router.get("/pharmacies", requireAuth, requireRole("patient"), async (_req, res) => {
   const pharmacies = await storage.getAllPharmacies();
   res.json(pharmacies);
 });

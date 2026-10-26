@@ -151,4 +151,13 @@ export default {
   "rx.form.savedDraftBody": "The patient can't see it yet. Review it and authorize it when you're ready.",
   "notif.message.new": "New message from {name}",
   "notif.appointment.soon": "Your visit with {doctorName} is coming up: {when}",
+  "rem.delivery.failing": "The last automatic reminder run ran into a problem, so your reminders may be late or missing. Please check this list yourself.",
+  "rem.zone": "Times are in your time zone: {zone}",
+  "rem.hist.title": "What happened to recent reminders",
+  "rem.hist.inApp": "{when}: shown in Avela",
+  "rem.hist.emailAccepted": "{when}: the email service accepted your email. We can't see whether it reached your inbox.",
+  "rem.hist.emailSending": "{when}: your email is being sent",
+  "rem.hist.emailRetry": "{when}: your email couldn't be sent yet. We'll try again.",
+  "rem.hist.emailGaveUp": "{when}: your email couldn't be sent.",
+  "rem.hist.overdue": "A reminder time ({when}) passed and no notice was delivered, because automatic reminders weren't running. Please check your medicines list.",
 } as const;

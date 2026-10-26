@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { signInAs, newSession, signUpPatient, uniqueEmail } from "./helpers";
+import { signInAs, newSession, signUpPatient, uniqueEmail, NEW_PASSWORD } from "./helpers";
 
 test.describe("when things go wrong, the patient is told the truth and can recover", () => {
   test("going offline shows a clear message and a way back — never a blank screen", async ({ page, context }) => {
@@ -56,7 +56,7 @@ test.describe("when things go wrong, the patient is told the truth and can recov
     await expect(page.getByText("Two-week follow-up on headaches")).toBeVisible();
 
     await page.getByRole("button", { name: "Settings" }).click();
-    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign me out" }).click();
     await expect(page.getByRole("link", { name: "Create an account" }).first()).toBeVisible();
 
@@ -115,5 +115,44 @@ test.describe("getting human help", () => {
     await expect(page.getByText(/has not set up a support phone line or email yet/)).toBeVisible();
     await expect(page.getByRole("link", { name: /tel:|Call support/ })).toHaveCount(0);
     await expect(page.getByText(/not watched around the clock|aren't watched around the clock/)).toBeVisible();
+  });
+});
+
+test.describe("account controls in Settings", () => {
+  test("sign out everywhere really ends the other session, and closing an account asks for the password again", async ({ page, browser }) => {
+    const email = uniqueEmail("controls");
+    await signUpPatient(page, "Nadia Controls", email);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("pdapp_auth")!).token as string);
+
+    // The same person is signed in on a second device.
+    const other = await browser.newContext();
+    const second = await other.newPage();
+    const login = await second.request.post("/api/auth/login", { data: { email, password: NEW_PASSWORD } });
+    const secondToken = (await login.json()).token as string;
+    expect((await second.request.get("/api/auth/me", { headers: { Authorization: `Bearer ${secondToken}` } })).status()).toBe(200);
+
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("button", { name: "Sign out of all devices" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Yes, sign out everywhere" }).click();
+    await expect(page.getByRole("link", { name: "Create an account" }).first()).toBeVisible();
+    expect((await second.request.get("/api/auth/me", { headers: { Authorization: `Bearer ${secondToken}` } })).status()).toBe(401);
+    expect((await second.request.get("/api/auth/me", { headers: { Authorization: `Bearer ${stored}` } })).status()).toBe(401);
+    await other.close();
+
+    // Closing an account: a wrong password changes nothing.
+    await page.goto("/login");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(NEW_PASSWORD);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByRole("button", { name: "Settings" }).click();
+    await page.getByRole("button", { name: "Close my account" }).click();
+    await page.getByLabel("Type your password to confirm").fill("not my password");
+    await page.getByRole("button", { name: "Yes, close my account" }).click();
+    await expect(page.getByText("That password isn't right.")).toBeVisible();
+    await page.getByLabel("Type your password to confirm").fill(NEW_PASSWORD);
+    await page.getByRole("button", { name: "Yes, close my account" }).click();
+    await expect(page.getByRole("link", { name: "Create an account" }).first()).toBeVisible();
+    const again = await page.request.post("/api/auth/login", { data: { email, password: NEW_PASSWORD } });
+    expect(again.status()).toBe(401);
   });
 });

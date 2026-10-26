@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { newSession, signInAs, signUpPatient, uniqueEmail, PASSWORD, registerDoctorViaApi, approveViaApi } from "./helpers";
+import { newSession, signInAs, signUpPatient, uniqueEmail, NEW_PASSWORD, registerDoctorViaApi, approveViaApi } from "./helpers";
 
 test.describe("caregiver", () => {
   test("sees only what the patient shared, and can't change anything", async ({ page }) => {
@@ -63,7 +63,7 @@ test.describe("doctor", () => {
     const { applicationId } = await registerDoctorViaApi(page, "Dr. Priya Raman", email);
     await approveViaApi(browser, applicationId);
 
-    await signInAs(page, email);
+    await signInAs(page, email, NEW_PASSWORD);
     await page.goto("/doctor/availability");
     await expect(page.getByText(/patients can't book a visit with you/)).toBeVisible();
     await page.getByRole("button", { name: /Add hours on Monday/ }).click();

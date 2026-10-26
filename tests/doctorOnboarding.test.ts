@@ -127,7 +127,7 @@ describe("review by an administrator", () => {
     expect(profile!.name).toBe("Dr. Amira Haddad");
 
     expect((await request(app).get("/api/pairings/doctor").set(auth(doc.token))).status).toBe(200);
-    const directory = await request(app).get("/api/doctors");
+    const directory = await request(app).get("/api/doctors?q=Amira");
     expect(directory.body.map((d: any) => d.name)).toContain("Dr. Amira Haddad");
 
     const me = await request(app).get("/api/auth/me").set(auth(doc.token));

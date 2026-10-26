@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { makeLimiter, emailKey } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { doctorStatusFor } from "../services/doctorStatus";
+import { weakPasswordReason } from "../lib/password";
+import { logAudit } from "../services/auditService";
 import { normalizeLang } from "../services/serverText";
 import { signToken, createDeviceForLogin, requireAuth } from "../middleware/auth";
 import { insertUserSchema } from "@shared/schema";
@@ -74,6 +76,8 @@ router.post("/signup", authLimiter, async (req, res) => {
     return res.status(400).json({ message: parsed.error.errors[0]?.message || "Invalid signup details" });
   }
   const { name, email, password, state, phone, language } = parsed.data;
+  const weak = weakPasswordReason(password, { email, name });
+  if (weak) return res.status(400).json({ message: weak });
 
   const existing = await storage.getUserByEmail(email);
   if (existing) {
@@ -127,7 +131,9 @@ router.post("/login", loginIpLimiter, loginAccountLimiter, async (req, res) => {
   // Always spend the same bcrypt work whether or not the account exists, so
   // response time can't be used to discover which emails are registered.
   const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-  if (!user || !valid) {
+  // A seeded demo account is refused like a wrong password when demo mode is off,
+  // so its well-known password opens nothing in a real deployment.
+  if (!user || !valid || (user.isDemo && !isDemoMode())) {
     return res.status(401).json({ message: "Invalid email or password" });
   }
   // Only someone who proved they know the password is told the account is
@@ -177,6 +183,8 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
   if (user) {
     const { token, tokenHash } = generateSecureToken();
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    // A new link replaces any earlier one, so only the latest email is ever valid.
+    await storage.invalidatePasswordResetTokens(email);
     await storage.createPasswordResetToken(email, tokenHash, expiresAt);
 
     const appUrl = process.env.APP_URL || "http://localhost:3001";
@@ -189,7 +197,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(8),
+  password: z.string().min(8).max(200),
 });
 
 router.post("/reset-password", authLimiter, async (req, res) => {
@@ -210,9 +218,12 @@ router.post("/reset-password", authLimiter, async (req, res) => {
     return res.status(400).json({ message: "This reset link is invalid or has expired" });
   }
 
+  const weak = weakPasswordReason(password, { email: user.email, name: user.name });
+  if (weak) return res.status(400).json({ message: weak });
   const passwordHash = await bcrypt.hash(password, 10);
   await storage.updateUserPassword(user.id, passwordHash);
-  await storage.markPasswordResetTokenUsed(resetToken.id);
+  // One link, one use: this and every other link sent for this address stop working.
+  await storage.invalidatePasswordResetTokens(resetToken.email);
   // A reset means the old password may be compromised, so every session
   // issued under it — including a stolen one — is signed out.
   await storage.revokeAllUserDevices(user.id);
@@ -229,6 +240,15 @@ router.post("/logout", requireAuth, async (req, res) => {
     await storage.revokeUserDevice(deviceId);
   }
   res.json({ message: "Signed out" });
+});
+
+// Ends every session on every device, including this one. For a lost phone, a
+// shared computer, or the moment someone suspects their account was used.
+router.post("/logout-all", requireAuth, async (req, res) => {
+  const userId = (req as any).userId as string;
+  await storage.revokeAllUserDevices(userId);
+  await logAudit({ actorUserId: userId, action: "account.signed_out_everywhere", targetType: "user", targetId: userId });
+  res.json({ message: "Signed out everywhere" });
 });
 
 router.get("/me", requireAuth, async (req, res) => {

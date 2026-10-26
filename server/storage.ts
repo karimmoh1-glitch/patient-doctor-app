@@ -5,7 +5,7 @@ import { db } from "./db";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
-  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, medications, medicationLogs, pharmacies, pharmacyOrders,
+  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, dataRequests, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
   type UserDevice, type InsertUserDevice,
@@ -59,6 +59,7 @@ export interface IStorage {
   getRecentAuditLogs(limit: number): Promise<AuditLog[]>;
 
   updateUserLanguage(userId: string, language: string): Promise<User | undefined>;
+  invalidatePasswordResetTokens(email: string): Promise<void>;
   createDoctorApplication(data: InsertDoctorApplication): Promise<DoctorApplication>;
   getDoctorApplication(id: string): Promise<DoctorApplication | undefined>;
   getDoctorApplicationByUserId(userId: string): Promise<DoctorApplication | undefined>;
@@ -97,6 +98,8 @@ export interface IStorage {
 
   createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport>;
   getSymptomReport(id: string): Promise<SymptomReport | undefined>;
+  getSymptomReportsByPatient(patientUserId: string): Promise<SymptomReport[]>;
+  getSharingGrantsByPatient(patientUserId: string): Promise<SharingGrant[]>;
 
   createPairingRequest(data: InsertPairingRequest): Promise<PairingRequest>;
   getPairingRequest(id: string): Promise<PairingRequest | undefined>;
@@ -145,10 +148,20 @@ export interface IStorage {
   /** Enabled reminders for tracked, still-active medicines with an authorized, unexpired prescription. */
   getDispatchableReminders(): Promise<{ reminder: MedicationReminder; medicationName: string; email: string; language: string }[]>;
   /** Inserts the delivery row; true only for the caller that created it (so only one sender ever acts). */
+  /** In-app notice and its delivery record in ONE transaction: both exist or neither. True only for the caller that created them. */
+  deliverInApp(reminderId: string, dueAt: Date, notification: InsertNotification): Promise<boolean>;
+  /** Inserts the email delivery row (attempt 1); the id is returned only to the caller that created it. */
   claimReminderDelivery(reminderId: string, dueAt: Date, channel: string): Promise<string | null>;
+  /** Takes over a failed (or abandoned) email attempt, if attempts remain. Returns the delivery id or null. */
+  retryReminderDelivery(reminderId: string, dueAt: Date, channel: string, maxAttempts: number, staleAfterMinutes: number): Promise<string | null>;
   finishReminderDelivery(id: string, status: "sent" | "failed", errorCode?: string): Promise<void>;
-  recordJobRun(job: string, now: Date, result: Record<string, unknown>): Promise<void>;
-  getJobRun(job: string): Promise<{ lastRunAt: Date; lastResult: Record<string, unknown> } | undefined>;
+  getDeliveriesSince(since: Date): Promise<{ reminderId: string; dueAt: Date; channel: string; status: string; attempts: number; updatedAt: Date }[]>;
+  getRecentDeliveriesForReminders(reminderIds: string[], limit: number): Promise<{ reminderId: string; dueAt: Date; channel: string; status: string; attempts: number }[]>;
+  recordJobRun(job: string, now: Date, result: Record<string, unknown>, outcome: { ok: true } | { ok: false; error: string }): Promise<void>;
+  getJobRun(job: string): Promise<{ lastRunAt: Date; lastSuccessAt: Date | null; lastError: string | null; consecutiveFailures: number; lastResult: Record<string, unknown> } | undefined>;
+  getAllEnabledReminders(): Promise<MedicationReminder[]>;
+  createDataRequest(userId: string, kind: "export" | "deletion"): Promise<{ id: string }>;
+  deactivateUser(userId: string): Promise<void>;
   /** Atomically marks and returns confirmed visits starting within `hours` whose notice hasn't gone out. */
   claimDueAppointmentReminders(now: Date, hours: number): Promise<Appointment[]>;
   hasUnreadNotification(userId: string, kind: string, link: string): Promise<boolean>;
@@ -315,6 +328,10 @@ export class DbStorage implements IStorage {
   async updateUserLanguage(userId: string, language: string): Promise<User | undefined> {
     const [user] = await db.update(users).set({ language }).where(eq(users.id, userId)).returning();
     return user;
+  }
+
+  async invalidatePasswordResetTokens(email: string) {
+    await db.update(passwordResetTokens).set({ used: true }).where(and(eq(passwordResetTokens.email, email), eq(passwordResetTokens.used, false)));
   }
 
   async createDoctorApplication(data: InsertDoctorApplication): Promise<DoctorApplication> {
@@ -504,6 +521,14 @@ export class DbStorage implements IStorage {
   async createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport> {
     const [report] = await db.insert(symptomReports).values(data).returning();
     return report;
+  }
+
+  async getSymptomReportsByPatient(patientUserId: string): Promise<SymptomReport[]> {
+    return db.select().from(symptomReports).where(eq(symptomReports.patientUserId, patientUserId)).orderBy(desc(symptomReports.createdAt));
+  }
+
+  async getSharingGrantsByPatient(patientUserId: string): Promise<SharingGrant[]> {
+    return db.select().from(sharingGrants).where(eq(sharingGrants.patientUserId, patientUserId)).orderBy(desc(sharingGrants.grantedAt));
   }
 
   async getSymptomReport(id: string): Promise<SymptomReport | undefined> {
@@ -792,6 +817,19 @@ export class DbStorage implements IStorage {
     return rows;
   }
 
+  async deliverInApp(reminderId: string, dueAt: Date, notification: InsertNotification) {
+    return db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(reminderDeliveries)
+        .values({ reminderId, dueAt, channel: "in_app", status: "sent", sentAt: new Date() })
+        .onConflictDoNothing()
+        .returning({ id: reminderDeliveries.id });
+      if (!row) return false;
+      await tx.insert(notifications).values(notification);
+      return true;
+    });
+  }
+
   async claimReminderDelivery(reminderId: string, dueAt: Date, channel: string) {
     const [row] = await db
       .insert(reminderDeliveries)
@@ -801,23 +839,84 @@ export class DbStorage implements IStorage {
     return row?.id ?? null;
   }
 
+  async retryReminderDelivery(reminderId: string, dueAt: Date, channel: string, maxAttempts: number, staleAfterMinutes: number) {
+    const [row] = await db
+      .update(reminderDeliveries)
+      .set({ status: "pending", attempts: sqlOp`${reminderDeliveries.attempts} + 1`, updatedAt: new Date() })
+      .where(and(
+        eq(reminderDeliveries.reminderId, reminderId),
+        eq(reminderDeliveries.dueAt, dueAt),
+        eq(reminderDeliveries.channel, channel),
+        sqlOp`${reminderDeliveries.attempts} < ${maxAttempts}`,
+        sqlOp`(${reminderDeliveries.status} = 'failed' OR (${reminderDeliveries.status} = 'pending' AND ${reminderDeliveries.updatedAt} < now() - make_interval(mins => ${staleAfterMinutes})))`,
+      ))
+      .returning({ id: reminderDeliveries.id });
+    return row?.id ?? null;
+  }
+
   async finishReminderDelivery(id: string, status: "sent" | "failed", errorCode?: string) {
     await db
       .update(reminderDeliveries)
-      .set({ status, errorCode: errorCode ?? null, sentAt: status === "sent" ? new Date() : null })
+      .set({ status, errorCode: errorCode ?? null, sentAt: status === "sent" ? new Date() : null, updatedAt: new Date() })
       .where(eq(reminderDeliveries.id, id));
   }
 
-  async recordJobRun(job: string, now: Date, result: Record<string, unknown>) {
-    await db
-      .insert(jobRuns)
-      .values({ job, lastRunAt: now, lastResult: result })
-      .onConflictDoUpdate({ target: jobRuns.job, set: { lastRunAt: now, lastResult: result } });
+  async getDeliveriesSince(since: Date) {
+    return db
+      .select({
+        reminderId: reminderDeliveries.reminderId, dueAt: reminderDeliveries.dueAt, channel: reminderDeliveries.channel,
+        status: reminderDeliveries.status, attempts: reminderDeliveries.attempts, updatedAt: reminderDeliveries.updatedAt,
+      })
+      .from(reminderDeliveries)
+      .where(sqlOp`${reminderDeliveries.dueAt} >= ${since}`);
+  }
+
+  async getRecentDeliveriesForReminders(reminderIds: string[], limit: number) {
+    if (!reminderIds.length) return [];
+    return db
+      .select({ reminderId: reminderDeliveries.reminderId, dueAt: reminderDeliveries.dueAt, channel: reminderDeliveries.channel, status: reminderDeliveries.status, attempts: reminderDeliveries.attempts })
+      .from(reminderDeliveries)
+      .where(inArray(reminderDeliveries.reminderId, reminderIds))
+      .orderBy(desc(reminderDeliveries.dueAt))
+      .limit(limit * reminderIds.length);
+  }
+
+  async recordJobRun(job: string, now: Date, result: Record<string, unknown>, outcome: { ok: true } | { ok: false; error: string }) {
+    if (outcome.ok) {
+      await db
+        .insert(jobRuns)
+        .values({ job, lastRunAt: now, lastResult: result, lastSuccessAt: now, lastError: null, consecutiveFailures: 0 })
+        .onConflictDoUpdate({ target: jobRuns.job, set: { lastRunAt: now, lastResult: result, lastSuccessAt: now, lastError: null, consecutiveFailures: 0 } });
+    } else {
+      await db
+        .insert(jobRuns)
+        .values({ job, lastRunAt: now, lastResult: result, lastError: outcome.error, consecutiveFailures: 1 })
+        .onConflictDoUpdate({
+          target: jobRuns.job,
+          set: { lastRunAt: now, lastError: outcome.error, consecutiveFailures: sqlOp`${jobRuns.consecutiveFailures} + 1` },
+        });
+    }
   }
 
   async getJobRun(job: string) {
     const [row] = await db.select().from(jobRuns).where(eq(jobRuns.job, job));
-    return row ? { lastRunAt: row.lastRunAt, lastResult: row.lastResult } : undefined;
+    return row
+      ? { lastRunAt: row.lastRunAt, lastSuccessAt: row.lastSuccessAt, lastError: row.lastError, consecutiveFailures: row.consecutiveFailures, lastResult: row.lastResult }
+      : undefined;
+  }
+
+  async getAllEnabledReminders() {
+    return db.select().from(medicationReminders).where(eq(medicationReminders.enabled, true));
+  }
+
+  async createDataRequest(userId: string, kind: "export" | "deletion") {
+    const [row] = await db.insert(dataRequests).values({ userId, kind }).returning({ id: dataRequests.id });
+    return row;
+  }
+
+  async deactivateUser(userId: string) {
+    await db.update(users).set({ deactivatedAt: new Date() }).where(eq(users.id, userId));
+    await db.update(userDevices).set({ revokedAt: new Date() }).where(and(eq(userDevices.userId, userId), isNull(userDevices.revokedAt)));
   }
 
   async claimDueAppointmentReminders(now: Date, hours: number) {

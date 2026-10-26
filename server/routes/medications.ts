@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
-import { clockInZone, dateKeyInZone, resolvePatientTimezone } from "../lib/localTime";
+import { clockInZone, dateKeyInZone, isMedicationActiveOn, resolvePatientTimezone } from "../lib/localTime";
 
 const router = Router();
 
@@ -13,24 +13,13 @@ async function patientToday(req: any): Promise<{ tz: string; today: string }> {
   return { tz, today: dateKeyInZone(new Date(), tz) };
 }
 
-function isMedicationActiveOn(med: { startDate: Date | string; endDate: Date | string | null; active: boolean }, dateKey: string): boolean {
-  if (!med.active) return false;
-  const start = new Date(med.startDate).toISOString().slice(0, 10);
-  if (dateKey < start) return false;
-  if (med.endDate) {
-    const end = new Date(med.endDate).toISOString().slice(0, 10);
-    if (dateKey > end) return false;
-  }
-  return true;
-}
-
 // Builds today's dose schedule for a patient: every scheduled time from
 // every currently-active medication, merged with any recorded log for that
 // slot ("taken"/"skipped"), defaulting to "upcoming" when nothing was
 // logged yet. Nothing is pre-populated as rows — this is computed on read.
 router.get("/today", requireAuth, requireRole("patient"), async (req, res) => {
   const patientUserId = (req as any).userId as string;
-  const { today: dateKey } = await patientToday(req);
+  const { today: dateKey, tz } = await patientToday(req);
   const [medications, logs] = await Promise.all([
     storage.getMedicationsByPatient(patientUserId),
     storage.getMedicationLogsByPatientAndDate(patientUserId, dateKey),
@@ -39,7 +28,7 @@ router.get("/today", requireAuth, requireRole("patient"), async (req, res) => {
   const logBySlot = new Map(logs.map((l) => [`${l.medicationId}:${l.doseTime}`, l]));
 
   const schedule = medications
-    .filter((m) => isMedicationActiveOn(m, dateKey))
+    .filter((m) => isMedicationActiveOn(m, dateKey, tz))
     .flatMap((m) =>
       m.scheduleTimes.map((time) => {
         const log = logBySlot.get(`${m.id}:${time}`);
@@ -126,7 +115,7 @@ router.get("/adherence", requireAuth, requireRole("patient"), async (req, res) =
   const medications = await storage.getMedicationsByPatient(patientUserId);
   const active = medications.filter((m) => m.active);
 
-  const { today: todayStr } = await patientToday(req);
+  const { today: todayStr, tz } = await patientToday(req);
   const sinceDate = new Date(`${todayStr}T00:00:00Z`);
   sinceDate.setUTCDate(sinceDate.getUTCDate() - 6);
   const sinceKey = sinceDate.toISOString().slice(0, 10);
@@ -141,7 +130,7 @@ router.get("/adherence", requireAuth, requireRole("patient"), async (req, res) =
     const key = d.toISOString().slice(0, 10);
     if (key > todayStr) continue;
     for (const m of active) {
-      if (!isMedicationActiveOn(m, key)) continue;
+      if (!isMedicationActiveOn(m, key, tz)) continue;
       for (const time of m.scheduleTimes) {
         expected += 1;
         if (takenBySlot.has(`${m.id}:${key}:${time}`)) taken += 1;

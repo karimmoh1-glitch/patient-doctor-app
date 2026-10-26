@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { NativeSelect } from "@/components/ui/native-select";
 import ConfirmAction from "@/components/confirm-action";
 import Logo from "@/components/logo";
+import AccountControls from "@/components/account-controls";
 import { useTextSize, type TextSize } from "@/hooks/use-text-size";
 import { useI18n, LOCALES, type MessageKey, type Locale } from "@/lib/i18n";
 import { useAppConfig } from "@/hooks/use-app-config";
@@ -142,6 +143,8 @@ function SettingsDialog({
               <Switch id="simple-mode" checked={simpleMode} onCheckedChange={onSetSimpleMode} />
             </div>
           )}
+
+          <AccountControls user={user} onSignOut={onSignOut} />
 
           <ConfirmAction
             trigger={<Button variant="outline" size="lg" className="w-full"><LogOut aria-hidden="true" /> {t("settings.signOut")}</Button>}

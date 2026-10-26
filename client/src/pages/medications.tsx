@@ -31,7 +31,7 @@ interface Medication {
 }
 
 interface ReminderListing {
-  delivery: "active" | "stale" | "not_configured";
+  delivery: "active" | "stale" | "failing" | "not_configured";
   emailAvailable: boolean;
   medications: { medicationId: string; suggestedTimes: string[]; reminder: ReminderState | null }[];
 }
@@ -123,7 +123,7 @@ function DeliveryNotice({ delivery }: { delivery: ReminderListing["delivery"] })
   return (
     <p role="status" className="flex items-start gap-3 rounded-xl border-2 border-ochre bg-sand p-4 text-base text-sand-foreground">
       <TriangleAlert className="mt-1 h-5 w-5 shrink-0" aria-hidden="true" />
-      {delivery === "stale" ? t("rem.delivery.stale") : t("rem.delivery.off")}
+      {delivery === "failing" ? t("rem.delivery.failing") : delivery === "stale" ? t("rem.delivery.stale") : t("rem.delivery.off")}
     </p>
   );
 }

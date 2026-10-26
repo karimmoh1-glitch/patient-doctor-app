@@ -4,6 +4,7 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
+import { reminderHealth } from "../services/reminderService";
 import { normalizeLang } from "../services/serverText";
 import {
   sendDoctorApplicationApprovedEmail,
@@ -163,6 +164,12 @@ router.get("/audit", ...adminOnly, async (req, res) => {
       actor: r.actorUserId ? actors.get(r.actorUserId) ?? null : null,
     })),
   );
+});
+
+// Is automatic reminder delivery really working? Counts and timestamps only:
+// nothing here names a patient or a medicine.
+router.get("/reminders/status", ...adminOnly, async (_req, res) => {
+  res.json(await reminderHealth());
 });
 
 export default router;

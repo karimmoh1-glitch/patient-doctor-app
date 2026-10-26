@@ -24,10 +24,10 @@ describe("demo profiles and simulated controls", () => {
     });
     const real = await createDoctor({ name: "Dr. Real" });
 
-    const list = await request(app).get("/api/doctors");
+    const list = await request(app).get("/api/doctors?q=Dr.%20Real");
     const names = list.body.map((d: any) => d.name);
     expect(names).toContain("Dr. Real");
-    expect(names).not.toContain("Dr. Nobody");
+    expect((await request(app).get("/api/doctors?q=Nobody")).body.map((d: any) => d.name)).not.toContain("Dr. Nobody");
 
     const attempt = await request(app).post("/api/pairings").set(auth(patient.token)).send({ doctorProfileId: ghost.id });
     expect(attempt.status).toBe(404);
@@ -36,7 +36,7 @@ describe("demo profiles and simulated controls", () => {
   });
 
   it("lists and labels them inside demo mode", async () => {
-    const list = await request(app).get("/api/doctors");
+    const list = await request(app).get("/api/doctors?q=Nobody");
     const demo = list.body.filter((d: any) => d.isDemoProfile);
     expect(demo.length).toBeGreaterThan(0);
   });
@@ -156,7 +156,8 @@ describe("health check", () => {
   it("answers without authentication or database access", async () => {
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    expect(res.body.ok).toBe(true);
+    expect(Object.keys(res.body).sort()).toEqual(["builtAt", "commit", "ok"]); // build identity only: nothing about data
   });
 });
 

@@ -153,5 +153,14 @@ const t: Partial<Record<Key, string>> = {
   "rx.form.savedDraftBody": "لا يستطيع المريض رؤيتها بعد. راجعها واعتمدها عندما تكون جاهزًا.",
   "notif.message.new": "رسالة جديدة من {name}",
   "notif.appointment.soon": "زيارتك مع {doctorName} قريبة: {when}",
+  "rem.delivery.failing": "واجهت آخر عملية إرسال تلقائي للتذكيرات مشكلة، لذا قد تتأخر تذكيراتك أو لا تصل. يُرجى مراجعة هذه القائمة بنفسك.",
+  "rem.zone": "الأوقات بتوقيت منطقتك: {zone}",
+  "rem.hist.title": "ما حدث للتذكيرات الأخيرة",
+  "rem.hist.inApp": "{when}: ظهر في أفيلا",
+  "rem.hist.emailAccepted": "{when}: قبلت خدمة البريد رسالتك. لا يمكننا معرفة ما إذا وصلت إلى صندوق الوارد.",
+  "rem.hist.emailSending": "{when}: جارٍ إرسال بريدك الإلكتروني",
+  "rem.hist.emailRetry": "{when}: تعذّر إرسال بريدك الإلكتروني حتى الآن. سنحاول مرة أخرى.",
+  "rem.hist.emailGaveUp": "{when}: تعذّر إرسال بريدك الإلكتروني.",
+  "rem.hist.overdue": "مرّ وقت تذكير ({when}) دون تسليم أي إشعار، لأن التذكيرات التلقائية لم تكن تعمل. يُرجى مراجعة قائمة أدويتك.",
 };
 export default t;

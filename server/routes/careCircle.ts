@@ -5,10 +5,11 @@ import bcrypt from "bcryptjs";
 import { storage } from "../storage";
 import { requireAuth, requireRole, signToken, createDeviceForLogin } from "../middleware/auth";
 import { generateSecureToken, hashToken } from "../services/tokenService";
+import { weakPasswordReason } from "../lib/password";
 import { normalizeLang } from "../services/serverText";
 import { sendCareCircleInviteEmail } from "../services/emailService";
 import { logAudit, logAuditStrict } from "../services/auditService";
-import { clockInZone, dateKeyInZone, patientTimezoneById } from "../lib/localTime";
+import { clockInZone, dateKeyInZone, isMedicationActiveOn, patientTimezoneById } from "../lib/localTime";
 
 const router = Router();
 
@@ -155,7 +156,7 @@ router.get("/invitations/validate/:token", inviteRedeemLimiter, async (req, res)
   });
 });
 
-const acceptSchema = z.object({ password: z.string().min(8) });
+const acceptSchema = z.object({ password: z.string().min(8).max(200) });
 
 router.post("/invitations/accept/:token", inviteRedeemLimiter, async (req, res) => {
   const parsed = acceptSchema.safeParse(req.body);
@@ -168,6 +169,11 @@ router.post("/invitations/accept/:token", inviteRedeemLimiter, async (req, res) 
   }
 
   let user = await storage.getUserByEmail(member.inviteEmail);
+  if (!user) {
+    // A brand-new account gets the same password rules as everyone else.
+    const weak = weakPasswordReason(parsed.data.password, { email: member.inviteEmail, name: member.name });
+    if (weak) return res.status(400).json({ message: weak });
+  }
   if (user) {
     // The link proves someone can read the invitee's inbox — not that they
     // own an account that already uses that address. Attaching to an
@@ -266,7 +272,7 @@ router.get("/caregiver/patients/:patientUserId/overview", requireAuth, requireRo
     const logBySlot = new Map(logs.map((l) => [`${l.medicationId}:${l.doseTime}`, l.status]));
     const nowHm = clockInZone(new Date(), tz);
     overview.todaysMedicationStatus = medications
-      .filter((m) => m.active)
+      .filter((m) => isMedicationActiveOn(m, todayKey, tz))
       .flatMap((m) =>
         m.scheduleTimes.map((time) => {
           const status = logBySlot.get(`${m.id}:${time}`);

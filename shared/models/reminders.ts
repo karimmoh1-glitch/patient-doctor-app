@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { medications } from "./health";
 
@@ -31,6 +31,8 @@ export const reminderDeliveries = pgTable("reminder_deliveries", {
   errorCode: varchar("error_code"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   sentAt: timestamp("sent_at"),
+  attempts: integer("attempts").notNull().default(1),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => [
   uniqueIndex("idx_reminder_deliveries_once").on(table.reminderId, table.dueAt, table.channel),
 ]);
@@ -39,6 +41,19 @@ export const jobRuns = pgTable("job_runs", {
   job: varchar("job").primaryKey(),
   lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull(),
   lastResult: jsonb("last_result").$type<Record<string, unknown>>().notNull().default({}),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastError: varchar("last_error"),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+});
+
+// A person's request about their own data. Erasure is done by an operator.
+export const dataRequests = pgTable("data_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  kind: varchar("kind").notNull(), // export | deletion
+  status: varchar("status").notNull().default("open"), // open | done
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
 });
 
 export type MedicationReminder = typeof medicationReminders.$inferSelect;

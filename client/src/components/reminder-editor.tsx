@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { getIntlLocale, useI18n } from "@/lib/i18n";
-import { formatClock, formatRelativeDay } from "@/lib/format";
+import { formatClock, formatRelativeDay, formatDateTime } from "@/lib/format";
 
 export interface ReminderState {
   times: string[];
@@ -18,9 +18,39 @@ export interface ReminderState {
   timezone: string;
   endDate: string | null;
   nextDueAt: string | null;
+  recent?: { dueAt: string; channel: string; status: string; attempts: number }[];
+  overdue?: string[];
 }
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+// What actually happened, in plain words. "Shown in Avela" is a fact; for email
+// the most Avela can know is that the email service accepted it.
+function ReminderHistory({ reminder }: { reminder: ReminderState }) {
+  const { t } = useI18n();
+  const lines = (reminder.recent ?? []).map((d) => {
+    const when = formatDateTime(d.dueAt);
+    if (d.channel === "in_app") return t("rem.hist.inApp", { when });
+    if (d.status === "sent") return t("rem.hist.emailAccepted", { when });
+    if (d.status === "pending") return t("rem.hist.emailSending", { when });
+    return d.attempts >= 3 ? t("rem.hist.emailGaveUp", { when }) : t("rem.hist.emailRetry", { when });
+  });
+  return (
+    <div className="space-y-2 text-base text-muted-foreground">
+      <p>{t("rem.zone", { zone: reminder.timezone })}</p>
+      {(reminder.overdue ?? []).length > 0 && (
+        <p role="status" className="rounded-lg border-2 border-ochre bg-sand p-3 text-sand-foreground">
+          {t("rem.hist.overdue", { when: formatDateTime(reminder.overdue![0]) })}
+        </p>
+      )}
+      {lines.length > 0 && (
+        <ul className="list-disc ps-5" aria-label={t("rem.hist.title")}>
+          {lines.map((l, i) => <li key={i}>{l}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function weekdayName(day: number): string {
   // 2024-01-07 was a Sunday; add `day` to get each weekday in the viewer's language.
@@ -107,6 +137,7 @@ export default function ReminderEditor({
             {reminder.enabled && reminder.nextDueAt && <> · {t("rem.next", { when: formatRelativeDay(reminder.nextDueAt) })}</>}
           </p>
         )}
+        {reminder && <ReminderHistory reminder={reminder} />}
         <div className="flex flex-wrap gap-3">
           <Button variant="outline" onClick={() => setEditing(true)}>
             {reminder ? t("rem.change") : t("rem.set")}<span className="sr-only">: {medicationName}</span>

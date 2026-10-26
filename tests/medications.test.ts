@@ -99,3 +99,16 @@ describe("the remembered time zone", () => {
     expect((await storage.getUser(patient.id))!.timezone).toBe("America/Denver");
   });
 });
+
+describe("which day a prescription starts on", () => {
+  it("is the patient's own calendar day, not the UTC day (a US evening is already 'tomorrow' in UTC)", async () => {
+    const { isMedicationActiveOn } = await import("../server/lib/localTime");
+    // Authorized at 01:30 UTC on 11 June = 20:30 on 10 June in Chicago.
+    const med = { active: true, startDate: new Date("2026-06-11T01:30:00Z"), endDate: new Date("2026-06-18T01:30:00Z") };
+    expect(isMedicationActiveOn(med, "2026-06-10", "America/Chicago")).toBe(true);
+    expect(isMedicationActiveOn(med, "2026-06-09", "America/Chicago")).toBe(false);
+    expect(isMedicationActiveOn(med, "2026-06-17", "America/Chicago")).toBe(true);
+    expect(isMedicationActiveOn(med, "2026-06-18", "America/Chicago")).toBe(false);
+    expect(isMedicationActiveOn({ ...med, active: false }, "2026-06-10", "America/Chicago")).toBe(false);
+  });
+});

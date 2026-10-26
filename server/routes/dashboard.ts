@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { getAvailability } from "../services/schedulingService";
 import { requireAuth, requireRole } from "../middleware/auth";
-import { clockInZone, dateKeyInZone, resolvePatientTimezone } from "../lib/localTime";
+import { clockInZone, dateKeyInZone, isMedicationActiveOn, resolvePatientTimezone } from "../lib/localTime";
 
 const router = Router();
 
@@ -38,7 +38,7 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
 
   const logBySlot = new Map(todayLogs.map((l) => [`${l.medicationId}:${l.doseTime}`, l.status]));
   const todaysSchedule = medications
-    .filter((m) => m.active)
+    .filter((m) => isMedicationActiveOn(m, todayKey(), tz))
     .flatMap((m) => m.scheduleTimes.map((time) => ({ medicationName: m.name, time, status: logBySlot.get(`${m.id}:${time}`) || "upcoming" })))
     .sort((a, b) => a.time.localeCompare(b.time));
   const nextMedicationReminder = todaysSchedule.find((d) => d.status === "upcoming") || null;

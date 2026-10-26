@@ -4,6 +4,7 @@
 // becoming an unhandled rejection that crashes the whole process (Express
 // 4 does not do this natively — every async route handler in this app is
 // otherwise a single-request-input crash vector for the entire server).
+import { assertProductionConfig } from "./config";
 import "express-async-errors";
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
@@ -49,6 +50,7 @@ export function describeErrorForLog(err: any): string {
 // directly through supertest. server/index.ts layers the Vite dev
 // middleware / static production serving and the actual listen() on top.
 export async function createApiApp(): Promise<{ app: Express; httpServer: Server }> {
+  assertProductionConfig();
   const app = express();
   const httpServer = createServer(app);
 
@@ -85,7 +87,7 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
   // installed zod 3.x (fixed only in the breaking zod 4 line) — see docs/AUDIT.md.
   // Liveness only: answers without touching the database, so a load balancer
   // can tell "process is up" apart from "database is slow".
-  app.get("/api/health", (_req, res) => res.json({ ok: true }));
+  app.get("/api/health", (_req, res) => res.json({ ok: true, commit: process.env.BUILD_COMMIT ?? null, builtAt: process.env.BUILD_TIME ?? null }));
 
   app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: false }));

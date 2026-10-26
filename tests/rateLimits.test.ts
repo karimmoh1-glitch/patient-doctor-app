@@ -60,3 +60,14 @@ describe("email handling", () => {
     expect(login.status).toBe(200);
   });
 });
+
+describe("the public doctor directory", () => {
+  it("never returns more than 100 doctors, and is rate limited per address", async () => {
+    const first = await request(app).get("/api/doctors");
+    expect(first.body.length).toBeLessThanOrEqual(100);
+    const statuses: number[] = [first.status];
+    for (let i = 0; i < 130; i++) statuses.push((await request(app).get("/api/doctors")).status);
+    expect(statuses.filter((s) => s === 200).length).toBeLessThanOrEqual(120);
+    expect(statuses).toContain(429);
+  });
+});

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { newSession, signInAs, uniqueEmail, PASSWORD } from "./helpers";
+import { newSession, signInAs, uniqueEmail, NEW_PASSWORD } from "./helpers";
 
 test.describe("becoming a doctor on Avela", () => {
   test("registers, completes the application, waits for review, answers a request for more information, and is approved by a person", async ({ page, browser }) => {
@@ -13,7 +13,7 @@ test.describe("becoming a doctor on Avela", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Apply as a doctor");
     await page.getByLabel("Your full name").fill(name);
     await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
+    await page.getByLabel("Choose a password", { exact: true }).fill(NEW_PASSWORD);
     await page.getByRole("button", { name: "Create my doctor account" }).click();
 
     // 2. The account exists but is NOT a working doctor account: only the application is reachable.
@@ -97,7 +97,7 @@ test.describe("becoming a doctor on Avela", () => {
 
   test("an administrator can suspend an approved doctor, who is then signed out and locked out", async ({ page, browser }) => {
     const email = uniqueEmail("drsusp");
-    const reg = await page.request.post("/api/doctors/register", { data: { name: "Dr. Susan Park", email, password: PASSWORD } });
+    const reg = await page.request.post("/api/doctors/register", { data: { name: "Dr. Susan Park", email, password: NEW_PASSWORD } });
     const { token } = await reg.json();
     const headers = { Authorization: `Bearer ${token}` };
     await page.request.put("/api/doctors/me/application", { headers, data: { professionalRole: "physician", specialty: "Dermatology", state: "CA", licenseNumber: "S-1", licensingBody: "Board", languages: ["en"], modalities: ["phone"], phone: "+15550001234" } });
@@ -117,7 +117,7 @@ test.describe("becoming a doctor on Avela", () => {
 
     const after = await page.request.get("/api/pairings/doctor", { headers });
     expect(after.status()).toBe(401);
-    await signInAs(page, email);
+    await signInAs(page, email, NEW_PASSWORD);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your doctor account is suspended");
     await expect(page.getByText("Credentials under investigation")).toBeVisible();
   });

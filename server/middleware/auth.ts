@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { storage } from "../storage";
+import { isDemoMode } from "../config";
 
 // The insecure fallback secret is only ever allowed in an explicit local
 // development or test run. Any other environment — including one where
@@ -86,6 +87,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const user = await storage.getUser(decoded.userId);
     if (!user || user.deactivatedAt) {
       return res.status(401).json({ message: "This account has been deactivated" });
+    }
+    // Sessions of seeded demo accounts end the moment demo mode is switched off.
+    if (user.isDemo && !isDemoMode()) {
+      return res.status(401).json({ message: "Your session has ended. Please sign in again." });
     }
 
     // Role comes from this live lookup, not the JWT claim — the claim is

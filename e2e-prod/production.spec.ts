@@ -116,7 +116,7 @@ test.describe("the built application", () => {
     await page.goto("/join/doctor");
     await page.getByLabel("Your full name").fill("Dr. Prod Smoke");
     await page.getByLabel("Email address").fill(email);
-    await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
+    await page.getByLabel("Choose a password", { exact: true }).fill("seven green umbrellas");
     await page.getByRole("button", { name: "Create my doctor account" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your application");
     await page.goto("/doctor/requests");

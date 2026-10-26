@@ -32,6 +32,8 @@ export default defineConfig({
       DATABASE_URL: PROD_DB,
       JWT_SECRET: "prod-smoke-only-secret",
       DEMO_MODE: "true",
+      // A demonstration in production needs this second, deliberate switch (see server/config.ts).
+      DEMO_MODE_ACKNOWLEDGED: "true",
       APP_URL: `http://localhost:${PROD_PORT}`,
     },
   },

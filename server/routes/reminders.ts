@@ -3,7 +3,7 @@ import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { dateKeyInZone, resolvePatientTimezone } from "../lib/localTime";
-import { nextOccurrence, reminderDeliveryStatus } from "../services/reminderService";
+import { LOOKBACK_MINUTES, nextOccurrence, occurrencesInWindow, reminderDeliveryStatus } from "../services/reminderService";
 import { logAudit } from "../services/auditService";
 
 const router = Router();
@@ -39,6 +39,15 @@ router.get("/", ...patientOnly, async (req, res) => {
   ]);
   const byMedication = new Map(reminders.map((r) => [r.medicationId, r]));
   const now = new Date();
+  // What actually happened to each reminder lately, per channel, so the screen can
+  // say "shown in Avela" or "the email service accepted it" and never more than that.
+  const recent = await storage.getRecentDeliveriesForReminders(reminders.map((r) => r.id), 4);
+  const since = new Date(now.getTime() - 24 * 3_600_000);
+  const cutoff = new Date(now.getTime() - LOOKBACK_MINUTES * 60_000);
+  const mine = new Set(reminders.map((r) => r.id));
+  const inAppDelivered = new Set(
+    (await storage.getDeliveriesSince(since)).filter((d) => mine.has(d.reminderId) && d.channel === "in_app").map((d) => `${d.reminderId}|${d.dueAt.getTime()}`),
+  );
   res.json({
     delivery,
     emailAvailable: emailAvailable(),
@@ -60,6 +69,11 @@ router.get("/", ...patientOnly, async (req, res) => {
                 timezone: r.timezone,
                 endDate: r.endDate,
                 nextDueAt: r.enabled ? nextOccurrence(r, now)?.toISOString() ?? null : null,
+                recent: recent.filter((d) => d.reminderId === r.id).slice(0, 4).map((d) => ({ dueAt: d.dueAt.toISOString(), channel: d.channel, status: d.status, attempts: d.attempts })),
+                // Times in the last day that passed without a notice being delivered.
+                overdue: r.enabled
+                  ? occurrencesInWindow(r, since, now).filter((due) => due < cutoff && !inAppDelivered.has(`${r.id}|${due.getTime()}`)).map((d) => d.toISOString())
+                  : [],
               }
             : null,
         };

@@ -42,3 +42,20 @@ export async function patientTimezoneById(patientUserId: string): Promise<string
   if (!user) return "America/New_York";
   return resolvePatientTimezone(null, user);
 }
+
+/**
+ * Is this medicine meant to be taken on `dateKey`, a calendar day in `tz`?
+ * Start and end are compared as days on the PATIENT's calendar. Comparing them
+ * as UTC days made a prescription authorized on a US evening (already
+ * "tomorrow" in UTC) vanish from that patient's list until the next day.
+ */
+export function isMedicationActiveOn(
+  med: { startDate: Date | string; endDate: Date | string | null; active: boolean },
+  dateKey: string,
+  tz: string,
+): boolean {
+  if (!med.active) return false;
+  if (dateKey < dateKeyInZone(new Date(med.startDate), tz)) return false;
+  if (med.endDate && dateKey > dateKeyInZone(new Date(med.endDate), tz)) return false;
+  return true;
+}

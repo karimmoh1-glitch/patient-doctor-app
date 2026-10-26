@@ -156,3 +156,40 @@ describe("storage sanity", () => {
     expect(row!.passwordHash.startsWith("$2")).toBe(true);
   });
 });
+
+describe("password rules and recovery links", () => {
+  it("refuses the passwords people are attacked with, but allows a memorable phrase", async () => {
+    const app = await getApp();
+    const attempt = (password: string, email = uniqueEmail("pw")) => request(app).post("/api/auth/signup").send({ name: "Pat Example", email, password, state: "CA" });
+    for (const weak of ["password", "12345678", "Password123", "qwertyuiop", "aaaaaaaaa", "DemoPass123!"]) {
+      expect((await attempt(weak)).status, weak).toBe(400);
+    }
+    const email = `maple.tree${Math.floor(Math.random() * 1e6)}@example.org`;
+    expect((await attempt(`${email.split("@")[0]}!!`, email)).status).toBe(400); // built from the email address
+    expect((await attempt("seven green umbrellas")).status).toBe(201);
+  });
+
+  it("makes only the newest reset link work, and each link only once", async () => {
+    const app = await getApp();
+    const user = await signupPatient();
+    const { storage } = await import("../server/storage");
+    const { generateSecureToken } = await import("../server/services/tokenService");
+    const first = generateSecureToken();
+    await storage.createPasswordResetToken(user.email, first.tokenHash, new Date(Date.now() + 3_600_000));
+    await request(app).post("/api/auth/forgot-password").send({ email: user.email }); // issues a newer link
+    const stale = await request(app).post("/api/auth/reset-password").send({ token: first.token, password: "a brand new passphrase" });
+    expect(stale.status).toBe(400);
+  });
+
+  it("rejects a weak new password on reset without spending the link", async () => {
+    const app = await getApp();
+    const user = await signupPatient();
+    const { storage } = await import("../server/storage");
+    const { generateSecureToken } = await import("../server/services/tokenService");
+    const t = generateSecureToken();
+    await storage.createPasswordResetToken(user.email, t.tokenHash, new Date(Date.now() + 3_600_000));
+    expect((await request(app).post("/api/auth/reset-password").send({ token: t.token, password: "password123" })).status).toBe(400);
+    expect((await request(app).post("/api/auth/reset-password").send({ token: t.token, password: "a brand new passphrase" })).status).toBe(200);
+    expect((await request(app).post("/api/auth/reset-password").send({ token: t.token, password: "another fresh passphrase" })).status).toBe(400); // used
+  });
+});

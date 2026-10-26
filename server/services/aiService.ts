@@ -256,7 +256,7 @@ export async function chat(userId: string, message: string): Promise<{ reply: st
     if (!reply) throw new Error("Empty completion");
     return { reply, usedAi: true };
   } catch (err) {
-    console.error("[AI] OpenAI call failed, falling back to rule-based reply:", err);
+    console.error("[AI] OpenAI call failed, falling back to rule-based reply:", (err as any)?.name, (err as any)?.status);
     return { reply: ruleBasedReply(message, ctx), usedAi: false };
   }
 }
@@ -304,7 +304,7 @@ export async function explainSimply(text: string): Promise<{ explanation: string
     if (!explanation) throw new Error("Empty completion");
     return { explanation, usedAi: true };
   } catch (err) {
-    console.error("[AI] Explain Simply call failed, falling back:", err);
+    console.error("[AI] Explain Simply call failed, falling back:", (err as any)?.name, (err as any)?.status);
     return { explanation: explainSimplyFallback(text), usedAi: false };
   }
 }

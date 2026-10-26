@@ -1,6 +1,9 @@
 import { expect, type Browser, type Page } from "@playwright/test";
 
+// The seeded demo accounts' password, for signing in to them. It is on the list of passwords Avela refuses for NEW accounts.
 export const PASSWORD = "DemoPass123!";
+// What test-created accounts use.
+export const NEW_PASSWORD = "seven green umbrellas";
 
 /** Signs in through the API and stores the session the way the app itself does. */
 export async function signInAs(page: Page, email: string, password = PASSWORD) {
@@ -40,7 +43,7 @@ export async function signUpPatient(page: Page, name: string, email: string, sta
   await page.getByLabel("Your name").fill(name);
   await page.getByLabel("Email address").fill(email);
   await page.getByLabel("State where you live").selectOption(state);
-  await page.getByLabel("Choose a password", { exact: true }).fill(PASSWORD);
+  await page.getByLabel("Choose a password", { exact: true }).fill(NEW_PASSWORD);
   await page.getByRole("button", { name: "Create my account" }).click();
   await finishWelcome(page);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(name.split(" ")[0]);
@@ -53,7 +56,7 @@ const COMPLETE_APPLICATION = {
 
 /** Registers a doctor and sends a complete application, all through the API. Returns the application id. */
 export async function registerDoctorViaApi(page: Page, name: string, email: string, overrides: Record<string, unknown> = {}) {
-  const reg = await page.request.post("/api/doctors/register", { data: { name, email, password: PASSWORD } });
+  const reg = await page.request.post("/api/doctors/register", { data: { name, email, password: NEW_PASSWORD } });
   expect(reg.status()).toBe(201);
   const token = (await reg.json()).token as string;
   const headers = { Authorization: `Bearer ${token}` };

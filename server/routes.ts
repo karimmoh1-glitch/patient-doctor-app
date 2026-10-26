@@ -24,30 +24,39 @@ import reminderRoutes from "./routes/reminders";
 import notificationRoutes from "./routes/notifications";
 import cronRoutes from "./routes/cron";
 import configRoutes from "./routes/config";
+import meRoutes from "./routes/me";
+
+import type { Router } from "express";
+
+/** Every API router and where it is mounted. One list, so tests can inspect exactly what the server exposes. */
+export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
+  ["/api/auth", authRoutes],
+  ["/api/doctors", doctorRoutes],
+  ["/api/symptom-reports", symptomRoutes],
+  ["/api/pairings", pairingRoutes],
+  ["/api/admin", adminRoutes],
+  ["/api/speech", speechRoutes],
+  ["/api/appointments", appointmentRoutes],
+  ["/api/prescriptions", prescriptionRoutes],
+  ["/api/medications", medicationRoutes],
+  ["/api/pharmacy", pharmacyRoutes],
+  ["/api/documents", documentRoutes],
+  ["/api/follow-ups", followUpRoutes],
+  ["/api/sharing", sharingRoutes],
+  ["/api/timeline", timelineRoutes],
+  ["/api/dashboard", dashboardRoutes],
+  ["/api/ai", aiRoutes],
+  ["/api/care-circle", careCircleRoutes],
+  ["/api/emergency-profile", emergencyRoutes],
+  ["/api/health-summary", healthSummaryRoutes],
+  ["/api/audit-log", auditRoutes],
+  ["/api/config", configRoutes],
+  ["/api/reminders", reminderRoutes],
+  ["/api/notifications", notificationRoutes],
+  ["/api/cron", cronRoutes],
+  ["/api/me", meRoutes],
+];
 
 export async function registerRoutes(_httpServer: Server, app: Express): Promise<void> {
-  app.use("/api/auth", authRoutes);
-  app.use("/api/doctors", doctorRoutes);
-  app.use("/api/symptom-reports", symptomRoutes);
-  app.use("/api/pairings", pairingRoutes);
-  app.use("/api/admin", adminRoutes);
-  app.use("/api/speech", speechRoutes);
-  app.use("/api/appointments", appointmentRoutes);
-  app.use("/api/prescriptions", prescriptionRoutes);
-  app.use("/api/medications", medicationRoutes);
-  app.use("/api/pharmacy", pharmacyRoutes);
-  app.use("/api/documents", documentRoutes);
-  app.use("/api/follow-ups", followUpRoutes);
-  app.use("/api/sharing", sharingRoutes);
-  app.use("/api/timeline", timelineRoutes);
-  app.use("/api/dashboard", dashboardRoutes);
-  app.use("/api/ai", aiRoutes);
-  app.use("/api/care-circle", careCircleRoutes);
-  app.use("/api/emergency-profile", emergencyRoutes);
-  app.use("/api/health-summary", healthSummaryRoutes);
-  app.use("/api/audit-log", auditRoutes);
-  app.use("/api/config", configRoutes);
-  app.use("/api/reminders", reminderRoutes);
-  app.use("/api/notifications", notificationRoutes);
-  app.use("/api/cron", cronRoutes);
+  for (const [prefix, router] of ROUTER_MOUNTS) app.use(prefix, router);
 }
