@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { makeLimiter, userKey } from "../middleware/rateLimit";
-import { isDemoMode } from "../config";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireApprovedDoctor } from "../middleware/doctor";
@@ -29,7 +28,7 @@ router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req
   const patientUserId = (req as any).userId as string;
 
   const doctor = await storage.getDoctorProfile(parsed.data.doctorProfileId);
-  if (!doctor || !doctor.active || (!doctor.userId && !isDemoMode())) {
+  if (!doctor || !doctor.active || !doctor.userId) {
     return res.status(404).json({ message: "Doctor not found" });
   }
 

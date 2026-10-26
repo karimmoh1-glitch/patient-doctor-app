@@ -37,7 +37,6 @@ export default {
   "dir.noTimes": "This doctor hasn't published any times yet.",
   "dir.reviewed": "Reviewed by the Avela team",
   "dir.reviewedNote": "\"Reviewed\" means a person on our team approved the doctor's application. Details such as the licence number are what the doctor told us; we don't yet check them against an official register.",
-  "dir.demoProfile": "Demonstration profile — this doctor will not reply",
   "dir.signupToConnect": "Create an account to connect",
   "dir.ask": "Ask this doctor to see me",
   "dir.sending": "Sending…",

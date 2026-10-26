@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { signInAs } from "./helpers";
 
-// Scanning the demo patient in Arabic saves Arabic to that shared account; put it back.
+// Scanning the fixture patient in Arabic saves Arabic to that shared account; put it back.
 test.afterEach(async ({ request }) => {
   const login = await request.post("/api/auth/login", { data: { email: "patient@avela.dev", password: "DemoPass123!" } });
   const { token } = await login.json();

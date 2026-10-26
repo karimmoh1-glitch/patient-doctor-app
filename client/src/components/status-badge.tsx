@@ -10,10 +10,6 @@ const VARIANTS: Record<string, Record<string, Variant>> = {
   pairing: { requested: "secondary", accepted: "default", declined: "destructive", cancelled: "outline", ended: "outline" },
   appointment: { requested: "secondary", confirmed: "default", completed: "outline", cancelled: "destructive" },
   prescription: { draft: "secondary", active: "default", completed: "outline", expired: "outline", cancelled: "destructive" },
-  pharmacyOrder: {
-    received: "secondary", processing: "secondary", preparing: "secondary", ready_for_pickup: "default",
-    out_for_delivery: "default", delivered: "outline", picked_up: "outline",
-  },
   followUp: { open: "secondary", done: "outline" },
 };
 

@@ -1,7 +1,6 @@
 import { Link } from "wouter";
-import { useAppConfig } from "@/hooks/use-app-config";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { Pill, ClipboardList, Truck, History, FileText, Sparkles, HeartHandshake, Users, ShieldCheck, ChevronRight } from "lucide-react";
+import { Pill, ClipboardList, History, FileText, Users, ShieldCheck, ChevronRight } from "lucide-react";
 
 type Icon = React.ComponentType<{ className?: string }>;
 
@@ -12,7 +11,6 @@ const SECTIONS: { id: string; headingKey: MessageKey; items: { href: string; lab
     items: [
       { href: "/medications", labelKey: "health.todaysMedicines", hintKey: "myhealth.hint.medications", icon: Pill },
       { href: "/prescriptions", labelKey: "health.prescriptions", hintKey: "myhealth.hint.prescriptions", icon: ClipboardList },
-      { href: "/pharmacy", labelKey: "pharmacy.title", hintKey: "myhealth.hint.pharmacy", icon: Truck },
     ],
   },
   {
@@ -21,7 +19,6 @@ const SECTIONS: { id: string; headingKey: MessageKey; items: { href: string; lab
     items: [
       { href: "/timeline", labelKey: "timeline.title", hintKey: "myhealth.hint.timeline", icon: History },
       { href: "/documents", labelKey: "docs.title", hintKey: "myhealth.hint.documents", icon: FileText },
-      { href: "/handoff", labelKey: "myhealth.item.handoff", hintKey: "myhealth.hint.handoff", icon: HeartHandshake },
     ],
   },
   {
@@ -32,23 +29,11 @@ const SECTIONS: { id: string; headingKey: MessageKey; items: { href: string; lab
       { href: "/profile", labelKey: "profile.title", hintKey: "myhealth.hint.profile", icon: ShieldCheck },
     ],
   },
-  {
-    id: "organising",
-    headingKey: "myhealth.sec.organising",
-    items: [
-      { href: "/assistant", labelKey: "assistant.title", hintKey: "myhealth.hint.assistant", icon: Sparkles },
-    ],
-  },
 ];
 
 export default function MyHealth() {
-  const config = useAppConfig();
   const { t } = useI18n();
-  // Pharmacy ordering is a simulation; it only appears in a demonstration.
-  const sections = SECTIONS.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => item.href !== "/pharmacy" || config?.demoMode),
-  }));
+  const sections = SECTIONS;
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>

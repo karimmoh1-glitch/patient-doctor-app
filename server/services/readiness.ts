@@ -21,19 +21,20 @@ export async function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Pro
 
   add("node-env", env.NODE_ENV === "production", "fail", "NODE_ENV is production", "NODE_ENV is not production");
   add("jwt-secret", (env.JWT_SECRET ?? "").length >= 32, "fail", "JWT_SECRET is set and long enough", "JWT_SECRET is missing or shorter than 32 characters");
-  add("demo-off", env.DEMO_MODE !== "true", "fail", "DEMO_MODE is off", "DEMO_MODE=true: demo accounts and simulated features are enabled");
-  add("demo-ack-unset", !env.DEMO_MODE_ACKNOWLEDGED, "fail", "DEMO_MODE_ACKNOWLEDGED is not set", "DEMO_MODE_ACKNOWLEDGED is set: remove it");
+  add("demo-absent", (env.DEMO_MODE === undefined || env.DEMO_MODE === "" || env.DEMO_MODE === "false") && !env.DEMO_MODE_ACKNOWLEDGED, "fail",
+    "No demo setting is present", "DEMO_MODE or DEMO_MODE_ACKNOWLEDGED is set: remove it (production refuses to start with it)");
   add("app-url", /^https:\/\//.test(env.APP_URL ?? ""), "fail", "APP_URL is https", "APP_URL is missing or not https (links in emails would be unsafe)");
   add("cron-secret", (env.CRON_SECRET ?? "").length >= 24, "fail", "CRON_SECRET is set", "CRON_SECRET is missing or short: reminders cannot be delivered");
   add("email", !!env.RESEND_API_KEY, "warn", "An email provider is configured", "No email provider: password resets and email reminders cannot be sent");
   add("support", !!(env.SUPPORT_PHONE || env.SUPPORT_EMAIL), "warn", "A support contact is published", "No support phone or email is configured; the Help page says nobody can be reached");
   add("emergency-number", !!env.VITE_EMERGENCY_NUMBER, "warn", "The emergency number is set for this country", "VITE_EMERGENCY_NUMBER is not set: the default (911) is shown");
-  add("ai-phi", !(env.OPENAI_API_KEY && env.AI_PHI_PROCESSING_CONFIRMED === "true"), "warn", "No health information is sent to an AI provider", "Health information may be sent to an AI provider: confirm the agreement exists");
 
   // Database protection (docs/SECURITY.md): the application should run as the restricted role with row-level security enforced.
   add("rls-enforced", !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on", "fail",
     "The application connects as the restricted database role with row-level security enforced",
     "APP_DATABASE_URL and DB_ENFORCE_RLS=on are not both set: the application runs with full database privileges (npm run db:create-app-role)");
+  add("owner-role-exception", env.ALLOW_OWNER_DATABASE_ROLE !== "true", "fail",
+    "No exception allows the owner database role", "ALLOW_OWNER_DATABASE_ROLE=true: the application is knowingly running as the table owner");
   add("heartbeat", !!env.SCHEDULER_HEARTBEAT_URL, "warn", "A heartbeat monitor is notified after each scheduler run", "No SCHEDULER_HEARTBEAT_URL: nothing outside Avela notices if the scheduler stops calling");
   add("ops-alert", !!env.OPS_ALERT_EMAIL, "warn", "Scheduler failures are e-mailed to an operator", "No OPS_ALERT_EMAIL: a failing scheduler is visible only in the admin screen");
 

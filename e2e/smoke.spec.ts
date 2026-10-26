@@ -21,7 +21,7 @@ test("browsing doctors needs no account, and connecting says so up front", async
   await expect(page.getByText(/without an account/).first()).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "Dr. Emily Chen" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Create an account to connect/ }).first()).toBeVisible();
-  // Filtering is real: nobody on the demo list speaks Klingon, but several speak Arabic.
+  // Filtering is real: nobody in the fixture list speaks Klingon, but several speak Arabic.
   await page.getByLabel("Language spoken").selectOption("ar");
   await expect(page.getByRole("heading", { level: 2, name: "Dr. Emily Chen" })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 2, name: "Dr. Fatima Malik" })).toBeVisible();

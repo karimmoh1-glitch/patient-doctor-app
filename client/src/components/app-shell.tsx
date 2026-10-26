@@ -15,7 +15,6 @@ import Logo from "@/components/logo";
 import AccountControls from "@/components/account-controls";
 import { useTextSize, type TextSize } from "@/hooks/use-text-size";
 import { useI18n, LOCALES, type MessageKey, type Locale } from "@/lib/i18n";
-import { useAppConfig } from "@/hooks/use-app-config";
 import { cn } from "@/lib/utils";
 import type { AuthUser } from "@/hooks/use-auth";
 
@@ -45,7 +44,7 @@ const PATIENT_NAV: NavItem[] = [
   { href: "/appointments", labelKey: "nav.appointments", shortKey: "nav.appointments.short", icon: CalendarDays },
   {
     href: "/my-health", labelKey: "nav.health", shortKey: "nav.health.short", icon: HeartPulse,
-    owns: ["/medications", "/prescriptions", "/pharmacy", "/timeline", "/documents", "/handoff", "/assistant", "/care-circle", "/profile", "/notifications"],
+    owns: ["/medications", "/prescriptions", "/timeline", "/documents", "/care-circle", "/profile", "/notifications"],
   },
 ];
 
@@ -160,16 +159,6 @@ function SettingsDialog({
   );
 }
 
-function DemoBanner() {
-  const config = useAppConfig();
-  const { t } = useI18n();
-  if (!config?.demoMode) return null;
-  return (
-    <p role="note" className="bg-sand px-4 py-2 text-center text-base font-medium text-sand-foreground">
-      {t("demo.banner")}
-    </p>
-  );
-}
 
 // The bell shows an unread count only when there is one, and always carries a
 // text alternative: the count is never conveyed by colour or the badge alone.
@@ -329,7 +318,6 @@ export default function AppShell({
     return (
       <div className="min-h-screen bg-background">
         {skipLink}
-        <DemoBanner />
         <TopBar user={user} onOpenSettings={() => setSettingsOpen(true)} large />
         <main id="main" tabIndex={-1} className="px-5 py-8 outline-none">{children}</main>
         {settings}
@@ -340,7 +328,6 @@ export default function AppShell({
   return (
     <div className="min-h-screen bg-background">
       {skipLink}
-      <DemoBanner />
       <TopBar user={user} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="mx-auto flex max-w-6xl">
         {showBottomNav && <SideNav items={items} location={location} />}

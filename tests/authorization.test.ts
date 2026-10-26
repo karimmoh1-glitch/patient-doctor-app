@@ -173,7 +173,6 @@ describe("unauthenticated access", () => {
     ["GET", "/api/care-circle"],
     ["GET", "/api/audit-log"],
     ["GET", "/api/admin/doctor-applications"],
-    ["POST", "/api/ai/chat"],
   ])("%s %s requires a login", async (method, path) => {
     const res = await (request(app) as any)[method.toLowerCase()](path).send({});
     expect(res.status).toBe(401);

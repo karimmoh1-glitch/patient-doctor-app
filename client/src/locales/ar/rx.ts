@@ -106,7 +106,6 @@ const t: Partial<Record<Key, string>> = {
   "rx.refill.saved": "تم حفظ الطلب",
   "rx.refill.savedBody": "تعذّر الوصول إلى طبيبك عبر أفيلا. يُرجى الاتصال بعيادته.",
   "rx.refill.failed": "تعذّر طلب إعادة الصرف",
-  "rx.pharmacyDemo": "جرّب الصيدلية التجريبية",
   "notif.intro": "مستجدات من أطبائك والتذكيرات التي ضبطتها.",
   "notif.empty": "لا جديد",
   "notif.emptyBody": "ستظهر هنا التذكيرات ومستجدات أطبائك.",

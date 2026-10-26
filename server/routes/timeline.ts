@@ -8,7 +8,7 @@ const router = Router();
 
 interface TimelineEvent {
   date: string; // ISO timestamp, used for sorting
-  kind: "appointment" | "prescription" | "medication" | "pharmacy" | "document" | "message" | "follow_up";
+  kind: "appointment" | "prescription" | "medication" | "document" | "message" | "follow_up";
   title: string;
   subtitle?: string;
   link?: string;
@@ -20,11 +20,10 @@ interface TimelineEvent {
 async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
   const lang = normalizeLang((await storage.getUser(patientUserId))?.language);
   const zone = await patientTimezoneById(patientUserId);
-  const [appointments, prescriptions, medications, pharmacyOrders, documents, followUps, pairings] = await Promise.all([
+  const [appointments, prescriptions, medications, documents, followUps, pairings] = await Promise.all([
     storage.getAppointmentsByPatient(patientUserId),
     storage.getPrescriptionsByPatient(patientUserId),
     storage.getMedicationsByPatient(patientUserId),
-    storage.getPharmacyOrdersByPatient(patientUserId),
     storage.getDocumentsByPatient(patientUserId),
     storage.getFollowUpTasksByPatient(patientUserId),
     storage.getAcceptedPairingsByPatient(patientUserId),
@@ -80,18 +79,6 @@ async function buildTimeline(patientUserId: string): Promise<TimelineEvent[]> {
       subtitle: st(lang, "tl.med.daily", { count: m.scheduleTimes.length }),
       link: "/medications",
     });
-  }
-
-  for (const o of pharmacyOrders) {
-    for (const h of o.statusHistory) {
-      events.push({
-        date: h.at,
-        kind: "pharmacy",
-        title: st(lang, "tl.pharm", { status: stWord(lang, "status", h.status) }),
-        subtitle: o.fulfillmentType === "delivery" ? st(lang, "tl.pharm.delivery") : st(lang, "tl.pharm.pickup"),
-        link: "/pharmacy",
-      });
-    }
   }
 
   for (const d of documents) {

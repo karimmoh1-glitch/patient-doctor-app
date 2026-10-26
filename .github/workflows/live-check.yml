@@ -1,10 +1,9 @@
 name: Check the deployed site
 
 # Drives the DEPLOYED site in a real browser, read-only, as a visitor would (landing,
-# registration, sign-in, reloads, Arabic, the demo patient and doctor, and what each is
-# refused). It never types a password. Run it after every deploy, or let it run daily.
-# Needs the repository secret AVELA_URL. On a real (non-demo) deployment the demo
-# sign-in tests are expected to fail: that is the point of them.
+# registration, sign-in, reloads, Arabic, and that nothing demo-like, simulated or
+# fabricated is present). It never types a password and never creates an account.
+# Needs the repository secret AVELA_URL.
 
 on:
   workflow_dispatch:

@@ -87,20 +87,3 @@ describe("refills", () => {
   });
 });
 
-describe("pharmacy orders", () => {
-  it("allows one order per prescription even under simultaneous requests", async () => {
-    const patient = await signupPatient();
-    const doctor = await createDoctor();
-    const { pairingId } = await connect(patient, doctor);
-    const rx = { body: await issuePrescription(doctor, pairingId) };
-    const pharmacy = await storage.createPharmacy({
-      name: "Test Pharmacy", address: "1 Main St", city: "Town", state: "CA", zip: "90000", phone: "+15550002222",
-      hoursText: null, deliveryAvailable: true, pickupAvailable: true, isMailOrder: false, distanceMiles: 2,
-    });
-    const place = () =>
-      request(app).post("/api/pharmacy/orders").set(auth(patient.token)).send({ prescriptionId: rx.body.id, pharmacyId: pharmacy.id, fulfillmentType: "pickup" });
-    const results = await Promise.all([place(), place(), place()]);
-    expect(results.filter((r) => r.status === 201)).toHaveLength(1);
-    expect(results.filter((r) => r.status === 409)).toHaveLength(2);
-  });
-});

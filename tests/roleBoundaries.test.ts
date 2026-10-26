@@ -53,9 +53,6 @@ const MATRIX: Record<string, string[]> = {
   "/api/medications": [P],
   "/api/medications/today": [P],
   "/api/medications/adherence": [P],
-  "/api/pharmacy/pharmacies": [P],
-  "/api/pharmacy/fulfillment-options": [P],
-  "/api/pharmacy/orders": [P],
   "/api/documents": [P],
   "/api/documents/x/file": EVERYONE, // 404 unless it is the owner's (or a doctor with a live grant)
   "/api/follow-ups": [P],
@@ -64,7 +61,6 @@ const MATRIX: Record<string, string[]> = {
   "/api/timeline": [P],
   "/api/dashboard": [P],
   "/api/dashboard/doctor": [D],
-  "/api/ai/messages": [P],
   "/api/care-circle": [P],
   "/api/care-circle/invitations/validate/x": EVERYONE,
   "/api/care-circle/caregiver/patients": [C],

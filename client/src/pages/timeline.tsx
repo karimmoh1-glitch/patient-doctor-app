@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { CalendarDays, Pill, ClipboardList, Truck, FileText, MessageCircle, ListChecks } from "lucide-react";
+import { CalendarDays, Pill, ClipboardList, FileText, MessageCircle, ListChecks } from "lucide-react";
 import { formatDate, formatTime } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
 
 interface TimelineEvent {
   date: string;
-  kind: "appointment" | "prescription" | "medication" | "pharmacy" | "document" | "message" | "follow_up";
+  kind: "appointment" | "prescription" | "medication" | "document" | "message" | "follow_up";
   title: string;
   subtitle?: string;
   link?: string;
@@ -16,7 +16,6 @@ const ICONS: Record<TimelineEvent["kind"], React.ComponentType<{ className?: str
   appointment: CalendarDays,
   prescription: ClipboardList,
   medication: Pill,
-  pharmacy: Truck,
   document: FileText,
   message: MessageCircle,
   follow_up: ListChecks,
@@ -29,7 +28,6 @@ const MARKER_STYLES: Record<TimelineEvent["kind"], string> = {
   appointment: "bg-primary",
   prescription: "bg-violet-500",
   medication: "bg-sky-500",
-  pharmacy: "bg-amber-500",
   document: "bg-slate-400",
   message: "bg-emerald-500",
   follow_up: "bg-rose-500",

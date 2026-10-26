@@ -37,9 +37,6 @@ export default function PublicLayout({ children, narrow = false, wide = false }:
           </a>
         </p>
       </div>
-      {config?.demoMode && (
-        <p role="note" className="bg-sand px-4 py-2 text-center text-base font-medium text-sand-foreground">{t("demo.banner")}</p>
-      )}
       <header className="border-b border-border bg-card/95">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2">
           <Logo />

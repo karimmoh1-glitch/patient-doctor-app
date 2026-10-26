@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { and, eq, gt, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   appointments,

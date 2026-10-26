@@ -1,6 +1,9 @@
 /**
- * Development-only demo data seed. Refuses to run against a production
- * database. Usage: npm run db:seed
+ * DEVELOPMENT AND TEST FIXTURES ONLY. Creates invented people (patient, caregiver, administrator, a dozen doctors,
+ * and a small care history) so the automated browser tests and a developer's local database have something to work
+ * with. Every account is marked is_demo, so a production server refuses it even if it were ever seeded there; this
+ * script itself refuses to run when NODE_ENV=production. None of this is real, and none of it is ever part of a
+ * production deployment. Usage: npm run db:seed
  */
 import "dotenv/config";
 import "./asOperator";
@@ -161,9 +164,20 @@ async function main() {
   console.log(`Doctor (with login): ${doctorUser.email} / ${DEMO_PASSWORD} (${DEMO_DOCTORS[0].state})`);
 
   const otherProfilesByName = new Map<string, Awaited<ReturnType<typeof storage.createDoctorProfile>>>();
-  for (const d of DEMO_DOCTORS.slice(1)) {
+  for (const [i, d] of DEMO_DOCTORS.slice(1).entries()) {
+    const user = await storage.createUser({
+      name: d.name,
+      email: `fixture.doctor${i + 2}@avela.dev`,
+      passwordHash,
+      role: "doctor",
+      state: d.state,
+      phone: d.phone,
+      deactivatedAt: null,
+      emailVerifiedAt: null,
+      isDemo: true,
+    });
     const profile = await storage.createDoctorProfile({
-      userId: null,
+      userId: user.id,
       timezone: defaultTimezoneForState(d.state),
       name: d.name,
       specialty: d.specialty,
@@ -180,7 +194,7 @@ async function main() {
     await publishDemoHours(profile.id, profile.timezone);
     otherProfilesByName.set(d.name, profile);
   }
-  console.log(`Seeded ${DEMO_DOCTORS.length - 1} additional demo doctors without logins.`);
+  console.log(`Seeded ${DEMO_DOCTORS.length - 1} additional fixture doctors, each with a login (fixture.doctorN@avela.dev).`);
 
   // --- Connected care journey for the demo patient ---------------------
   const doctorProfile = await storage.getDoctorProfileByUserId(doctorUser.id);
@@ -348,40 +362,6 @@ async function main() {
       endDate: daysFromNow(88),
     });
 
-    // Pharmacies + an in-progress demo order for the tracked prescription.
-    // Deliberately mixed distances/formats — this is the data the Rural
-    // Access Intelligence layer (server/services/fulfillmentService.ts)
-    // ranks into a small, practical set of fulfillment options rather than
-    // a flat list of every pharmacy in the state.
-    const pharmacyList = [
-      { name: "Northstar Pharmacy — DEMO", address: "482 Market St", city: "San Francisco", state: "CA", zip: "94105", phone: "+14155550101", hoursText: "Mon–Fri 8am–8pm, Sat–Sun 9am–5pm", deliveryAvailable: true, pickupAvailable: true, isMailOrder: false, distanceMiles: 3 },
-      { name: "Bay Area Community Pharmacy", address: "215 Grant Ave", city: "Oakland", state: "CA", zip: "94612", phone: "+15105550102", hoursText: "Mon–Sat 8am–9pm", deliveryAvailable: true, pickupAvailable: true, isMailOrder: false, distanceMiles: 12 },
-      { name: "QuickCare Pharmacy Express", address: "77 Mission St", city: "San Francisco", state: "CA", zip: "94103", phone: "+14155550103", hoursText: "24 hours", deliveryAvailable: false, pickupAvailable: true, isMailOrder: false, distanceMiles: 1 },
-      { name: "Avela Mail Pharmacy — DEMO", address: "1 Distribution Way", city: "Reno", state: "NV", zip: "89502", phone: "+18005550199", hoursText: "Ships Mon–Fri", deliveryAvailable: true, pickupAvailable: false, isMailOrder: true, distanceMiles: null },
-    ];
-    let deliveryPharmacy = null;
-    for (const p of pharmacyList) {
-      const created = await storage.createPharmacy(p);
-      if (p.name === "Northstar Pharmacy — DEMO") deliveryPharmacy = created;
-    }
-    if (deliveryPharmacy) {
-      const order = await storage.createPharmacyOrder({
-        prescriptionId: rx.id,
-        patientUserId: patient.id,
-        pharmacyId: deliveryPharmacy.id,
-        fulfillmentType: "delivery",
-        deliveryAddress: "1200 Harbor View Dr, San Francisco, CA 94105",
-        statusHistory: [{ status: "received", at: daysAgo(2).toISOString() }],
-      });
-      // Walk it forward to "preparing" so the demo starts mid-flow —
-      // "Simulate next update" on the Pharmacy page carries it the rest
-      // of the way to delivered.
-      const step2 = [...order.statusHistory, { status: "processing", at: daysAgo(2).toISOString() }];
-      const afterStep2 = await storage.advancePharmacyOrderStatus(order.id, "processing", step2);
-      const step3 = [...(afterStep2?.statusHistory ?? step2), { status: "preparing", at: daysAgo(1).toISOString() }];
-      await storage.advancePharmacyOrderStatus(order.id, "preparing", step3);
-    }
-
     // A demo document.
     await storage.createDocument({
       patientUserId: patient.id,
@@ -398,7 +378,7 @@ async function main() {
     await storage.createMessage({ pairingRequestId: primaryPairing.id, senderUserId: patient.id, body: "Better, thank you! Down to maybe once every few days instead of daily." });
     await storage.createMessage({ pairingRequestId: primaryPairing.id, senderUserId: doctorUser.id, body: "Great to hear. Let's talk more at your follow-up next week." });
 
-    console.log("Seeded a connected care journey: appointments, prescriptions, medication tracking, a pharmacy order, a document, follow-ups, and messages.");
+    console.log("Seeded a connected care journey: appointments, prescriptions, medication tracking, a document, follow-ups, and messages.");
   }
 
   console.log("\nDone.");

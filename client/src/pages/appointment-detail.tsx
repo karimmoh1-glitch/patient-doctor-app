@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import StatusBadge from "@/components/status-badge";
-import ExplainSimplyButton from "@/components/explain-simply-button";
 import QueryState from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -84,13 +83,11 @@ export default function AppointmentDetail({ id }: { id: string }) {
                   <CardContent className="space-y-4">
                     <div>
                       <p className="whitespace-pre-wrap text-lg">{appointment.doctorNotes}</p>
-                      {appointment.doctorNotes && <ExplainSimplyButton text={appointment.doctorNotes} />}
                     </div>
                     {appointment.followUpInstructions && (
                       <div className="rounded-xl border-2 border-input bg-secondary p-4">
                         <h2 className="text-lg font-semibold">{t("pt.apptd.next")}</h2>
                         <p className="mt-1 whitespace-pre-wrap text-lg">{appointment.followUpInstructions}</p>
-                        <ExplainSimplyButton text={appointment.followUpInstructions} />
                       </div>
                     )}
                   </CardContent>

@@ -76,7 +76,9 @@ test.describe("signing out when the server cannot be reached", () => {
     await context.setOffline(false);
 
     await page.goto("/login");
-    await page.getByRole("button", { name: "Demo doctor" }).click();
+    await page.getByLabel("Email address").fill("doctor@avela.dev");
+    await page.getByLabel("Password", { exact: true }).fill("DemoPass123!");
+    await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).not.toHaveURL(/\/login/);
     expect(await page.evaluate(() => localStorage.getItem("pdapp_logout_pending"))).toBeNull();
     await page.reload();

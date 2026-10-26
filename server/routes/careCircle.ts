@@ -292,16 +292,6 @@ router.get("/caregiver/patients/:patientUserId/overview", requireAuth, requireRo
     );
   }
 
-  if (membership.permissionDeliveryStatus) {
-    const orders = await storage.getPharmacyOrdersByPatient(req.params.patientUserId);
-    overview.pharmacyOrders = await Promise.all(
-      orders.map(async (o) => {
-        const prescription = await storage.getPrescription(o.prescriptionId);
-        return { medicationName: prescription?.medicationName || "medication", status: o.status, fulfillmentType: o.fulfillmentType };
-      }),
-    );
-  }
-
   if (membership.permissionDocuments) {
     const docs = await storage.getDocumentsByPatient(req.params.patientUserId);
     overview.documents = docs.map((d) => ({ title: d.title, category: d.category, createdAt: d.createdAt }));

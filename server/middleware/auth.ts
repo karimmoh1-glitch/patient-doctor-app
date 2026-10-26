@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { storage } from "../storage";
-import { isDemoMode } from "../config";
+import { fixtureAccountsAllowed } from "../config";
 import { enterUser, runAsSystem } from "../dbContext";
 import { clearSessionCookie, cookieRequestAllowed, isWebClient, readSessionCookie, setSessionCookie } from "./session";
 
@@ -133,8 +133,8 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!user || user.deactivatedAt) {
       return res.status(401).json({ message: "This account has been deactivated" });
     }
-    // Sessions of seeded demo accounts end the moment demo mode is switched off.
-    if (user.isDemo && !isDemoMode()) {
+    // Sessions of seeded fixture accounts never work in production.
+    if (user.isDemo && !fixtureAccountsAllowed()) {
       return res.status(401).json({ message: "Your session has ended. Please sign in again." });
     }
 

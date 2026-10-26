@@ -30,7 +30,6 @@ interface DoctorListing {
   yearsExperience: number | null;
   reviewedByAvela: boolean;
   nextAvailable: string | null;
-  isDemoProfile?: boolean;
 }
 interface Pairing { id: string; status: string; doctor: { id: string } | null }
 
@@ -215,7 +214,6 @@ export default function DoctorFinder({ mode, defaultState }: { mode: "public" | 
                           </p>
                           <div className="flex flex-wrap gap-2">
                             {d.reviewedByAvela && <Badge variant="secondary" className="gap-1.5"><BadgeCheck className="h-4 w-4" aria-hidden="true" />{t("dir.reviewed")}</Badge>}
-                            {d.isDemoProfile && <Badge variant="outline">{t("dir.demoProfile")}</Badge>}
                           </div>
                           <div>
                             {mode === "public" ? (

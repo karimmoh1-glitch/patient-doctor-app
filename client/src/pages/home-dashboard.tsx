@@ -18,7 +18,6 @@ interface DashboardData {
   recentDoctorMessage: { pairingId: string; doctorName: string; body: string; createdAt: string; fromDoctor: boolean } | null;
   outstandingFollowUp: { id: string; title: string; detail: string | null } | null;
   activePrescriptionsCount: number;
-  pharmacyStatus: { orderId: string; medicationName: string; status: string; fulfillmentType: string } | null;
   careTeamCount: number;
 }
 

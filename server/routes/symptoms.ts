@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { isDemoMode } from "../config";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth, requireRole } from "../middleware/auth";
@@ -45,7 +44,7 @@ router.get("/:id/matches", requireAuth, requireRole("patient"), async (req, res)
     return res.status(404).json({ message: "Symptom report not found" });
   }
 
-  const candidates = (await storage.getActiveDoctorProfiles()).filter((d) => d.userId || isDemoMode());
+  const candidates = (await storage.getActiveDoctorProfiles()).filter((d) => !!d.userId);
   const matches = matchDoctors(candidates, report.state, report.symptomText);
 
   await logAudit({ actorUserId: userId, action: "match_results.viewed", targetType: "symptom_report", targetId: report.id });
@@ -53,7 +52,6 @@ router.get("/:id/matches", requireAuth, requireRole("patient"), async (req, res)
   res.json(
     matches.map((m) => ({
       doctorProfileId: m.doctor.id,
-      isDemoProfile: !m.doctor.userId,
       name: m.doctor.name,
       specialty: m.doctor.specialty,
       state: m.doctor.state,

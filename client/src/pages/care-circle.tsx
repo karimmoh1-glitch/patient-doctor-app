@@ -39,7 +39,6 @@ const PERMISSION_FIELDS: readonly (readonly [
 ])[] = [
   ["permissionMedicationStatus", "circle.perm.meds.label", "circle.perm.meds.detail"],
   ["permissionAppointments", "circle.perm.appts.label", "circle.perm.appts.detail"],
-  ["permissionDeliveryStatus", "circle.perm.delivery.label", "circle.perm.delivery.detail"],
   ["permissionDocuments", "circle.perm.docs.label", "circle.perm.docs.detail"],
 ];
 

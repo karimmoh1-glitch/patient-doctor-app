@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { signInAs } from "./helpers";
 
-// Saving a language to the shared demo patient's account is part of what is
+// Saving a language to the shared fixture patient's account is part of what is
 // being tested, so put it back afterwards for every other test.
 test.afterEach(async ({ request }) => {
   const login = await request.post("/api/auth/login", { data: { email: "patient@avela.dev", password: "DemoPass123!" } });

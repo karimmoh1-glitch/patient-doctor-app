@@ -8,7 +8,6 @@ import { requireApprovedDoctor } from "../middleware/doctor";
 import { doctorStatusFor } from "../services/doctorStatus";
 import { weakPasswordReason } from "../lib/password";
 import { normalizeLang } from "../services/serverText";
-import { isDemoMode } from "../config";
 import { logAudit } from "../services/auditService";
 import { getAvailability, getNextOpenSlots, isValidTimezone, replaceAvailability, validateAvailabilityWindows } from "../services/schedulingService";
 import { SPECIALTIES, US_STATES } from "@shared/specialties";
@@ -83,10 +82,10 @@ router.get("/", directoryLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ message: "Those filters aren't valid" });
   const f = parsed.data;
 
-  // A profile with no login can never read or answer a request. Outside
-  // demo mode it is not listed at all, rather than letting a patient wait
+  // A profile with no login can never read or answer a request, so it is never
+  // listed, rather than letting a patient wait
   // forever on someone who isn't there.
-  let profiles = (await storage.getActiveDoctorProfiles()).filter((p) => p.userId || isDemoMode());
+  let profiles = (await storage.getActiveDoctorProfiles()).filter((p) => !!p.userId);
   if (f.specialty) profiles = profiles.filter((p) => p.specialty === f.specialty);
   if (f.state) profiles = profiles.filter((p) => p.state === f.state);
   if (f.language) profiles = profiles.filter((p) => (p.languages ?? []).includes(f.language!));
@@ -104,7 +103,6 @@ router.get("/", directoryLimiter, async (req, res) => {
 
   res.json(
     rows.map(({ p, nextAvailable }) => ({
-      isDemoProfile: !p.userId,
       id: p.id,
       name: p.name,
       specialty: p.specialty,

@@ -50,14 +50,11 @@ const AppointmentDetail = lazy(() => import("@/pages/appointment-detail"));
 const MessagesList = lazy(() => import("@/pages/messages-list"));
 const Medications = lazy(() => import("@/pages/medications"));
 const Prescriptions = lazy(() => import("@/pages/prescriptions"));
-const Pharmacy = lazy(() => import("@/pages/pharmacy"));
 const Timeline = lazy(() => import("@/pages/timeline"));
 const Documents = lazy(() => import("@/pages/documents"));
-const Assistant = lazy(() => import("@/pages/assistant"));
 const Profile = lazy(() => import("@/pages/profile"));
 const CareCircle = lazy(() => import("@/pages/care-circle"));
 const AcceptCareCircleInvite = lazy(() => import("@/pages/accept-care-circle-invite"));
-const HealthHandoff = lazy(() => import("@/pages/health-handoff"));
 const CaregiverDashboard = lazy(() => import("@/pages/caregiver-dashboard"));
 const MyHealth = lazy(() => import("@/pages/my-health"));
 const Help = lazy(() => import("@/pages/help"));
@@ -178,7 +175,7 @@ function HomeForRole({ user, simpleMode, ...rest }: ShellProps) {
 }
 
 function AppContent() {
-  const { user, login, demoLogin, signup, registerDoctor, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
+  const { user, login, signup, registerDoctor, refreshUser, acceptCareCircleInvite, signOut } = useAuth();
   const { simpleMode, setSimpleMode } = useSimpleMode();
   const [location, setLocation] = useLocation();
 
@@ -237,7 +234,7 @@ function AppContent() {
     <Suspense fallback={<RouteLoading />}>
     <Switch>
       <Route path="/">{user ? <HomeForRole user={user} {...shellProps} /> : <Landing />}</Route>
-      <Route path="/login">{user ? <HomeForRole user={user} {...shellProps} /> : <Login onLogin={login} onDemoLogin={demoLogin} />}</Route>
+      <Route path="/login">{user ? <HomeForRole user={user} {...shellProps} /> : <Login onLogin={login} />}</Route>
       <Route path="/signup">{user ? <HomeForRole user={user} {...shellProps} /> : <Signup onSignup={signup} />}</Route>
       <Route path="/get-started">{user ? <HomeForRole user={user} {...shellProps} /> : <GetStarted />}</Route>
       <Route path="/join/doctor">{user ? <HomeForRole user={user} {...shellProps} /> : <JoinDoctor onRegister={registerDoctor} />}</Route>
@@ -279,20 +276,11 @@ function AppContent() {
       <Route path="/prescriptions">
         <Gate user={user} role="patient" {...shellProps}><Prescriptions /></Gate>
       </Route>
-      <Route path="/pharmacy">
-        <Gate user={user} role="patient" {...shellProps}><Pharmacy /></Gate>
-      </Route>
       <Route path="/timeline">
         <Gate user={user} role="patient" {...shellProps}><Timeline /></Gate>
       </Route>
       <Route path="/documents">
         <Gate user={user} role="patient" {...shellProps}><Documents /></Gate>
-      </Route>
-      <Route path="/assistant">
-        <Gate user={user} role="patient" {...shellProps}><Assistant /></Gate>
-      </Route>
-      <Route path="/handoff">
-        <Gate user={user} role="patient" {...shellProps}><HealthHandoff /></Gate>
       </Route>
       <Route path="/care-circle">
         <Gate user={user} role="patient" {...shellProps}><CareCircle /></Gate>

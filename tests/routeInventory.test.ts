@@ -32,7 +32,6 @@ const PUBLIC: Record<string, string> = {
   "POST /api/doctors/register": "creates an account with no clinical access",
   "POST /api/auth/signup": "creates a patient account",
   "POST /api/auth/login": "sign-in",
-  "POST /api/auth/demo-login": "404 unless demo mode",
   "POST /api/auth/forgot-password": "always the same answer",
   "POST /api/auth/reset-password": "single-use emailed token",
   "GET /api/care-circle/invitations/validate/x": "single-use emailed token",
@@ -71,5 +70,26 @@ describe("every endpoint the server exposes", () => {
       if (res.status !== 401) leaks.push(`${method} ${path} -> ${res.status}`);
     }
     expect(leaks).toEqual([]);
+  });
+});
+
+describe("things that were removed because they were not real", () => {
+  const removed: [string, string][] = [
+    ["POST", "/api/auth/demo-login"], // one-tap demo sign-in
+    ["GET", "/api/pharmacy/pharmacies"], ["POST", "/api/pharmacy/orders"], ["POST", "/api/pharmacy/orders/x/advance"], // simulated pharmacy
+    ["POST", "/api/health-summary/share"], // "shared" nothing with nobody
+    ["POST", "/api/ai/chat"], ["POST", "/api/ai/explain-simply"], ["GET", "/api/ai/messages"], // keyword responder shown as an assistant
+    ["POST", "/api/speech/transcribe"], // voice input with no provider
+  ];
+  it("do not exist at all: not for a stranger, not for a signed-in patient", async () => {
+    const { signupPatient, auth } = await import("./helpers");
+    const patient = await signupPatient();
+    for (const [method, path] of removed) {
+      const anon = await (request(app) as any)[method.toLowerCase()](path).send({});
+      expect(anon.status, `${method} ${path} (anonymous)`).not.toBe(200);
+      const authed = await (request(app) as any)[method.toLowerCase()](path).set(auth(patient.token)).send({});
+      expect([401, 404], `${method} ${path} (patient)`).toContain(authed.status);
+      expect(authed.status, `${method} ${path} must not be handled`).not.toBe(200);
+    }
   });
 });

@@ -13,7 +13,7 @@ import { US_STATES } from "@shared/specialties";
 import { generateSecureToken, hashToken } from "../services/tokenService";
 import { sendPasswordResetEmail } from "../services/emailService";
 import { z } from "zod";
-import { isDemoMode } from "../config";
+import { fixtureAccountsAllowed } from "../config";
 import { systemAccess } from "../middleware/systemAccess";
 
 const router = Router();
@@ -130,9 +130,9 @@ router.post("/login", systemAccess, loginIpLimiter, loginAccountLimiter, async (
   // Always spend the same bcrypt work whether or not the account exists, so
   // response time can't be used to discover which emails are registered.
   const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-  // A seeded demo account is refused like a wrong password when demo mode is off,
+  // A seeded fixture account is refused like a wrong password in production,
   // so its well-known password opens nothing in a real deployment.
-  if (!user || !valid || (user.isDemo && !isDemoMode())) {
+  if (!user || !valid || (user.isDemo && !fixtureAccountsAllowed())) {
     return res.status(401).json({ message: "Invalid email or password" });
   }
   // Only someone who proved they know the password is told the account is
@@ -141,24 +141,6 @@ router.post("/login", systemAccess, loginIpLimiter, loginAccountLimiter, async (
     return res.status(401).json({ message: "This account has been deactivated. Please contact support." });
   }
 
-  await issueSession(req, res, user, { user: await sessionUser(user) });
-});
-
-// One-tap sign-in to the seeded demo accounts. It exists only in demo mode
-// (always off for a real deployment), and the demo password never ships in
-// the browser bundle — the server does the sign-in.
-const DEMO_ACCOUNTS: Record<string, string> = {
-  patient: "patient@avela.dev",
-  doctor: "doctor@avela.dev",
-};
-
-router.post("/demo-login", systemAccess, authLimiter, async (req, res) => {
-  if (!isDemoMode()) return res.status(404).json({ message: "Not found" });
-  const email = DEMO_ACCOUNTS[String(req.body?.role)];
-  const user = email ? await storage.getUserByEmail(email) : undefined;
-  if (!user || user.deactivatedAt) {
-    return res.status(404).json({ message: "Demo accounts aren't set up. Run `npm run db:seed` first." });
-  }
   await issueSession(req, res, user, { user: await sessionUser(user) });
 });
 

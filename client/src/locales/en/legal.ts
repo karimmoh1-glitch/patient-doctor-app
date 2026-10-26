@@ -35,6 +35,6 @@ export default {
   "legal.terms.s4.body": "Keep your password private, and tell us if you think someone else has used your account.",
   "legal.terms.s5.title": "Using Avela fairly",
   "legal.terms.s5.body": "Don't use Avela to harm, impersonate or harass anyone, and don't enter another person's information without their permission.",
-  "legal.terms.s6.title": "Demonstrations and drafts",
-  "legal.terms.s6.body": "Avela may be run as a demonstration with made-up people. These terms are a draft and must be reviewed by a lawyer before real patients use the service.",
+  "legal.terms.s6.title": "Draft status",
+  "legal.terms.s6.body": "These terms are a draft. They must be reviewed by a lawyer, and the people who run this service must complete that review, before real patients rely on them.",
 } as const;

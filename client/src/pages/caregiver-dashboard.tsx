@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, Pill, Truck, FileText, CheckCircle2, AlertCircle, Circle } from "lucide-react";
+import { CalendarDays, Pill, FileText, CheckCircle2, AlertCircle, Circle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import StatusBadge from "@/components/status-badge";
 import QueryState, { EmptyBlock, LoadingBlock, ErrorBlock } from "@/components/query-state";
@@ -21,7 +21,6 @@ interface Overview {
   patientName: string;
   todaysMedicationStatus?: { medicationName: string; time: string; status: string }[];
   upcomingAppointments?: { type: string; scheduledAt: string; status: string; doctorName: string }[];
-  pharmacyOrders?: { medicationName: string; status: string; fulfillmentType: string }[];
   documents?: { title: string; category: string; createdAt: string }[];
 }
 
@@ -155,17 +154,6 @@ export default function CaregiverDashboard({ user }: { user: AuthUser }) {
                               <p className="text-muted-foreground">{t("health.apptWith", { type: APPT_TYPE[a.type] ? t(APPT_TYPE[a.type]) : a.type, doctor: a.doctorName })}</p>
                             </div>
                             <StatusBadge kind="appointment" status={a.status} />
-                          </div>
-                        ))}
-                      </Section>
-                    )}
-
-                    {selected.permissions.deliveryStatus && overviewQuery.data.pharmacyOrders && overviewQuery.data.pharmacyOrders.length > 0 && (
-                      <Section icon={Truck} title={t("circle.perm.delivery.label")} description={t("caregiver.pharmacy.desc")}>
-                        {overviewQuery.data.pharmacyOrders.map((o, i) => (
-                          <div key={i} className="flex flex-wrap items-center justify-between gap-2 py-1">
-                            <p className="text-lg font-semibold">{o.medicationName}</p>
-                            <StatusBadge kind="pharmacyOrder" status={o.status} />
                           </div>
                         ))}
                       </Section>

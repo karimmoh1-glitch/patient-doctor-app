@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Pill, Stethoscope, CalendarDays, Truck, Siren, ChevronRight } from "lucide-react";
+import { Pill, Stethoscope, CalendarDays, Siren, ChevronRight } from "lucide-react";
 import { formatClock, formatRelativeDay } from "@/lib/format";
-import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { specialtyLabel } from "@/lib/labels";
 import { appointmentTypeLabel } from "@/lib/labels";
 import type { AuthUser } from "@/hooks/use-auth";
@@ -11,7 +11,6 @@ interface DashboardData {
   upcomingAppointment: { doctorName: string; type: string; scheduledAt: string } | null;
   nextMedicationReminder: { medicationName: string; time: string } | null;
   dosesRemainingToday: number;
-  pharmacyStatus: { medicationName: string; status: string } | null;
 }
 
 interface Pairing {
@@ -22,15 +21,6 @@ interface Pairing {
 }
 
 // Order status wording for this screen. The four plain ones reuse the shared status labels.
-const PHARMACY_STATUS_KEYS: Record<string, MessageKey> = {
-  received: "pt.simple.pharm.received",
-  processing: "pt.simple.pharm.processing",
-  preparing: "pt.simple.pharm.preparing",
-  ready_for_pickup: "status.pharmacyOrder.ready_for_pickup",
-  out_for_delivery: "status.pharmacyOrder.out_for_delivery",
-  delivered: "status.pharmacyOrder.delivered",
-  picked_up: "status.pharmacyOrder.picked_up",
-};
 
 // A dramatically simplified home screen: five huge, unmistakable tiles,
 // each carrying just the one fact that matters most right now. This is
@@ -80,7 +70,6 @@ export default function SimpleHome({ user }: { user: AuthUser }) {
   const { data: dashboard } = useQuery<DashboardData>({ queryKey: ["/api/dashboard"] });
   const { data: pairings } = useQuery<Pairing[]>({ queryKey: ["/api/pairings"] });
 
-  const pharmacyStatusLabel = (status: string) => (PHARMACY_STATUS_KEYS[status] ? t(PHARMACY_STATUS_KEYS[status]) : status);
 
   const primaryDoctor = (pairings || []).find(
     (p) => p.status === "accepted" && (p.relationshipLabel === "Primary Care" || !p.relationshipLabel),
@@ -121,19 +110,6 @@ export default function SimpleHome({ user }: { user: AuthUser }) {
                   when: formatRelativeDay(dashboard.upcomingAppointment.scheduledAt),
                 })
               : t("pt.simple.apptNone")
-          }
-        />
-        <BigTile
-          href="/pharmacy"
-          icon={Truck}
-          label={t("pt.simple.pharmacy")}
-          detail={
-            dashboard?.pharmacyStatus
-              ? t("pt.simple.pharmDetail", {
-                  name: dashboard.pharmacyStatus.medicationName,
-                  status: pharmacyStatusLabel(dashboard.pharmacyStatus.status),
-                })
-              : t("pt.simple.pharmNone")
           }
         />
         <BigTile href="/sos" icon={Siren} label={t("pt.simple.sos")} detail={t("pt.simple.sosDetail")} tone="urgent" />

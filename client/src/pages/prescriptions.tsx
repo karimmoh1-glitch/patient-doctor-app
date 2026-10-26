@@ -1,17 +1,14 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { RefreshCw, Pill, Truck } from "lucide-react";
+import { RefreshCw, Pill } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/status-badge";
-import ExplainSimplyButton from "@/components/explain-simply-button";
 import ConfirmAction from "@/components/confirm-action";
 import PageHeader from "@/components/page-header";
 import QueryState, { EmptyBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAppConfig } from "@/hooks/use-app-config";
 import { formatDate } from "@/lib/format";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { specialtyLabel } from "@/lib/labels";
@@ -43,7 +40,6 @@ interface Prescription {
 export default function Prescriptions() {
   const { t } = useI18n();
   const { toast } = useToast();
-  const config = useAppConfig();
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<string | null>(null);
   const query = useQuery<Prescription[]>({ queryKey: ["/api/prescriptions"] });
@@ -123,7 +119,6 @@ export default function Prescriptions() {
                             )}
                             <div>
                               <p className="text-lg">{p.instructions}</p>
-                              <ExplainSimplyButton text={p.instructions} />
                             </div>
                             {p.warnings && <p className="rounded-xl border-2 border-ochre bg-sand p-3 text-sand-foreground"><strong>{t("rx.warnings")}:</strong> {p.warnings}</p>}
                             <p className="text-muted-foreground">
@@ -145,11 +140,6 @@ export default function Prescriptions() {
                                   cancelLabel={t("rx.refill.no")}
                                   onConfirm={() => askForRefill(p)}
                                 />
-                              )}
-                              {config?.demoMode && (
-                                <Button asChild variant="outline">
-                                  <Link href={`/pharmacy?prescription=${p.id}`}><Truck aria-hidden="true" /> {t("rx.pharmacyDemo")}</Link>
-                                </Button>
                               )}
                             </div>
                           </CardContent>

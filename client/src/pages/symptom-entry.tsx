@@ -4,7 +4,6 @@ import { Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import SymptomVoiceInput from "@/components/symptom-voice-input";
 import { apiRequest } from "@/lib/queryClient";
 import { EMERGENCY_NUMBER, EMERGENCY_TEL } from "@/lib/emergency";
 import { useI18n } from "@/lib/i18n";
@@ -16,11 +15,6 @@ export default function SymptomEntry() {
   const [inputMethod, setInputMethod] = useState<"typed" | "voice">("typed");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function handleTranscribed(text: string) {
-    setSymptomText((prev) => (prev ? `${prev} ${text}` : text));
-    setInputMethod("voice");
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,7 +73,6 @@ export default function SymptomEntry() {
             {t("pt.symptom.help")}
           </p>
         </div>
-        <SymptomVoiceInput onTranscribed={handleTranscribed} />
         <div id="symptoms-error" aria-live="assertive">
           {error && <p role="alert" className="rounded-lg border-2 border-destructive p-3 font-medium text-destructive">{error}</p>}
         </div>

@@ -5,20 +5,16 @@ import doctorRoutes from "./routes/doctors";
 import symptomRoutes from "./routes/symptoms";
 import pairingRoutes from "./routes/pairings";
 import adminRoutes from "./routes/admin";
-import speechRoutes from "./routes/speech";
 import appointmentRoutes from "./routes/appointments";
 import prescriptionRoutes from "./routes/prescriptions";
 import medicationRoutes from "./routes/medications";
-import pharmacyRoutes from "./routes/pharmacy";
 import documentRoutes from "./routes/documents";
 import followUpRoutes from "./routes/followups";
 import sharingRoutes from "./routes/sharing";
 import timelineRoutes from "./routes/timeline";
 import dashboardRoutes from "./routes/dashboard";
-import aiRoutes from "./routes/ai";
 import careCircleRoutes from "./routes/careCircle";
 import emergencyRoutes from "./routes/emergency";
-import healthSummaryRoutes from "./routes/healthSummary";
 import auditRoutes from "./routes/audit";
 import reminderRoutes from "./routes/reminders";
 import notificationRoutes from "./routes/notifications";
@@ -35,20 +31,16 @@ export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
   ["/api/symptom-reports", symptomRoutes],
   ["/api/pairings", pairingRoutes],
   ["/api/admin", adminRoutes],
-  ["/api/speech", speechRoutes],
   ["/api/appointments", appointmentRoutes],
   ["/api/prescriptions", prescriptionRoutes],
   ["/api/medications", medicationRoutes],
-  ["/api/pharmacy", pharmacyRoutes],
   ["/api/documents", documentRoutes],
   ["/api/follow-ups", followUpRoutes],
   ["/api/sharing", sharingRoutes],
   ["/api/timeline", timelineRoutes],
   ["/api/dashboard", dashboardRoutes],
-  ["/api/ai", aiRoutes],
   ["/api/care-circle", careCircleRoutes],
   ["/api/emergency-profile", emergencyRoutes],
-  ["/api/health-summary", healthSummaryRoutes],
   ["/api/audit-log", auditRoutes],
   ["/api/config", configRoutes],
   ["/api/reminders", reminderRoutes],

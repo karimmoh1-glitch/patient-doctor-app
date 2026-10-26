@@ -81,17 +81,6 @@ export function useAuth() {
     return data.user as AuthUser;
   }, [persistAuth]);
 
-  const demoLogin = useCallback(async (role: "patient" | "doctor") => {
-    const res = await fetch("/api/auth/demo-login", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ role }),
-    });
-    if (!res.ok) throw new Error(await parseErrorMessage(res, "Demo sign-in isn't available"));
-    const data = await res.json();
-    persistAuth(data.user);
-  }, [persistAuth]);
-
   const signup = useCallback(async (fields: { name: string; email: string; password: string; state: string; phone?: string; language: string }) => {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
@@ -158,7 +147,6 @@ export function useAuth() {
     user: auth,
     isAuthenticated: !!auth,
     login,
-    demoLogin,
     signup,
     registerDoctor,
     refreshUser,

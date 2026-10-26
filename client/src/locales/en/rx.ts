@@ -104,7 +104,6 @@ export default {
   "rx.refill.saved": "Request saved",
   "rx.refill.savedBody": "We couldn't reach your doctor through Avela. Please phone their office.",
   "rx.refill.failed": "We couldn't ask for the refill",
-  "rx.pharmacyDemo": "Try the example pharmacy",
   "notif.intro": "Updates from your doctors and the reminders you set.",
   "notif.empty": "Nothing new",
   "notif.emptyBody": "Reminders and updates from your doctors will show up here.",

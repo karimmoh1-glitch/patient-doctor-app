@@ -2,47 +2,63 @@
 // accident in a real deployment.
 
 /**
- * Demo mode enables simulated integrations (e.g. the fake pharmacy
- * "advance order" control) and demo data conveniences. It is on for local
- * development and tests, and in any other environment only when
- * DEMO_MODE=true is set deliberately — so a real deployment cannot expose
- * controls that let a patient mark their own order "delivered".
+ * Seeded fixture accounts (development and test databases only) may sign in
+ * everywhere except production. There is no "demo mode" any more: a
+ * production deployment never has demo sign-in, simulated integrations or
+ * fabricated providers, and no setting turns them on.
  */
-export function isDemoMode(): boolean {
-  if (process.env.DEMO_MODE === "false") return false; // explicit opt-out wins (used by tests too)
-  return (
-    process.env.DEMO_MODE === "true" ||
-    process.env.NODE_ENV === "development" ||
-    process.env.NODE_ENV === "test"
-  );
+export function fixtureAccountsAllowed(): boolean {
+  return process.env.NODE_ENV !== "production";
+}
+
+export interface ConfigProblem {
+  id: string;
+  message: string;
 }
 
 /**
- * Refuses to start a PRODUCTION server whose configuration could expose demo
- * accounts or simulated features to real people.
+ * What a PRODUCTION server refuses to run with. Each of these would otherwise
+ * give a false sense of safety or expose something that must not exist, so the
+ * process stops instead of serving. Pure (takes the environment) so it can be
+ * tested and reused by the pre-launch check.
  *
- * Demo mode in production needs a second, deliberate switch,
- * DEMO_MODE_ACKNOWLEDGED=true, that says the service holds no real patient
- * data. Forgetting it stops the server instead of silently running a demo.
- * Anything other than "true" for DEMO_MODE (or nothing at all) means real mode.
+ * ALLOW_OWNER_DATABASE_ROLE=true is an explicit, temporary, named exception for
+ * a deployment that has not yet moved to the restricted database role. It is
+ * reported as a launch blocker by `npm run verify:production`; it exists so the
+ * exception is a visible decision rather than a silent default.
  */
-export function assertProductionConfig(env: NodeJS.ProcessEnv = process.env): void {
-  if (env.NODE_ENV !== "production") return;
-  if (env.DEMO_MODE === "true" && env.DEMO_MODE_ACKNOWLEDGED !== "true") {
-    throw new Error(
-      "DEMO_MODE=true in production also requires DEMO_MODE_ACKNOWLEDGED=true, which states that this deployment holds no real patient data. Refusing to start.",
+export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): ConfigProblem[] {
+  if (env.NODE_ENV !== "production") return [];
+  const out: ConfigProblem[] = [];
+  const add = (id: string, message: string) => out.push({ id, message });
+
+  if (env.DEMO_MODE !== undefined && env.DEMO_MODE !== "" && env.DEMO_MODE !== "false") {
+    add("demo-mode", "DEMO_MODE is set. Demo mode no longer exists; remove the variable. Production never runs simulated features.");
+  }
+  if (env.DEMO_MODE_ACKNOWLEDGED) add("demo-ack", "DEMO_MODE_ACKNOWLEDGED is set. Remove it.");
+  if (!env.DATABASE_URL && !env.OWNER_DATABASE_URL) add("database-url", "DATABASE_URL is not set.");
+  if ((env.JWT_SECRET ?? "").length < 32) add("jwt-secret", "JWT_SECRET is missing or shorter than 32 characters.");
+  if (!/^https:\/\//.test(env.APP_URL ?? "")) add("app-url", "APP_URL must be set to the public https address (links in e-mails are built from it).");
+
+  const restricted = !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on";
+  const halfConfigured = !!env.APP_DATABASE_URL !== (env.DB_ENFORCE_RLS === "on");
+  if (halfConfigured) {
+    add("rls-half", "APP_DATABASE_URL and DB_ENFORCE_RLS=on must be set together: one without the other runs unprotected while looking protected.");
+  } else if (!restricted && env.ALLOW_OWNER_DATABASE_ROLE !== "true") {
+    add(
+      "owner-role",
+      "The application would connect to the database as the table owner. Set APP_DATABASE_URL and DB_ENFORCE_RLS=on (docs/OPERATIONS_RUNBOOK.md), or, as a visible temporary exception, ALLOW_OWNER_DATABASE_ROLE=true.",
     );
   }
-  if (env.DEMO_MODE === "true") {
-    console.warn("[DEMO MODE] This deployment is a demonstration: demo accounts and simulated features are enabled. It must never hold real patient data.");
+  if (env.ALLOW_OWNER_DATABASE_ROLE === "true" && restricted) {
+    add("owner-role-contradiction", "ALLOW_OWNER_DATABASE_ROLE=true is set although the restricted role is configured. Remove it.");
   }
+  return out;
 }
 
-/**
- * Patient health information may only be sent to a third-party AI provider
- * when the operator has affirmatively confirmed the legal basis (for example
- * a signed BAA / zero-retention agreement). An API key alone is not consent.
- */
-export function canSendPhiToAiProvider(): boolean {
-  return !!process.env.OPENAI_API_KEY && process.env.AI_PHI_PROCESSING_CONFIRMED === "true";
+/** Refuses to start a production server whose configuration is unsafe. */
+export function assertProductionConfig(env: NodeJS.ProcessEnv = process.env): void {
+  const problems = productionConfigProblems(env);
+  if (!problems.length) return;
+  throw new Error(`Refusing to start: ${problems.map((p) => p.message).join(" ")}`);
 }

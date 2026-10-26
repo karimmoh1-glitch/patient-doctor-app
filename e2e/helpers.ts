@@ -1,6 +1,6 @@
 import { expect, type Browser, type Page } from "@playwright/test";
 
-// The seeded demo accounts' password, for signing in to them. It is on the list of passwords Avela refuses for NEW accounts.
+// The development fixtures' password (e2e database only; production refuses these accounts). It is on the list of passwords Avela refuses for NEW accounts.
 export const PASSWORD = "DemoPass123!";
 // What test-created accounts use.
 export const NEW_PASSWORD = "seven green umbrellas";

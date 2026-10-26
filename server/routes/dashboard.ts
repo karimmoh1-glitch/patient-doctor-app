@@ -17,12 +17,11 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
   const tz = await resolvePatientTimezone(req, patientUser!);
   const todayKey = () => dateKeyInZone(new Date(), tz);
 
-  const [appointments, medications, todayLogs, prescriptions, pharmacyOrders, followUps, pairings] = await Promise.all([
+  const [appointments, medications, todayLogs, prescriptions, followUps, pairings] = await Promise.all([
     storage.getAppointmentsByPatient(patientUserId),
     storage.getMedicationsByPatient(patientUserId),
     storage.getMedicationLogsByPatientAndDate(patientUserId, todayKey()),
     storage.getPrescriptionsByPatient(patientUserId),
-    storage.getPharmacyOrdersByPatient(patientUserId),
     storage.getFollowUpTasksByPatient(patientUserId),
     storage.getAcceptedPairingsByPatient(patientUserId),
   ]);
@@ -61,13 +60,6 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
 
   const activePrescriptionsCount = prescriptions.filter((p) => p.status === "active").length;
 
-  const activePharmacyOrder = pharmacyOrders.find((o) => o.status !== "delivered" && o.status !== "picked_up") || pharmacyOrders[0] || null;
-  let pharmacyStatus = null;
-  if (activePharmacyOrder) {
-    const prescription = await storage.getPrescription(activePharmacyOrder.prescriptionId);
-    pharmacyStatus = { orderId: activePharmacyOrder.id, medicationName: prescription?.medicationName || "medication", status: activePharmacyOrder.status, fulfillmentType: activePharmacyOrder.fulfillmentType };
-  }
-
   res.json({
     upcomingAppointment,
     nextMedicationReminder,
@@ -75,7 +67,6 @@ router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
     recentDoctorMessage,
     outstandingFollowUp,
     activePrescriptionsCount,
-    pharmacyStatus,
     careTeamCount: pairings.length,
   });
 });

@@ -1,12 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/lib/i18n";
 import { specialtyLabel } from "@/lib/labels";
 
 export interface DoctorMatch {
   doctorProfileId: string;
-  isDemoProfile?: boolean;
   name: string;
   specialty: string;
   state: string;
@@ -40,9 +38,6 @@ export default function DoctorCard({
           <p className="text-muted-foreground">
             {t("pt.dcard.shown", { words: match.matchedKeywords.map((k) => `"${k}"`).join(t("pt.listSep")) })}
           </p>
-        )}
-        {match.isDemoProfile && (
-          <Badge variant="outline">{t("pt.dcard.demo")}</Badge>
         )}
         <div>
           <Button size="lg" onClick={onRequest} disabled={requesting || requested}>

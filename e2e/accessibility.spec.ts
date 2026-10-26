@@ -25,8 +25,8 @@ test.describe("before signing in", () => {
 test.describe("a signed-in patient", () => {
   const PAGES = [
     "/", "/care-team", "/appointments", "/my-health", "/help", "/sos", "/symptoms", "/messages",
-    "/medications", "/prescriptions", "/pharmacy", "/timeline", "/documents", "/handoff",
-    "/care-circle", "/profile", "/assistant", "/doctors",
+    "/medications", "/prescriptions", "/timeline", "/documents",
+    "/care-circle", "/profile", "/doctors",
   ];
   for (const path of PAGES) {
     test(`${path} has no serious accessibility violations`, async ({ page }) => {
