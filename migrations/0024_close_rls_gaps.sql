@@ -327,7 +327,8 @@ BEGIN
   END IF;
 END $$;
 
--- Functions created from here on are not executable by PUBLIC either (applies to the role that runs migrations).
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+-- Functions created from here on are not executable by PUBLIC either, for the role that runs migrations. (Deliberately not
+-- "IN SCHEMA public": the built-in default that gives PUBLIC execute is global, and a schema-level revoke cannot remove it.)
+ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 SELECT avela_apply_grants();

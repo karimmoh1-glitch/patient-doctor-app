@@ -20,6 +20,15 @@ are rate limited). Then, in this order, **each step attempted even if an earlier
 
 Housekeeping (step 3) failing never delays a medicine reminder.
 
+## Who is calling, and how Avela knows
+
+The endpoint accepts two kinds of secret. `CRON_SECRET` is the general one (GitHub's schedule, a person testing): such a caller may *name itself* in an
+`X-Avela-Scheduler` header, which is recorded as a label in `job_run_history.source`. `CRON_SECRET_CLOUDFLARE` belongs to the Worker alone: a call that presents it is
+recorded as `cloudflare-worker` **by the server**, whatever its headers say, and a call with the general secret that *claims* to be the Worker is recorded as
+`claimed:cloudflare-worker` and counts for nothing. Only an attested source counts as a dependable scheduler in `verify:production` and on `/admin/integrations`. A wrong secret
+creates no record at all. Replays of a captured request are harmless: a run is idempotent (lease, unique delivery keys) and the call is over TLS.
+(`tests/scheduler.test.ts`, "who called: attested by secret, not by label"; `tests/productionGuards.test.ts`.)
+
 ## How a run protects itself
 
 | Risk | Protection | Test |

@@ -51,6 +51,9 @@ export async function fingerprintLines(q: Query): Promise<string[]> {
                               WHERE ${where} AND c.relkind IN ('r','v') AND has_table_privilege('avela_app', c.oid, p.priv) GROUP BY c.relname ORDER BY 1`))
       add("app-privileges", r.relname, r.granted);
   }
+  // Default privileges for future objects the OWNER creates, per schema (the owner's name is normalised).
+  for (const r of await q(`SELECT pg_get_userbyid(defaclrole) AS creator, COALESCE(n.nspname, '(all schemas)') AS schema, defaclobjtype AS kind, defaclacl::text AS acl FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace WHERE pg_get_userbyid(defaclrole) = '${ownerName}' ORDER BY 1, 2, 3`)) // the provider's own defaults (cloud_admin) are not ours
+    add("default-privileges", who(r.creator), r.schema, r.kind, String(r.acl).replace(new RegExp(`${ownerName}`, "g"), "OWNER"));
   for (const r of await q(`SELECT name FROM schema_migrations ORDER BY name`)) add("migration", r.name);
 
   lines.sort();

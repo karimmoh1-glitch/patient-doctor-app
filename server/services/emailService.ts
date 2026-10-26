@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import { recordAccepted } from "./emailDeliveries";
+import { isSuppressed, recordAccepted } from "./emailDeliveries";
 
 export interface EmailMessage {
   to: string;
@@ -112,6 +112,11 @@ export async function sendEmail(msg: EmailMessage): Promise<boolean> {
     } else if (process.env.NODE_ENV !== "test") {
       console.error("[EMAIL NOT SENT] No provider configured. Subject: " + msg.subject);
     }
+    return false;
+  }
+
+  if (await isSuppressed(msg.to, msg.purpose)) {
+    console.error("[EMAIL SUPPRESSED] The address bounced permanently or complained earlier. Purpose: " + (msg.purpose ?? "other"));
     return false;
   }
 

@@ -95,7 +95,7 @@ describe("setting up the authenticator", () => {
     const stored = (await pool.query("SELECT secret_ciphertext, pending FROM user_mfa WHERE user_id = (SELECT id FROM users WHERE email = $1)", [c.email])).rows[0];
     expect(stored.pending).toBe(true);
     expect(stored.secret_ciphertext).not.toContain(setup.body.secret);
-    expect(stored.secret_ciphertext).toMatch(/^v1\./);
+    expect(stored.secret_ciphertext).toMatch(/^v2\./);
 
     const enable = await request(app).post("/api/auth/mfa/enable").send({ challenge: c.challenge, code: totp(setup.body.secret) });
     expect(enable.status).toBe(200);

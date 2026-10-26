@@ -2,9 +2,8 @@
 
 Honest summary: access control is enforced **in the application layer** on every request and re-checked live from the
 database. A second, independent layer exists **inside the database** (a restricted role and row-level security), and
-the append-only and frozen-prescription rules are enforced by triggers. **The database layer protects production only
-after the rollout below is performed; until then production still connects as the table owner, which is exempt from
-it.** There is no independent penetration test.
+the append-only and frozen-prescription rules are enforced by triggers. **Production has connected as the restricted role since 2026-10-26** (rollout record below), so this layer is in force
+there. There is no independent penetration test.
 
 ## Enforced boundaries
 
@@ -67,7 +66,7 @@ account), and **nothing established, in which case every protected table is empt
 code path that forgets to say who it is gets no data, not all data. System access is declared route by route
 (`server/middleware/systemAccess.ts`) and in a handful of named storage methods.
 
-**What the policies say** (19 tables). Owner-only: notifications (anyone signed in may leave one for another person,
+**What the policies say** (the first 19 tables below; migration 0024 adds the rest: see `docs/DATABASE_ACCESS_AUDIT.md`). Owner-only: notifications (anyone signed in may leave one for another person,
 nobody may read another's), AI messages, data requests, sessions. System-only: password-reset and e-mail tokens.
 Patient records (medicines, dose logs, reminders, symptom reports, documents, pharmacy orders, follow-up tasks,
 appointments, prescriptions, sharing decisions, connections, messages, care circle): readable by the patient, a doctor
@@ -81,8 +80,10 @@ narrow database function returns only the doctor, start and length of busy times
 - The policies are deliberately **coarser than the application's rules**: they do not check which sections a patient
   chose to share or a caregiver's individual permissions. They stop one person's records reaching an unrelated person;
   the application still narrows what a related person sees.
-- Not covered: `users`, doctor profiles/applications/availability, pharmacies, the audit log, job and rate-limit tables.
-  `users` is readable across roles because names appear in joins; narrowing it needs a column-level design.
+- Every table is now behind row-level security (migration 0024; `docs/DATABASE_ACCESS_AUDIT.md` lists each table's policy and why). `users` is
+  visible to the person themself, the other side of a connection or care-circle invitation, and colleagues; an administrator sees clinicians,
+  administrators, staff and message reporters, never other patients. What the database cannot narrow is *columns*: a connected doctor who may see
+  a patient's account row can, in SQL, select every column of it (the application selects only what the screens need).
 - Row-level security protects against **mistakes in query scoping** (a missing `WHERE`, a forgotten check). It does not
   stop an attacker who can run arbitrary SQL as the application role, because that role also sets the identity.
   Preventing injection is the application's job (parameterized queries throughout).
@@ -93,7 +94,7 @@ narrow database function returns only the doctor, start and length of busy times
   someone else's sessions, notification de-duplication, an administrator's counts view, a lazy query escaping its identity
   scope, operator scripts picking up the restricted role), all fixed and covered by tests.
 
-### Rolling out the restricted role (production is **not** switched yet)
+### Rolling out the restricted role (done for production on 2026-10-26; kept for any new database)
 
 Nothing below happens automatically, and the migration alone changes nothing for a deployment that connects as the
 owner (the owner is exempt from row-level security).
@@ -113,10 +114,17 @@ owner (the owner is exempt from row-level security).
 Risks of the switch: a code path not exercised by the tests would see no data (fail closed) until fixed; latency rises
 slightly. Rehearse on a copy of production data in a non-production environment first.
 
+## Database guards beyond row policies (migration 0024)
+
+A row policy cannot say "this column may not change"; triggers bound to the restricted role can: it cannot create an `admin` or change anyone's role, e-mail
+address or fixture flag, declare its own address verified, re-activate a suspended clinician or edit their licence and verification, approve its own
+doctor application, or move a connection, appointment or follow-up to another patient or doctor. The first administrator is made by the operator on the
+owner connection (`npm run admin:create`). The public doctor directory is a read-only view that omits phone and licence numbers. `PUBLIC` holds no
+`EXECUTE` on any function, and the application role may execute only the policy helpers. `npm run audit:db` and `tests/rlsIdentityTables.test.ts` enforce all of this.
+
 ## Known gaps and risks
-- **Production is not yet running the restricted role** (rollout above; `docs/OPERATIONS_RUNBOOK.md` section 2). Until then the
-  application layer plus the triggers are the only defence for read access. Every test that matters also passes as the
-  restricted role in CI.
+- **Production runs the restricted role since 2026-10-26.** Row-level security still protects against mistakes in query scoping, not against SQL
+  injection or a stolen runtime credential (the role also sets the identity): see `docs/DATABASE_ACCESS_AUDIT.md` §3 and decision D-03.
 - **A second factor exists** (TOTP, encrypted secret, recovery codes, lock-out, replay refusal) for clinicians, organization
   staff and administrators; **patients and caregivers are not required to use one.** Losing `MFA_ENCRYPTION_KEY` locks those accounts out.
 - **Credentials are checked by a person, not by a registry.** The record says how and when; nothing is looked up automatically.

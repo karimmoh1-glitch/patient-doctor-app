@@ -204,7 +204,7 @@ export interface IStorage {
   recordMfaFailure(userId: string, now: Date, maxAttempts: number, lockMinutes: number): Promise<{ failedAttempts: number; lockedUntil: Date | null }>;
   clearMfaFailures(userId: string): Promise<void>;
   replaceRecoveryCodes(userId: string, hashes: string[]): Promise<void>;
-  consumeRecoveryCode(userId: string, hash: string): Promise<boolean>;
+  consumeRecoveryCode(userId: string, hash: string | string[]): Promise<boolean>;
   countRecoveryCodes(userId: string): Promise<number>;
   resetMfa(userId: string): Promise<void>;
   createDataRequest(userId: string, kind: "export" | "deletion"): Promise<{ id: string }>;
@@ -1237,11 +1237,12 @@ export class DbStorage implements IStorage {
     );
   }
 
-  async consumeRecoveryCode(userId: string, hash: string) {
+  async consumeRecoveryCode(userId: string, hash: string | string[]) {
     return runAsSystem(async () => {
+      const hashes = Array.isArray(hash) ? hash : [hash];
       const rows = await db.update(mfaRecoveryCodes)
         .set({ usedAt: new Date() })
-        .where(and(eq(mfaRecoveryCodes.userId, userId), eq(mfaRecoveryCodes.codeHash, hash), isNull(mfaRecoveryCodes.usedAt)))
+        .where(and(eq(mfaRecoveryCodes.userId, userId), inArray(mfaRecoveryCodes.codeHash, hashes), isNull(mfaRecoveryCodes.usedAt)))
         .returning({ id: mfaRecoveryCodes.id });
       return rows.length === 1;
     });

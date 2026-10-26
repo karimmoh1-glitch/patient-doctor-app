@@ -44,6 +44,9 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
   if (!env.MFA_ENCRYPTION_KEY || Buffer.from(env.MFA_ENCRYPTION_KEY, "base64").length !== 32) {
     add("mfa-key", "MFA_ENCRYPTION_KEY must be set to 32 random bytes, base64 encoded (openssl rand -base64 32).");
   }
+  if (env.MFA_ENCRYPTION_KEY_PREVIOUS && Buffer.from(env.MFA_ENCRYPTION_KEY_PREVIOUS, "base64").length !== 32) {
+    add("mfa-key-previous", "MFA_ENCRYPTION_KEY_PREVIOUS must be 32 random bytes, base64 encoded, or unset.");
+  }
   if (env.MFA_ALLOW_CODE_REUSE !== undefined && env.MFA_ALLOW_CODE_REUSE !== "") {
     add("mfa-reuse", "MFA_ALLOW_CODE_REUSE is a test-only setting and must not exist in production.");
   }
