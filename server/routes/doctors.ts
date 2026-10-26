@@ -10,7 +10,7 @@ import { weakPasswordReason } from "../lib/password";
 import { normalizeLang } from "../services/serverText";
 import { isDemoMode } from "../config";
 import { logAudit } from "../services/auditService";
-import { getAvailability, getOpenSlots, isValidTimezone, replaceAvailability, validateAvailabilityWindows } from "../services/schedulingService";
+import { getAvailability, getNextOpenSlots, isValidTimezone, replaceAvailability, validateAvailabilityWindows } from "../services/schedulingService";
 import { SPECIALTIES, US_STATES } from "@shared/specialties";
 import { LANGUAGE_CODES, MODALITIES, PROFESSIONAL_ROLES } from "@shared/languages";
 import {
@@ -97,12 +97,8 @@ router.get("/", directoryLimiter, async (req, res) => {
   profiles = profiles.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 100);
 
   // Only a time is revealed, never which slots are taken or by whom.
-  const withNext = await Promise.all(
-    profiles.map(async (p) => {
-      const open = await getOpenSlots(p.id, 14);
-      return { p, nextAvailable: open.slots[0]?.toISOString() ?? null };
-    }),
-  );
+  const nextByDoctor = await getNextOpenSlots(profiles.map((p) => ({ id: p.id, timezone: p.timezone })), 14);
+  const withNext = profiles.map((p) => ({ p, nextAvailable: nextByDoctor.get(p.id)?.toISOString() ?? null }));
   const rows = f.available === "true" ? withNext.filter((r) => r.nextAvailable) : withNext;
 
   res.json(

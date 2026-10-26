@@ -63,11 +63,19 @@ describe("email handling", () => {
 
 describe("the public doctor directory", () => {
   it("never returns more than 100 doctors, and is rate limited per address", async () => {
-    const first = await request(app).get("/api/doctors");
-    expect(first.body.length).toBeLessThanOrEqual(100);
-    const statuses: number[] = [first.status];
-    for (let i = 0; i < 130; i++) statuses.push((await request(app).get("/api/doctors")).status);
-    expect(statuses.filter((s) => s === 200).length).toBeLessThanOrEqual(120);
-    expect(statuses).toContain(429);
+    // One listening server for the whole flood, rather than a fresh one per request.
+    const server = app.listen(0);
+    try {
+      const agent = request(server);
+      const first = await agent.get("/api/doctors");
+      expect(first.body.length).toBeLessThanOrEqual(100);
+      const statuses: number[] = [first.status];
+      // A search that matches nothing keeps each request cheap; the limit counts every request alike.
+      for (let i = 0; i < 130; i++) statuses.push((await agent.get("/api/doctors?q=zzz-no-such-doctor")).status);
+      expect(statuses.filter((s) => s === 200).length).toBeLessThanOrEqual(120);
+      expect(statuses).toContain(429);
+    } finally {
+      server.close();
+    }
   });
 });

@@ -118,6 +118,35 @@ async function loadSchedule(executor: Pick<Tx, "select">, doctorProfileId: strin
   return { doctor, rules, busy };
 }
 
+/**
+ * The first open time for each of many doctors, in two queries in total (not
+ * three per doctor): this is what the public directory runs on every search.
+ * Doctors with no published hours, or no free time in the window, are absent.
+ */
+export async function getNextOpenSlots(doctors: { id: string; timezone: string }[], days: number, now = new Date()): Promise<Map<string, Date>> {
+  const out = new Map<string, Date>();
+  if (!doctors.length) return out;
+  const ids = doctors.map((d) => d.id);
+  const horizonEnd = new Date(now.getTime() + (Math.min(days, MAX_HORIZON_DAYS) + 2) * 86_400_000);
+  const [rules, live] = await Promise.all([
+    db.select().from(doctorAvailability).where(inArray(doctorAvailability.doctorProfileId, ids)),
+    db.select().from(appointments).where(and(
+      inArray(appointments.doctorProfileId, ids),
+      inArray(appointments.status, [...LIVE_STATUSES]),
+      lt(appointments.scheduledAt, horizonEnd),
+      gt(sql`${appointments.scheduledAt} + (${appointments.durationMinutes} * interval '1 minute')`, now),
+    )),
+  ]);
+  for (const d of doctors) {
+    const mine = rules.filter((r) => r.doctorProfileId === d.id).map((r) => ({ weekday: r.weekday, startMinute: r.startMinute, endMinute: r.endMinute }));
+    if (!mine.length) continue;
+    const busy = live.filter((a) => a.doctorProfileId === d.id).map((a) => ({ start: a.scheduledAt, end: new Date(a.scheduledAt.getTime() + a.durationMinutes * 60_000) }));
+    const first = generateSlots({ rules: mine, timezone: d.timezone, now, days, busy })[0];
+    if (first) out.set(d.id, first);
+  }
+  return out;
+}
+
 /** Open slots for a doctor, for display. Read-only; booking re-checks inside a transaction. */
 export async function getOpenSlots(doctorProfileId: string, days: number, now = new Date()) {
   const horizonEnd = new Date(now.getTime() + (Math.min(days, MAX_HORIZON_DAYS) + 2) * 86_400_000);
