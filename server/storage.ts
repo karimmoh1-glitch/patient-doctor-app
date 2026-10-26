@@ -3,6 +3,7 @@ import { eq, and, desc, isNull, inArray, sql as sqlOp } from "drizzle-orm";
 export type PairingStatus = "requested" | "accepted" | "declined" | "cancelled" | "ended";
 import { db } from "./db";
 import { runAsSystem } from "./dbContext";
+import { fixtureAccountsAllowed } from "./config";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
@@ -96,6 +97,7 @@ export interface IStorage {
   getDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
   getDoctorProfileByUserId(userId: string): Promise<DoctorProfile | undefined>;
   getActiveDoctorProfiles(): Promise<DoctorProfile[]>;
+  getListableDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
 
   createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport>;
   getSymptomReport(id: string): Promise<SymptomReport | undefined>;
@@ -531,8 +533,24 @@ export class DbStorage implements IStorage {
     return profile;
   }
 
+  /**
+   * Providers a patient may see and ask: active, able to answer (they have a login), and never a fixture:
+   * a production server hides any provider whose account is marked as a fixture, whatever else is in the database.
+   */
   async getActiveDoctorProfiles(): Promise<DoctorProfile[]> {
-    return db.select().from(doctorProfiles).where(eq(doctorProfiles.active, true));
+    return db.select().from(doctorProfiles).where(this.listable());
+  }
+
+  async getListableDoctorProfile(id: string): Promise<DoctorProfile | undefined> {
+    const [row] = await db.select().from(doctorProfiles).where(and(eq(doctorProfiles.id, id), this.listable()));
+    return row;
+  }
+
+  private listable() {
+    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`);
+    return fixtureAccountsAllowed()
+      ? base
+      : and(base, sqlOp`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${doctorProfiles.userId} AND u.is_demo)`);
   }
 
   async createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport> {

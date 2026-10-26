@@ -7,4 +7,5 @@
  * Import this right after `dotenv/config` and before anything that loads the database module.
  */
 delete process.env.APP_DATABASE_URL;
+if (process.env.OWNER_DATABASE_URL) process.env.DATABASE_URL = process.env.OWNER_DATABASE_URL;
 delete process.env.DB_ENFORCE_RLS;

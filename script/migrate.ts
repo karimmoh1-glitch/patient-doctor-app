@@ -64,8 +64,9 @@ export async function runMigrations(databaseUrl: string, dir = path.resolve(proc
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL must be set");
-  runMigrations(process.env.DATABASE_URL)
+  const ownerUrl = process.env.OWNER_DATABASE_URL || process.env.DATABASE_URL;
+  if (!ownerUrl) throw new Error("OWNER_DATABASE_URL (or DATABASE_URL) must be set");
+  runMigrations(ownerUrl)
     .then((applied) => console.log(applied.length ? `Applied: ${applied.join(", ")}` : "No pending migrations."))
     .catch((err) => {
       console.error(err.message);

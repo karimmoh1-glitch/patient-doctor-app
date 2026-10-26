@@ -143,3 +143,26 @@ describe("the readiness check before real patients", () => {
     expect(JSON.stringify(checks)).not.toMatch(/xxxxxxxx|yyyyyyyy|re_x/);
   });
 });
+
+describe("providers in a production directory", () => {
+  it("never lists, and never accepts a request to, a provider whose account is a fixture, whatever else the database holds", async () => {
+    const { createDoctor, signupPatient } = await import("./helpers");
+    const real = await createDoctor({ name: "Dr. Listed Realperson" });
+    const fixtureDoc = await createDoctor({ name: "Dr. Fixture Unlisted" });
+    await pool.query("UPDATE users SET is_demo = true WHERE id = $1", [fixtureDoc.id]);
+    const patient = await signupPatient();
+
+    // Development and test: fixtures are listed, so the suites can use them.
+    expect((await request(app).get("/api/doctors?q=Dr.%20Fixture")).body.map((d: any) => d.name)).toContain("Dr. Fixture Unlisted");
+
+    inProduction();
+    const names = (await request(app).get("/api/doctors?q=Dr.")).body.map((d: any) => d.name);
+    expect(names).toContain("Dr. Listed Realperson");
+    expect(names).not.toContain("Dr. Fixture Unlisted");
+    const ask = await request(app).post("/api/pairings").set(auth(patient.token)).send({ doctorProfileId: fixtureDoc.profileId });
+    expect(ask.status).toBe(404);
+    const askReal = await request(app).post("/api/pairings").set(auth(patient.token)).send({ doctorProfileId: real.profileId });
+    expect(askReal.status).toBe(201);
+    void real;
+  });
+});

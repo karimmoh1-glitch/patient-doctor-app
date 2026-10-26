@@ -27,8 +27,8 @@ router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req
   }
   const patientUserId = (req as any).userId as string;
 
-  const doctor = await storage.getDoctorProfile(parsed.data.doctorProfileId);
-  if (!doctor || !doctor.active || !doctor.userId) {
+  const doctor = await storage.getListableDoctorProfile(parsed.data.doctorProfileId);
+  if (!doctor) {
     return res.status(404).json({ message: "Doctor not found" });
   }
 

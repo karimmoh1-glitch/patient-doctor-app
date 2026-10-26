@@ -3,9 +3,10 @@ import pg from "pg";
 import * as schema from "@shared/schema";
 import { currentIdentity, enforcementEnabled } from "./dbContext";
 
-// Runtime queries use APP_DATABASE_URL (a restricted role, see docs/SECURITY.md) when it is set;
-// migrations and operator scripts keep using DATABASE_URL, which owns the tables.
-const connectionString = process.env.APP_DATABASE_URL || process.env.DATABASE_URL;
+// Runtime queries use APP_DATABASE_URL (a restricted role, see docs/SECURITY.md) when it is set. The OWNER connection
+// (OWNER_DATABASE_URL, else DATABASE_URL) owns the tables and is for migrations and operator scripts; it is the fallback
+// only where no restricted role is configured (development, tests, and a production deployment under a named exception).
+const connectionString = process.env.APP_DATABASE_URL || process.env.OWNER_DATABASE_URL || process.env.DATABASE_URL;
 if (!connectionString) {
   throw new Error("DATABASE_URL must be set.");
 }

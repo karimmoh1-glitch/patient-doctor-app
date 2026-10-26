@@ -67,8 +67,8 @@ async function check(client: pg.PoolClient): Promise<boolean> {
 }
 
 async function main() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL (the OWNER connection) must be set.");
+  const url = process.env.OWNER_DATABASE_URL || process.env.DATABASE_URL;
+  if (!url) throw new Error("OWNER_DATABASE_URL (or DATABASE_URL), the OWNER connection, must be set.");
   const verifyOnly = process.argv.includes("--check");
   const pool = new pg.Pool({ connectionString: url, max: 1 });
   const client = await pool.connect();
