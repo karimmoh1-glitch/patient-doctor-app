@@ -22,7 +22,7 @@ compliance claim (no HIPAA, GDPR or Egyptian-law statement). Human reviews are l
 | Fact | Evidence |
 | --- | --- |
 | Live commit `704b7df34919ed330a82b85ac209707b42e6dcef` (built 18:04 UTC) | `GET /api/health`, `GET /version.json` |
-| `main` is ahead of live (`28ef346`, `03f6d58`: test fix, readiness endpoint, no-store, honest scheduler check). **Not deployed.** | `git log`; deployment is by the owner's go-ahead after CI |
+| `main` is ahead of live (`28ef346`, `03f6d58`, `e1dfd5d`: test fix, readiness endpoint, no-store on the API, honest scheduler check, audited admin bootstrap). CI is green on `e1dfd5d` (both jobs, run 40391855768). **Not deployed**: awaiting the owner's go-ahead | `git log`, `gh run view 40391855768` |
 | All 24 migrations (0000–0023) applied; 0015–0023 at 15:45 UTC today by the build step | `schema_migrations` read from the production database |
 | Application connects as `avela_runtime` (not superuser, no BYPASSRLS, no CREATEROLE/CREATEDB, no CREATE on the schema or database, member of `avela_app`) | `pg_roles`, `has_*_privilege`, and `pg_stat_activity` showing `avela_runtime` connections after requests to the live site |
 | 4 users in production, all fabricated fixtures, all deactivated; 0 sessions active; 12 seeded doctors inactive; 3 appointments and 3 messages (fixture history) | database read, `audit_logs` entry `demo.retired` (13:24 UTC, backup file kept off-repo, mode 600) |
