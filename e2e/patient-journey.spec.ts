@@ -57,6 +57,8 @@ test.describe("an older patient's first week", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Book a visit" })).toBeVisible();
 
+    // Not today: how many times are left today depends on the hour the suite runs, so use a later day that is always complete.
+    await dialog.getByRole("radiogroup", { name: "Choose a day" }).getByRole("radio").nth(1).click();
     const slot = dialog.getByRole("radiogroup", { name: /times on/i }).getByRole("radio").nth(2);
     await slot.click();
     await expect(slot).toHaveAttribute("aria-checked", "true");
@@ -80,6 +82,7 @@ test.describe("an older patient's first week", () => {
     await page.getByRole("button", { name: "Change time" }).click();
     const reschedule = page.getByRole("dialog");
     await expect(reschedule.getByRole("heading", { name: "Change the time" })).toBeVisible();
+    await reschedule.getByRole("radiogroup", { name: "Choose a day" }).getByRole("radio").nth(2).click();
     await reschedule.getByRole("radiogroup", { name: /times on/i }).getByRole("radio").nth(5).click();
     await reschedule.getByRole("button", { name: "Request this new time" }).click();
     await expect(page.getByText("Waiting for the doctor to confirm this time.")).toBeVisible();
