@@ -1,5 +1,6 @@
 import pg from "pg";
 import { runMigrations } from "../script/migrate";
+import { fastCommitUrl } from "./fastCommit";
 
 // Runs once before the whole suite: empties the (already schema-pushed)
 // test database, then applies the hand-written SQL migrations. Wiping is
@@ -10,7 +11,7 @@ export default async function setup() {
   const name = new URL(url).pathname.replace(/^\//, "");
   if (!name.endsWith("_test")) throw new Error(`Refusing to wipe/migrate non-test database "${name}"`);
 
-  const pool = new pg.Pool({ connectionString: url });
+  const pool = new pg.Pool({ connectionString: fastCommitUrl(url) });
   try {
     const { rows } = await pool.query(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'",
@@ -21,5 +22,5 @@ export default async function setup() {
   } finally {
     await pool.end();
   }
-  await runMigrations(url);
+  await runMigrations(fastCommitUrl(url));
 }

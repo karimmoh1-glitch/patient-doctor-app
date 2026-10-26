@@ -10,6 +10,10 @@ import express, { type Express, type Request, Response, NextFunction } from "exp
 import helmet from "helmet";
 import { createServer, type Server } from "http";
 import { registerRoutes } from "./routes";
+import { schedulerSnapshot } from "./services/reminderService";
+import { makeLimiter } from "./middleware/rateLimit";
+
+const schedulerMonitorLimiter = makeLimiter({ windowMs: 60_000, limit: 60, message: "Too many checks." });
 
 const isProduction = process.env.NODE_ENV === "production";
 const isTest = process.env.NODE_ENV === "test";
@@ -88,6 +92,16 @@ export async function createApiApp(): Promise<{ app: Express; httpServer: Server
   // Liveness only: answers without touching the database, so a load balancer
   // can tell "process is up" apart from "database is slow".
   app.get("/api/health", (_req, res) => res.json({ ok: true, commit: process.env.BUILD_COMMIT ?? null, builtAt: process.env.BUILD_TIME ?? null }));
+  // For an external uptime monitor: 200 only while the reminder scheduler is really running, 503 otherwise
+  // (not configured, stale, or its latest run failed). Reveals a status word and an age, nothing else.
+  app.get("/api/health/scheduler", schedulerMonitorLimiter, async (_req, res) => {
+    try {
+      const { status, minutesSinceSuccess } = await schedulerSnapshot();
+      res.status(status === "active" ? 200 : 503).json({ status, minutesSinceSuccess });
+    } catch {
+      res.status(503).json({ status: "unknown", minutesSinceSuccess: null });
+    }
+  });
 
   app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: false }));

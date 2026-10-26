@@ -5,7 +5,7 @@ import { db } from "./db";
 import {
   users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
-  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, dataRequests, medications, medicationLogs, pharmacies, pharmacyOrders,
+  appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
   type User, type InsertUser,
   type UserDevice, type InsertUserDevice,
@@ -159,6 +159,17 @@ export interface IStorage {
   getRecentDeliveriesForReminders(reminderIds: string[], limit: number): Promise<{ reminderId: string; dueAt: Date; channel: string; status: string; attempts: number }[]>;
   recordJobRun(job: string, now: Date, result: Record<string, unknown>, outcome: { ok: true } | { ok: false; error: string }): Promise<void>;
   getJobRun(job: string): Promise<{ lastRunAt: Date; lastSuccessAt: Date | null; lastError: string | null; consecutiveFailures: number; lastResult: Record<string, unknown> } | undefined>;
+  /**
+   * Takes the job's lease if nobody holds an unexpired one. Exactly one of any
+   * number of simultaneous callers gets true; a crashed run's lease simply expires.
+   */
+  acquireJobLease(job: string, runId: string, now: Date, leaseMs: number): Promise<boolean>;
+  /** Records the outcome only if this run still holds the lease (a superseded run changes nothing), then releases it. */
+  finishJobRun(job: string, runId: string, now: Date, result: Record<string, unknown>, outcome: { ok: true } | { ok: false; error: string }): Promise<boolean>;
+  startJobRunHistory(entry: { job: string; runId: string; source: string; startedAt: Date; outcome?: string }): Promise<void>;
+  finishJobRunHistory(job: string, runId: string, entry: { finishedAt: Date; outcome: string; durationMs: number; error?: string; result?: Record<string, unknown> }): Promise<void>;
+  getJobRunHistory(job: string, since: Date): Promise<{ runId: string; source: string; startedAt: Date; finishedAt: Date | null; outcome: string; durationMs: number | null }[]>;
+  pruneJobRunHistory(job: string, before: Date): Promise<void>;
   getAllEnabledReminders(): Promise<MedicationReminder[]>;
   createDataRequest(userId: string, kind: "export" | "deletion"): Promise<{ id: string }>;
   deactivateUser(userId: string): Promise<void>;
@@ -903,6 +914,51 @@ export class DbStorage implements IStorage {
     return row
       ? { lastRunAt: row.lastRunAt, lastSuccessAt: row.lastSuccessAt, lastError: row.lastError, consecutiveFailures: row.consecutiveFailures, lastResult: row.lastResult }
       : undefined;
+  }
+
+  async acquireJobLease(job: string, runId: string, now: Date, leaseMs: number) {
+    const until = new Date(now.getTime() + leaseMs);
+    const res = await db.execute(sqlOp`
+      INSERT INTO job_runs (job, last_run_at, lease_run_id, lease_until)
+      VALUES (${job}, ${now}, ${runId}, ${until})
+      ON CONFLICT (job) DO UPDATE
+        SET lease_run_id = EXCLUDED.lease_run_id, lease_until = EXCLUDED.lease_until
+        WHERE job_runs.lease_until IS NULL OR job_runs.lease_until <= ${now}
+      RETURNING job`);
+    return res.rows.length === 1;
+  }
+
+  async finishJobRun(job: string, runId: string, now: Date, result: Record<string, unknown>, outcome: { ok: true } | { ok: false; error: string }) {
+    const rows = outcome.ok
+      ? await db.update(jobRuns)
+          .set({ lastRunAt: now, lastResult: result, lastSuccessAt: now, lastError: null, consecutiveFailures: 0, leaseRunId: null, leaseUntil: null })
+          .where(and(eq(jobRuns.job, job), eq(jobRuns.leaseRunId, runId))).returning({ job: jobRuns.job })
+      : await db.update(jobRuns)
+          .set({ lastRunAt: now, lastResult: result, lastError: outcome.error, consecutiveFailures: sqlOp`${jobRuns.consecutiveFailures} + 1`, leaseRunId: null, leaseUntil: null })
+          .where(and(eq(jobRuns.job, job), eq(jobRuns.leaseRunId, runId))).returning({ job: jobRuns.job });
+    return rows.length === 1;
+  }
+
+  async startJobRunHistory(entry: { job: string; runId: string; source: string; startedAt: Date; outcome?: string }) {
+    await db.insert(jobRunHistory).values({ job: entry.job, runId: entry.runId, source: entry.source, startedAt: entry.startedAt, outcome: entry.outcome ?? "running" });
+  }
+
+  async finishJobRunHistory(job: string, runId: string, e: { finishedAt: Date; outcome: string; durationMs: number; error?: string; result?: Record<string, unknown> }) {
+    await db.update(jobRunHistory)
+      .set({ finishedAt: e.finishedAt, outcome: e.outcome, durationMs: e.durationMs, error: e.error ?? null, result: e.result ?? {} })
+      .where(and(eq(jobRunHistory.job, job), eq(jobRunHistory.runId, runId)));
+  }
+
+  async getJobRunHistory(job: string, since: Date) {
+    return db
+      .select({ runId: jobRunHistory.runId, source: jobRunHistory.source, startedAt: jobRunHistory.startedAt, finishedAt: jobRunHistory.finishedAt, outcome: jobRunHistory.outcome, durationMs: jobRunHistory.durationMs })
+      .from(jobRunHistory)
+      .where(and(eq(jobRunHistory.job, job), sqlOp`${jobRunHistory.startedAt} >= ${since}`))
+      .orderBy(jobRunHistory.startedAt);
+  }
+
+  async pruneJobRunHistory(job: string, before: Date) {
+    await db.delete(jobRunHistory).where(and(eq(jobRunHistory.job, job), sqlOp`${jobRunHistory.startedAt} < ${before}`));
   }
 
   async getAllEnabledReminders() {

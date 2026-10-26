@@ -365,7 +365,7 @@ describe("monitoring the scheduler", () => {
     expect(bad.status).toBe(500);
     expect(JSON.stringify(bad.body)).not.toMatch(/SECRETPW|postgres/);
     const run = await storage.getJobRun("reminders");
-    expect(run!.lastError).toBe("Error");
+    expect(run!.lastError).toBe("expiry:Error"); // which step, and the kind of error: never its message
     expect(run!.consecutiveFailures).toBeGreaterThanOrEqual(1);
     expect((await request(app).get("/api/config")).body.features.reminderDelivery).toBe("failing");
 

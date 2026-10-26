@@ -1,5 +1,6 @@
 import rateLimit, { ipKeyGenerator, type Options } from "express-rate-limit";
 import type { Request } from "express";
+import { PgRateLimitStore } from "./pgRateLimitStore";
 
 /**
  * Rate limits are skipped in the automated test suite (which signs up dozens
@@ -13,6 +14,19 @@ function shouldSkip(): boolean {
   return process.env.E2E_DISABLE_RATE_LIMITS === "true";
 }
 
+/**
+ * Counters live in Postgres in production (shared by every serverless instance) and
+ * in memory elsewhere. RATE_LIMIT_STORE=memory|postgres overrides the default.
+ */
+export function useSharedStore(): boolean {
+  const forced = process.env.RATE_LIMIT_STORE;
+  if (forced === "memory") return false;
+  if (forced === "postgres") return true;
+  return process.env.NODE_ENV === "production";
+}
+
+let limiterCount = 0;
+
 export function makeLimiter(opts: {
   windowMs: number;
   limit: number;
@@ -20,8 +34,13 @@ export function makeLimiter(opts: {
   /** Only count responses that were errors (e.g. failed logins). */
   failuresOnly?: boolean;
   keyGenerator?: Options["keyGenerator"];
+  /** Stand-in store, for tests. */
+  store?: Options["store"];
 }) {
+  // Created in a fixed order at start-up, so every instance numbers the same limiter the same way.
+  const id = `limiter-${++limiterCount}`;
   return rateLimit({
+    store: opts.store ?? (useSharedStore() ? new PgRateLimitStore(id) : undefined),
     windowMs: opts.windowMs,
     limit: opts.limit,
     standardHeaders: true,

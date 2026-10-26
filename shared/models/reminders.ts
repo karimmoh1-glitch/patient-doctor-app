@@ -44,6 +44,23 @@ export const jobRuns = pgTable("job_runs", {
   lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
   lastError: varchar("last_error"),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  // Only the run holding the lease may execute and record an outcome.
+  leaseRunId: varchar("lease_run_id"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+});
+
+// One row per scheduler call: the evidence that runs are really happening.
+export const jobRunHistory = pgTable("job_run_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  job: varchar("job").notNull(),
+  runId: varchar("run_id").notNull(),
+  source: varchar("source").notNull().default("unknown"),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  outcome: varchar("outcome").notNull().default("running"), // running | ok | failed | skipped_overlap | superseded
+  durationMs: integer("duration_ms"),
+  error: varchar("error"),
+  result: jsonb("result").$type<Record<string, unknown>>().notNull().default({}),
 });
 
 // A person's request about their own data. Erasure is done by an operator.

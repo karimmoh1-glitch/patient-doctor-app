@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { makeLimiter } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { dispatchAppointmentReminders, dispatchDueReminders, REMINDER_JOB } from "../services/reminderService";
+import { runScheduledJob, schedulerSource } from "../services/schedulerRun";
 
 const router = Router();
 
@@ -25,20 +26,32 @@ async function runReminders(req: any, res: any) {
   if (!process.env.CRON_SECRET) return res.status(503).json({ message: "Scheduled jobs are not configured" });
   if (!authorized(req.headers.authorization)) return res.status(401).json({ message: "Unauthorized" });
   const now = new Date();
-  try {
-    const expired = await storage.expireDuePrescriptions(now);
-    const result = await dispatchDueReminders(now, { emailEnabled: !!process.env.RESEND_API_KEY });
-    const appointmentNotices = await dispatchAppointmentReminders(now);
-    const summary = { ...result, expiredPrescriptions: expired.length, appointmentNotices };
-    await storage.recordJobRun(REMINDER_JOB, now, summary, { ok: true });
-    // Counts only: never a name, an address or a medicine.
-    console.log(`[reminders] ok due=${result.due} inApp=${result.inApp} emailSent=${result.emailSent} emailFailed=${result.emailFailed} retried=${result.emailRetried}`);
-    res.json({ ok: true, ...summary });
-  } catch (err: any) {
-    console.error("[reminders] run failed:", err?.name || "Error");
-    await storage.recordJobRun(REMINDER_JOB, now, {}, { ok: false, error: String(err?.name || "Error").slice(0, 60) }).catch(() => {});
-    res.status(500).json({ ok: false, message: "The reminder run failed" });
-  }
+  const emailEnabled = !!process.env.RESEND_API_KEY;
+
+  // Reminder delivery comes first and is isolated from housekeeping: a failure to
+  // expire old prescriptions must never delay anyone's medicine reminder. Every
+  // step is attempted; any failure still makes the whole run a failure.
+  const summary = await runScheduledJob({
+    job: REMINDER_JOB,
+    source: schedulerSource({ get: (name) => req.get(name) }),
+    now,
+    steps: [
+      {
+        name: "reminders",
+        run: async (ctx) => {
+          const r = await dispatchDueReminders(now, { emailEnabled, deadline: ctx.deadline });
+          return { counts: { considered: r.considered, due: r.due, inApp: r.inApp, emailSent: r.emailSent, emailFailed: r.emailFailed, emailRetried: r.emailRetried, truncated: r.truncated }, errors: r.errors };
+        },
+      },
+      { name: "appointmentNotices", run: async () => ({ counts: { appointmentNotices: await dispatchAppointmentReminders(now) } }) },
+      { name: "expiry", run: async () => ({ counts: { expiredPrescriptions: (await storage.expireDuePrescriptions(now)).length } }) },
+    ],
+  });
+
+  if (summary.status === "skipped") return res.status(202).json({ ok: true, skipped: true, reason: summary.reason });
+  if (summary.status === "superseded") return res.json({ ok: true, superseded: true });
+  if (summary.status === "failed") return res.status(500).json({ ok: false, message: "The reminder run failed", runId: summary.runId });
+  res.json({ ok: true, runId: summary.runId, ...summary.result });
 }
 
 router.get("/reminders", guessLimiter, runReminders);

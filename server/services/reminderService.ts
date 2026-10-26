@@ -71,6 +71,10 @@ export interface DispatchResult {
   emailSent: number;
   emailFailed: number;
   emailRetried: number;
+  /** Reminders that could not be processed this run (the rest were). Any value above zero fails the run. */
+  errors: number;
+  /** True if the time budget ran out before every reminder was visited; the next run continues. */
+  truncated: boolean;
 }
 
 /** How far back a run still delivers a reminder. Anything older is reported as overdue, never sent late. */
@@ -99,49 +103,77 @@ const ABANDONED_AFTER_MINUTES = 10;
  */
 export async function dispatchDueReminders(
   now: Date,
-  opts: { lookbackMinutes?: number; emailEnabled?: boolean } = {},
+  opts: { lookbackMinutes?: number; emailEnabled?: boolean; deadline?: number } = {},
 ): Promise<DispatchResult> {
   const lookback = opts.lookbackMinutes ?? LOOKBACK_MINUTES;
   const from = new Date(now.getTime() - lookback * 60_000);
-  const result: DispatchResult = { considered: 0, due: 0, inApp: 0, emailSent: 0, emailFailed: 0, emailRetried: 0 };
+  const result: DispatchResult = { considered: 0, due: 0, inApp: 0, emailSent: 0, emailFailed: 0, emailRetried: 0, errors: 0, truncated: false };
 
   const reminders = await storage.getDispatchableReminders();
   result.considered = reminders.length;
 
-  for (const { reminder, medicationName, email, language } of reminders) {
-    for (const dueAt of occurrencesInWindow(reminder, from, now)) {
-      result.due++;
-      const clock = DateTime.fromJSDate(dueAt, { zone: reminder.timezone }).toFormat("HH:mm");
-      const created = await storage.deliverInApp(reminder.id, dueAt, {
-        userId: reminder.patientUserId,
-        kind: "reminder.due",
-        // The medicine's name is stored only if the patient chose to show it.
-        params: reminder.showMedicationName ? { time: clock, medicationName } : { time: clock },
-        link: "/medications",
-      });
-      if (created) result.inApp++;
+  // What has already been settled in the window, so a steady-state run does a
+  // handful of cheap reads instead of one write attempt per reminder occurrence.
+  const settled = new Set<string>();
+  for (const d of await storage.getDeliveriesSince(from)) {
+    const done = d.channel === "in_app" || d.status === "sent" || (d.status === "failed" && d.attempts >= MAX_EMAIL_ATTEMPTS);
+    if (done) settled.add(`${d.reminderId}|${d.dueAt.getTime()}|${d.channel}`);
+  }
 
-      if (reminder.emailEnabled && opts.emailEnabled) {
-        let deliveryId = await storage.claimReminderDelivery(reminder.id, dueAt, "email");
-        let retry = false;
-        if (!deliveryId) {
-          deliveryId = await storage.retryReminderDelivery(reminder.id, dueAt, "email", MAX_EMAIL_ATTEMPTS, ABANDONED_AFTER_MINUTES);
-          retry = !!deliveryId;
+  for (const { reminder, medicationName, email, language } of reminders) {
+    // Out of time: stop starting work. Everything not reached is picked up by the next run
+    // (it is still inside the window), so nothing is skipped, only deferred.
+    if (opts.deadline && Date.now() > opts.deadline) {
+      result.truncated = true;
+      break;
+    }
+    // One reminder that cannot be processed must never stop everyone else's.
+    try {
+      for (const dueAt of occurrencesInWindow(reminder, from, now)) {
+        const key = `${reminder.id}|${dueAt.getTime()}`;
+        const wantsEmail = reminder.emailEnabled && !!opts.emailEnabled;
+        const inAppDone = settled.has(`${key}|in_app`);
+        const emailDone = !wantsEmail || settled.has(`${key}|email`);
+        if (inAppDone && emailDone) continue;
+
+        result.due++;
+        const clock = DateTime.fromJSDate(dueAt, { zone: reminder.timezone }).toFormat("HH:mm");
+        if (!inAppDone) {
+          const created = await storage.deliverInApp(reminder.id, dueAt, {
+            userId: reminder.patientUserId,
+            kind: "reminder.due",
+            // The medicine's name is stored only if the patient chose to show it.
+            params: reminder.showMedicationName ? { time: clock, medicationName } : { time: clock },
+            link: "/medications",
+          });
+          if (created) result.inApp++;
         }
-        if (!deliveryId) continue;
-        if (retry) result.emailRetried++;
-        const text = MESSAGES[language] ?? MESSAGES.en;
-        const body = reminder.showMedicationName ? text.bodyNamed(medicationName) : text.body;
-        let ok = false;
-        try {
-          ok = await sendEmail({ to: email, subject: text.subject, body, html: `<p style="font-size:16px;line-height:1.6">${escapeHtml(body)}</p>` });
-        } catch (err: any) {
-          console.error("[reminders] email send threw:", err?.name);
+
+        if (!emailDone) {
+          let deliveryId = await storage.claimReminderDelivery(reminder.id, dueAt, "email");
+          let retry = false;
+          if (!deliveryId) {
+            deliveryId = await storage.retryReminderDelivery(reminder.id, dueAt, "email", MAX_EMAIL_ATTEMPTS, ABANDONED_AFTER_MINUTES);
+            retry = !!deliveryId;
+          }
+          if (!deliveryId) continue;
+          if (retry) result.emailRetried++;
+          const text = MESSAGES[language] ?? MESSAGES.en;
+          const body = reminder.showMedicationName ? text.bodyNamed(medicationName) : text.body;
+          let ok = false;
+          try {
+            ok = await sendEmail({ to: email, subject: text.subject, body, html: `<p style="font-size:16px;line-height:1.6">${escapeHtml(body)}</p>` });
+          } catch (err: any) {
+            console.error("[reminders] email send threw:", err?.name);
+          }
+          await storage.finishReminderDelivery(deliveryId, ok ? "sent" : "failed", ok ? undefined : "provider_rejected_or_unavailable");
+          if (ok) result.emailSent++;
+          else result.emailFailed++;
         }
-        await storage.finishReminderDelivery(deliveryId, ok ? "sent" : "failed", ok ? undefined : "provider_rejected_or_unavailable");
-        if (ok) result.emailSent++;
-        else result.emailFailed++;
       }
+    } catch (err: any) {
+      result.errors++;
+      console.error("[reminders] could not process one reminder:", err?.name || "Error");
     }
   }
   return result;
@@ -193,6 +225,13 @@ export async function reminderDeliveryStatus(now = new Date()): Promise<Delivery
   return now.getTime() - run.lastSuccessAt.getTime() <= MAX_RUN_AGE_MINUTES * 60_000 ? "active" : "stale";
 }
 
+/** The two public facts about the scheduler: its status word and how long ago it last succeeded. */
+export async function schedulerSnapshot(now = new Date()): Promise<{ status: DeliveryStatus; minutesSinceSuccess: number | null }> {
+  const status = await reminderDeliveryStatus(now);
+  const run = process.env.CRON_SECRET ? await storage.getJobRun(REMINDER_JOB) : undefined;
+  return { status, minutesSinceSuccess: run?.lastSuccessAt ? Math.round((now.getTime() - run.lastSuccessAt.getTime()) / 60_000) : null };
+}
+
 export interface ReminderHealth {
   status: DeliveryStatus;
   job: { lastRunAt: string | null; lastSuccessAt: string | null; minutesSinceSuccess: number | null; lastError: string | null; consecutiveFailures: number; lastResult: Record<string, unknown> | null };
@@ -206,7 +245,21 @@ export interface ReminderHealth {
     overdue: number; // came due, passed the lookback window, and were never delivered
   };
   nextHour: number;
+  /** Evidence that the scheduler is really calling, from our own records (not from any workflow file). */
+  scheduler: {
+    expectedIntervalMinutes: number;
+    callsLast24h: number;
+    okLast24h: number;
+    failedLast24h: number;
+    skippedOverlapLast24h: number;
+    bySource: Record<string, number>;
+    /** Longest silence between calls (or since the last call) in the last 24 h; null if there were no calls. */
+    longestGapMinutes: number | null;
+  };
 }
+
+/** How often the scheduler is supposed to call. Informational: used to show the expected number of calls. */
+export const EXPECTED_INTERVAL_MINUTES = 5;
 
 /** Everything an operator needs to answer "are reminders actually going out?". Counts only: no names, no medicines. */
 export async function reminderHealth(now = new Date()): Promise<ReminderHealth> {
@@ -227,6 +280,17 @@ export async function reminderHealth(now = new Date()): Promise<ReminderHealth> 
     nextHour += occurrencesInWindow(r, now, new Date(now.getTime() + 3_600_000)).length;
   }
   const email = deliveries.filter((d) => d.channel === "email");
+  const history = await storage.getJobRunHistory(REMINDER_JOB, since);
+  const executed = history.filter((h) => h.outcome !== "skipped_overlap");
+  const bySource: Record<string, number> = {};
+  for (const h of history) bySource[h.source] = (bySource[h.source] ?? 0) + 1;
+  let longestGap: number | null = null;
+  if (history.length) {
+    const times = history.map((h) => h.startedAt.getTime());
+    let prev = times[0];
+    for (const t of times.slice(1)) { longestGap = Math.max(longestGap ?? 0, t - prev); prev = t; }
+    longestGap = Math.max(longestGap ?? 0, now.getTime() - prev);
+  }
   return {
     status: await reminderDeliveryStatus(now),
     job: {
@@ -247,6 +311,15 @@ export async function reminderHealth(now = new Date()): Promise<ReminderHealth> 
       overdue,
     },
     nextHour,
+    scheduler: {
+      expectedIntervalMinutes: EXPECTED_INTERVAL_MINUTES,
+      callsLast24h: history.length,
+      okLast24h: executed.filter((h) => h.outcome === "ok").length,
+      failedLast24h: executed.filter((h) => h.outcome === "failed").length,
+      skippedOverlapLast24h: history.length - executed.length,
+      bySource,
+      longestGapMinutes: longestGap === null ? null : Math.round(longestGap / 60_000),
+    },
   };
 }
 

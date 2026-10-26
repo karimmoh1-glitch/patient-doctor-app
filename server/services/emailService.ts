@@ -85,6 +85,16 @@ ${body}
 </html>`;
 }
 
+const emailTimeoutMs = () => Number(process.env.EMAIL_TIMEOUT_MS) || 8_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error("timeout"), { name: "EmailTimeout" })), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** Returns true only if a real email provider accepted the message. */
 export async function sendEmail(msg: EmailMessage): Promise<boolean> {
   const resend = getResendClient();
@@ -103,13 +113,18 @@ export async function sendEmail(msg: EmailMessage): Promise<boolean> {
   }
 
   try {
-    const result = await resend.client.emails.send({
-      from: resend.fromEmail,
-      to: [msg.to],
-      subject: msg.subject,
-      text: msg.body,
-      html: msg.html || undefined,
-    });
+    // A provider that hangs must not hold a scheduled run (or a request) open until the host kills it.
+    // A timed-out send is reported as not accepted; the caller decides whether to retry.
+    const result = await withTimeout(
+      resend.client.emails.send({
+        from: resend.fromEmail,
+        to: [msg.to],
+        subject: msg.subject,
+        text: msg.body,
+        html: msg.html || undefined,
+      }),
+      emailTimeoutMs(),
+    );
     if (result.error) {
       console.error("[RESEND ERROR]", result.error.name);
       return false;
