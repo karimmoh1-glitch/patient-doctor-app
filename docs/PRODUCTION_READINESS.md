@@ -111,8 +111,8 @@ deployment, passed 18 of 18 with no retries.
 | | |
 | --- | --- |
 | Branch / PR | `mission2/close-security-gaps`, draft PR #1 (base `main` at `f4131a3`; production is `704b7df`) |
-| Candidate commit | CANDIDATE_SHA |
-| CI for that exact commit | CI_RESULT |
+| Candidate commit | code tip `38205ed` (any later commit on the branch changes documentation only: check `git diff 38205ed..HEAD --stat`) |
+| CI for that exact commit | **green**: run 40414813189, jobs `test` and `restricted-role` both success, on PostgreSQL 18; the restricted-role job includes `npm run audit:db` (0 findings) and `npm run migration:rehearse` (apply, idempotent, no row touched, exact rollback). The previous code commit `99f85f9` was also green (run 40414069153); `2b8248c` failed on a real defect in my migration (default function privileges were revoked per-schema, which cannot remove the global default) caught by the new audit step and fixed in `99f85f9` |
 | Diff reviewed | `git diff 704b7df..HEAD`: ~55 files; new migration `0024_close_rls_gaps.sql`; no secret-shaped string (scan: the only matches are CI-only throwaway credentials in the workflow and a placeholder in a comment); `npm audit --omit=dev`: 0 vulnerabilities (4 moderate in dev tooling, accepted); production build and `test:prod` (22) pass |
 | Local runs on the candidate | `npm run test:rls` 574 passed; `npm test` 569 passed + 5 skipped (the restricted-role block, which `test:rls` runs); typecheck clean |
 | Production environment requirements | Unchanged except (all optional): `CRON_SECRET_CLOUDFLARE`, `MFA_ENCRYPTION_KEY_PREVIOUS` (runbook §1) |
