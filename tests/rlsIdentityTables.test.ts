@@ -110,7 +110,7 @@ describe("every table is behind row-level security, and the application role hol
     const special: Record<string, string | undefined> = {
       audit_logs: "INSERT,SELECT", prescription_events: "INSERT,SELECT", // append-only
       pharmacies: "SELECT", doctor_directory: "SELECT", // reference data and a view
-      users: "INSERT,SELECT,UPDATE", // people are not deleted by the application
+      users: "INSERT,UPDATE", // people are not deleted by the application; reading is by column (the ten that identify a person) and through functions
       schema_migrations: undefined, app_identity_keys: undefined, app_identity_config: undefined,
     };
     for (const [t, g] of Object.entries(granted)) {

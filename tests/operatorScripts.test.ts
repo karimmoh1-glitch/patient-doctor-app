@@ -38,6 +38,14 @@ describe("npm run admin:create", () => {
     expect(login.status).toBe(200);
     expect(login.body.token).toBeUndefined();
     expect(login.body.mfa).toBe("setup");
+    // The owner's check afterwards: role, audit entry, second-factor state, the guard, and no secret or address in what it prints.
+    const check = await run("admin-check.ts", [], { ADMIN_EMAIL: email });
+    expect(check.code, check.out).toBe(0);
+    expect(check.out).toContain("second factor: none");
+    expect(check.out).not.toContain(email);
+    expect(check.out).not.toContain(STRONG);
+    expect(check.out).not.toMatch(/FAIL/);
+    expect((await run("admin-check.ts", [], { ADMIN_EMAIL: uniqueEmail("nobody") })).code, "an address with no account").not.toBe(0);
   });
 
   it("asks at a terminal when no password is supplied, and refuses to run without one", async () => {

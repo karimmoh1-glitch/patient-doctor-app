@@ -3,6 +3,7 @@ import { makeLimiter } from "../middleware/rateLimit";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { storage } from "../storage";
+import type { UserPrivate, UserWithCredentials } from "@shared/schema";
 import { requireAuth, requireRole, issueSession } from "../middleware/auth";
 import { generateSecureToken, hashToken } from "../services/tokenService";
 import { weakPasswordReason } from "../lib/password";
@@ -169,7 +170,7 @@ router.post("/invitations/accept/:token", systemAccess, inviteRedeemLimiter, asy
     return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
   }
 
-  let user = await storage.getUserByEmail(member.inviteEmail);
+  let user: UserPrivate | UserWithCredentials | undefined = await storage.getUserByEmail(member.inviteEmail);
   if (!user) {
     // A brand-new account gets the same password rules as everyone else.
     const weak = weakPasswordReason(parsed.data.password, { email: member.inviteEmail, name: member.name });
@@ -182,7 +183,7 @@ router.post("/invitations/accept/:token", systemAccess, inviteRedeemLimiter, asy
     // a caregiver account can be attached (a doctor, admin or patient
     // account must never be turned into, or logged in as, a caregiver).
     const owns =
-      user.role === "caregiver" && !user.deactivatedAt && (await bcrypt.compare(parsed.data.password, user.passwordHash));
+      user.role === "caregiver" && !user.deactivatedAt && "passwordHash" in user && (await bcrypt.compare(parsed.data.password, user.passwordHash));
     if (!owns) {
       return res.status(401).json({
         message:

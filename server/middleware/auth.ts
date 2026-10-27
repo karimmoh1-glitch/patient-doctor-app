@@ -83,7 +83,7 @@ export async function issueSession(
 ): Promise<void> {
   if (roleRequiresMfa(user.role)) {
     const state = await mfaState(user.id);
-    const account = await storage.getUser(user.id);
+    const account = await storage.getUserPrivate(user.id);
     res.status(status).json({
       mfa: state === "enabled" ? "verify" : "setup",
       challenge: signChallenge(user.id, state === "enabled" ? "verify" : "setup"),

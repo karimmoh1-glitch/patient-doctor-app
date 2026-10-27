@@ -99,7 +99,7 @@ describe("erasing a person's records (an operator's job)", () => {
     const report = await eraseUser(ownerPool, patient.id);
     expect(report.erased.account).toBe(1);
 
-    const user = (await storage.getUser(patient.id))!;
+    const user = (await storage.getUserPrivate(patient.id))!;
     expect(user.name).toBe("Deleted user");
     expect(user.email).toMatch(/^deleted-.*@invalid\.example$/);
     expect(user.phone).toBeNull();
@@ -140,7 +140,7 @@ describe("erasing a person's records (an operator's job)", () => {
     expect(rows.find((r) => r.id === own.id).data).toEqual({ erased: true });
     expect(rows.find((r) => r.id === theirs.id).data).toMatchObject({ name: "Clinician recorded" });
     expect((await pool.query("SELECT data, note FROM health_entry_events WHERE entry_id = $1", [own.id])).rows.every((r) => r.data === null && r.note === "[erased]")).toBe(true);
-    const u = (await pool.query("SELECT date_of_birth, country, accessibility_notes FROM users WHERE id = $1", [patient.id])).rows[0];
+    const u = (await ownerPool.query("SELECT date_of_birth, country, accessibility_notes FROM users WHERE id = $1", [patient.id])).rows[0];
     expect(u).toEqual({ date_of_birth: null, country: null, accessibility_notes: null });
     expect((await pool.query("SELECT revoked_at FROM assist_grants WHERE id = $1", [grant.body.id])).rows[0].revoked_at).not.toBeNull();
   });

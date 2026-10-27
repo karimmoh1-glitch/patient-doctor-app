@@ -1,18 +1,18 @@
-import { eq, and, desc, isNull, inArray, sql as sqlOp } from "drizzle-orm";
+import { eq, and, desc, isNull, inArray, getTableColumns, sql as sqlOp, type SQL } from "drizzle-orm";
 
 /** How the reviewer checked the licence: recorded with the approval, never implied by it. */
 export interface ApprovalCredential { source: "document_review" | "registry_lookup" | "issuer_confirmation"; evidenceNote: string; expiresAt: Date }
 
 export type PairingStatus = "requested" | "accepted" | "declined" | "cancelled" | "ended";
 import { db } from "./db";
-import { runAsSystem } from "./dbContext";
+import { runAsSystem, enforcementEnabled } from "./dbContext";
 import { fixtureAccountsAllowed } from "./config";
 import {
-  users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
+  users, usersFull, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
   doctorApplications, doctorProfiles, doctorDirectory, type ListedDoctor, symptomReports, pairingRequests, messages,
   appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, messageReports, userBlocks, doctorCredentials, credentialEvents, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
-  type User, type InsertUser,
+  type User, type InsertUser, type UserPrivate, type UserWithCredentials, USERS_PUBLIC_COLUMNS,
   type UserDevice, type InsertUserDevice,
   type PasswordResetToken,
   type EmailVerificationToken,
@@ -38,9 +38,16 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
+  /** Who a person is: the columns anybody allowed to see the account may read. For anything private use getUserPrivate / getUserWithCredentials. */
   getUser(id: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(data: InsertUser): Promise<User>;
+  /** The person's own account, without the password hash (themself, the server, or a clinician they authorised: the database decides; a clinician gets no e-mail or phone). */
+  getUserPrivate(id: string): Promise<UserPrivate | undefined>;
+  /** The whole row including the password hash, found by e-mail address: the server's sign-in and recovery steps only (the database refuses anyone else). */
+  getUserByEmail(email: string): Promise<UserWithCredentials | undefined>;
+  getUserWithCredentials(id: string): Promise<UserWithCredentials | undefined>;
+  /** Name, language and e-mail address of people the server must write to. Server only. */
+  getUserContacts(ids: string[]): Promise<Map<string, { name: string; email: string; language: string; emailVerifiedAt: Date | null }>>;
+  createUser(data: InsertUser): Promise<UserPrivate>;
   setUserDeactivated(id: string, deactivated: boolean): Promise<User | undefined>;
   setUserTimezone(id: string, timezone: string): Promise<void>;
   updateUserPassword(id: string, passwordHash: string): Promise<void>;
@@ -76,7 +83,7 @@ export interface IStorage {
   countDoctorApplicationsByStatus(): Promise<Record<string, number>>;
 
   /** Creates the doctor's account and an "incomplete" application together, or neither. */
-  registerDoctor(user: InsertUser, language: string): Promise<{ user: User; application: DoctorApplication }>;
+  registerDoctor(user: InsertUser, language: string): Promise<{ user: { id: string; name: string; email: string; language: string }; application: DoctorApplication }>;
   /** Saves profile fields while the application is still editable (incomplete / needs_info). */
   saveDoctorApplicationDraft(id: string, fields: Partial<InsertDoctorApplication>): Promise<DoctorApplication | undefined>;
   /** incomplete|needs_info -> pending, atomically. Undefined if it was not in a submittable state. */
@@ -117,6 +124,8 @@ export interface IStorage {
   updatePairingRequestStatus(id: string, status: "accepted" | "declined" | "cancelled"): Promise<PairingRequest | undefined>;
   /** Moves a connection to `to` only if it is currently in one of `from`. Returns undefined if the guard failed. */
   transitionPairingStatus(id: string, from: PairingStatus[], to: PairingStatus): Promise<PairingRequest | undefined>;
+  /** Visits under this connection that have not happened yet and have not been cancelled. */
+  getUpcomingAppointmentsByPairing(pairingId: string, now: Date): Promise<Appointment[]>;
 
   createMessage(data: InsertMessage): Promise<Message>;
   getMessagesByPairing(pairingRequestId: string): Promise<Message[]>;
@@ -259,7 +268,7 @@ export interface IStorage {
   createAiMessage(data: InsertAiMessage): Promise<AiMessage>;
   getAiMessagesByUser(userId: string, limit?: number): Promise<AiMessage[]>;
 
-  updateEmergencyProfile(userId: string, data: { emergencyContactName: string | null; emergencyContactPhone: string | null; allergiesText: string | null; emergencyNotes: string | null }): Promise<User | undefined>;
+  updateEmergencyProfile(userId: string, data: { emergencyContactName: string | null; emergencyContactPhone: string | null; allergiesText: string | null; emergencyNotes: string | null }): Promise<UserPrivate | undefined>;
 
   createCareCircleInvite(data: InsertCareCircleMember & { tokenHash: string }): Promise<CareCircleMember>;
   getCareCircleMember(id: string): Promise<CareCircleMember | undefined>;
@@ -271,20 +280,70 @@ export interface IStorage {
   revokeCareCircleMember(id: string): Promise<CareCircleMember | undefined>;
 }
 
+
+/** Maps a row returned by one of the app_user_* functions (snake_case, text dates) onto the account shape the application uses. */
+function rowToUser(row: Record<string, unknown>): UserWithCredentials {
+  const out: Record<string, unknown> = {};
+  for (const [key, col] of Object.entries(getTableColumns(usersFull))) {
+    if (!(col.name in row)) {
+      // A column the function does not return (the password hash from app_user_private, the e-mail from a clinician's view).
+      out[key] = key === "passwordHash" ? undefined : null;
+      continue;
+    }
+    const v = row[col.name];
+    const type = (col as { columnType?: string }).columnType;
+    out[key] = v === null || v === undefined ? null : type === "PgTimestamp" ? new Date(v as string) : v;
+  }
+  return out as UserWithCredentials;
+}
+
 export class DbStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(sqlOp`lower(${users.email}) = ${email.trim().toLowerCase()}`);
-    return user;
+  // The account's private columns are released by the database's own functions when this server runs as the restricted role. Run as the
+  // table owner (local development, tests without enforcement, operator scripts, a deployment under the named owner-role exception) there is
+  // nothing to hold back from an owner, so the same rows are read directly.
+  async getUserPrivate(id: string): Promise<UserPrivate | undefined> {
+    const row = enforcementEnabled() ? await this.userFn(sqlOp`SELECT * FROM app_user_private(${id})`) : await this.userDirect(eq(usersFull.id, id));
+    if (row) delete (row as { passwordHash?: unknown }).passwordHash;
+    return row as UserPrivate | undefined;
   }
 
-  async createUser(data: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(data).returning();
-    return user;
+  async getUserByEmail(email: string): Promise<UserWithCredentials | undefined> {
+    return enforcementEnabled() ? this.userFn(sqlOp`SELECT * FROM app_user_credentials(${email})`) : this.userDirect(sqlOp`lower(${usersFull.email}) = ${email.trim().toLowerCase()}`);
+  }
+
+  async getUserWithCredentials(id: string): Promise<UserWithCredentials | undefined> {
+    return enforcementEnabled() ? this.userFn(sqlOp`SELECT * FROM app_user_credentials_by_id(${id})`) : this.userDirect(eq(usersFull.id, id));
+  }
+
+  private async userFn(query: ReturnType<typeof sqlOp>): Promise<UserWithCredentials | undefined> {
+    const rows = (await db.execute(query)).rows as Record<string, unknown>[];
+    return rows[0] ? rowToUser(rows[0]) : undefined;
+  }
+
+  private async userDirect(where: SQL): Promise<UserWithCredentials | undefined> {
+    const [row] = await db.select().from(usersFull).where(where);
+    return row;
+  }
+
+  async getUserContacts(ids: string[]) {
+    const out = new Map<string, { name: string; email: string; language: string; emailVerifiedAt: Date | null }>();
+    if (ids.length === 0) return out;
+    const rows = enforcementEnabled()
+      ? ((await db.execute(sqlOp`SELECT * FROM app_user_contacts(ARRAY[${sqlOp.join(ids.map((i) => sqlOp`${i}`), sqlOp`, `)}]::text[])`)).rows as Record<string, any>[])
+      : ((await db.select({ id: usersFull.id, name: usersFull.name, email: usersFull.email, language: usersFull.language, email_verified_at: usersFull.emailVerifiedAt }).from(usersFull).where(inArray(usersFull.id, ids))) as Record<string, any>[]);
+    for (const r of rows) out.set(r.id, { name: r.name, email: r.email, language: r.language, emailVerifiedAt: r.email_verified_at ? new Date(r.email_verified_at) : null });
+    return out;
+  }
+
+  async createUser(data: InsertUser): Promise<UserPrivate> {
+    const [created] = await db.insert(usersFull).values(data).returning({ id: usersFull.id });
+    // Read it back the way the person's own account is read: the insert itself may not return the private columns.
+    return (await this.getUserPrivate(created.id))!;
   }
 
   async setUserTimezone(id: string, timezone: string): Promise<void> {
@@ -301,7 +360,7 @@ export class DbStorage implements IStorage {
   }
 
   async updateUserPassword(id: string, passwordHash: string): Promise<void> {
-    await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+    await db.update(usersFull).set({ passwordHash }).where(eq(usersFull.id, id));
   }
 
   async createUserDevice(data: InsertUserDevice): Promise<UserDevice> {
@@ -430,12 +489,13 @@ export class DbStorage implements IStorage {
   async registerDoctor(user: InsertUser, language: string) {
     return db.transaction(async (tx) => {
       // Role is fixed here, never taken from request input.
-      const [created] = await tx.insert(users).values({ ...user, role: "doctor", language }).returning();
+      const [created] = await tx.insert(usersFull).values({ ...user, role: "doctor", language }).returning({ id: usersFull.id, name: usersFull.name, language: usersFull.language });
+      // The e-mail address is not readable back (it is private); the caller supplied it.
       const [application] = await tx
         .insert(doctorApplications)
-        .values({ userId: created.id, name: created.name, email: created.email, status: "incomplete" })
+        .values({ userId: created.id, name: created.name, email: user.email, status: "incomplete" })
         .returning();
-      return { user: created, application };
+      return { user: { ...created, email: user.email }, application };
     });
   }
 
@@ -520,7 +580,7 @@ export class DbStorage implements IStorage {
           verifiedByUserId: reviewerUserId,
         })
         .returning();
-      await tx.update(users).set({ state, phone: application.phone }).where(eq(users.id, application.userId));
+      await tx.update(usersFull).set({ state, phone: application.phone }).where(eq(usersFull.id, application.userId));
 
       // The licence is verified by this approval, with the evidence the reviewer gave; the NPI (if any) stays pending.
       const now = new Date();
@@ -661,6 +721,14 @@ export class DbStorage implements IStorage {
       .where(eq(pairingRequests.id, id))
       .returning();
     return request;
+  }
+
+  async getUpcomingAppointmentsByPairing(pairingId: string, now: Date): Promise<Appointment[]> {
+    return db
+      .select()
+      .from(appointments)
+      .where(and(eq(appointments.pairingRequestId, pairingId), inArray(appointments.status, ["requested", "confirmed"]), sqlOp`${appointments.scheduledAt} > ${now}`))
+      .orderBy(appointments.scheduledAt);
   }
 
   async transitionPairingStatus(id: string, from: PairingStatus[], to: PairingStatus): Promise<PairingRequest | undefined> {
@@ -1017,7 +1085,7 @@ export class DbStorage implements IStorage {
       .select({
         reminder: medicationReminders,
         medicationName: medications.name,
-        email: users.email,
+        patientUserId: medicationReminders.patientUserId,
         emailVerifiedAt: users.emailVerifiedAt,
         language: users.language,
       })
@@ -1033,7 +1101,9 @@ export class DbStorage implements IStorage {
           isNull(users.deactivatedAt),
         ),
       );
-    return rows.map(({ emailVerifiedAt, ...r }) => ({ ...r, emailVerified: !!emailVerifiedAt }));
+    // The e-mail address is private: the server (this runs as the scheduler) fetches it for exactly the people it is about to write to.
+    const contacts = await this.getUserContacts(Array.from(new Set(rows.map((r) => r.patientUserId))));
+    return rows.map(({ emailVerifiedAt, patientUserId, ...r }) => ({ ...r, email: contacts.get(patientUserId)?.email ?? "", emailVerified: !!emailVerifiedAt }));
   }
 
   async deliverInApp(reminderId: string, dueAt: Date, notification: InsertNotification) {
@@ -1594,9 +1664,9 @@ export class DbStorage implements IStorage {
   async updateEmergencyProfile(
     userId: string,
     data: { emergencyContactName: string | null; emergencyContactPhone: string | null; allergiesText: string | null; emergencyNotes: string | null },
-  ): Promise<User | undefined> {
-    const [user] = await db.update(users).set(data).where(eq(users.id, userId)).returning();
-    return user;
+  ): Promise<UserPrivate | undefined> {
+    await db.update(usersFull).set(data).where(eq(usersFull.id, userId));
+    return this.getUserPrivate(userId);
   }
 
   // ---- Care Circle ----

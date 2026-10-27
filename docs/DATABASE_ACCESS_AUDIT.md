@@ -28,19 +28,17 @@ production on an owner connection unless `ALLOW_OWNER_DATABASE_ROLE=true`.
 
 ## 3. The model, in one paragraph
 
-Before each statement the application sets two session settings, `app.user_id` and `app.system`. Policies read them through
-`app_user_id()` and `app_is_system()`. With neither set, every policy is false: nothing is visible and nothing can be written.
-**System** identity is declared route by route (`systemAccess` middleware: sign-in, sign-up, password reset, e-mail confirmation, invitations, the
-scheduler, the e-mail webhook) and in named service methods (organization staff after the permission matrix, administrators
-acting on another account, background jobs). Every other request runs as the signed-in person, set once by `requireAuth` after a
-system-identity lookup of the session.
+Before each transaction the application presents a **signed, 60-second identity assertion** (`server/identity.ts`) which the database verifies with a key the
+application role cannot read (migration 0025; `docs/IDENTITY_BOUNDARY.md`). Policies read the verified identity through `app_user_id()` and
+`app_is_system()`. With no valid assertion every policy is false: nothing is visible and nothing can be written. **System** identity is declared route by
+route (`systemAccess`: sign-in, sign-up, password reset, e-mail confirmation, invitations, the scheduler, the e-mail webhook) and in named service methods
+(organization staff after the permission matrix, administrators acting on another account, background jobs). Every other request runs as the signed-in person,
+set by `requireAuth` after a system-identity lookup of the session. Row policies decide which rows; **column privileges** (migration 0026) decide which
+columns: of an account row the application role can read only the ten that identify a person.
 
-**What this does not protect against.** Anyone who can run arbitrary SQL as `avela_runtime` can set the identity to anything. The
-control is against *mistakes in query scoping* (a missing `WHERE`, a forgotten check), not against SQL injection or a
-compromised application host. That is why `tests/sqlHygiene.test.ts` fails the build if server code builds SQL by interpolation,
-concatenation or `sql.raw`, and why the runtime credential, not the database, is the thing to protect (rotation checklist in
-`docs/OPERATIONS_RUNBOOK.md`). A signed identity (a value the database can verify but the application role cannot forge) is
-possible and is recorded as an open design decision (D-03).
+**What this does not protect against.** The application process holds the signing key: code execution inside it can sign any identity. SQL injection inside
+a *public* route runs as `system`. Both are discussed with the full threat table in `docs/IDENTITY_BOUNDARY.md` §4–5 and are why `tests/sqlHygiene.test.ts` forbids
+interpolated SQL, why the key is custody-managed and rotatable, and why a scoped replacement for `system` is recommended (D-03b).
 
 ## 4. Table inventory (generated: `npm run audit:db -- --markdown`)
 
@@ -51,7 +49,9 @@ metadata · REF reference data. App role: S select, I insert, U update, D delete
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ai_messages` | CLIN, PII | assistant conversation | on | 1 | D,I,S,U | user, system | the person themself |
 | `allergy_statements` | CLIN | allergies as stated, with who stated them | on | 1 | D,I,S,U | user, system | the patient and people allowed to see the patient's profile |
-| `appointments` | CLIN, PII | visits (time, reason, status) | on | 4 | D,I,S,U | user, system, definer | the patient, a connected doctor, a caregiver (read), the provider of the visit; parties immutable; others see only free/busy through app_busy_intervals |
+| `app_identity_config` | OPS | whether signed identities are enforced, and the longest assertion lifetime accepted | on | 0 | (none) | definer | owner only; read solely by avela_identity_check() |
+| `app_identity_keys` | AUTH | the keys the database verifies identity assertions with (HMAC pad blocks, never the key itself) | on | 0 | (none) | definer | owner only: no privilege for the application role; read solely by avela_identity_check() (a SECURITY DEFINER function). Whoever can read this table can mint any identity |
+| `appointments` | CLIN, PII | visits (time, reason, status) | on | 4 | D,I,S,U | user, system, definer | the patient, a connected doctor, a caregiver (read), the provider of the visit (who keeps the record after a connection ends and may change it only while open); parties immutable; others see only free/busy through app_busy_intervals |
 | `assist_grants` | CLIN | a patient letting a clinician help fill in their profile | on | 2 | D,I,S,U | user, system | the patient; the named clinician reads |
 | `audit_logs` | OPS, PII | who read or did what to whose records (append-only) | on | 2 | I,S | user, system | the subject and the actor read their own entries; an administrator reads all; anyone may add an entry only in their own name; no UPDATE or DELETE privilege, trigger-enforced |
 | `care_circle_members` | PII | caregivers a patient invited, and what they may see | on | 2 | D,I,S,U | user, system | the patient writes; the caregiver reads their own membership |
@@ -66,7 +66,7 @@ metadata · REF reference data. App role: S select, I insert, U update, D delete
 | `email_deliveries` | PII, OPS | what was e-mailed to whom and its delivery state | on | 1 | D,I,S,U | system | server only |
 | `email_verification_tokens` | AUTH | single-use confirmation links (hashed) | on | 1 | D,I,S,U | system | server only |
 | `email_webhook_events` | OPS | provider delivery reports (deduplicated) | on | 1 | D,I,S,U | system | server only |
-| `follow_up_tasks` | CLIN | a patient's follow-up items | on | 4 | D,I,S,U | user, system | as appointments; parties immutable |
+| `follow_up_tasks` | CLIN | a patient's follow-up items | on | 4 | D,I,S,U | user, system | the patient and a LIVE connection's clinician (the clinician sees and changes tasks only while connected); parties immutable |
 | `health_entries` | CLIN | conditions and history | on | 1 | D,I,S,U | user, system | the patient and people allowed to see the patient's profile; edits recorded; trigger-guarded |
 | `health_entry_events` | CLIN, OPS | append-only history of profile entries | on | 2 | D,I,S,U | user, system | through the entry; trigger-enforced append-only |
 | `job_run_history` | OPS | one row per scheduler call (evidence of scheduling) | on | 1 | D,I,S,U | system | server only |
@@ -75,7 +75,7 @@ metadata · REF reference data. App role: S select, I insert, U update, D delete
 | `medication_reminders` | CLIN | reminder settings | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
 | `medications` | CLIN | a patient's tracked medicines | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
 | `message_reports` | CLIN, OPS | a person reporting a message | on | 3 | D,I,S,U | user, system | the reporter reads; an administrator resolves |
-| `messages` | CLIN, PII | doctor-patient messages | on | 3 | D,I,S,U | user, system | the two parties; sender and body immutable (trigger); the recipient may only mark delivered/read |
+| `messages` | CLIN, PII | doctor-patient messages | on | 3 | D,I,S,U | user, system | the patient always; the clinician only while the connection is live; writing only while live; sender and body immutable (trigger); the recipient may only mark delivered/read |
 | `mfa_recovery_codes` | AUTH | second-factor recovery (hashed codes) | on | 1 | D,I,S,U | system | server only |
 | `notifications` | PII | in-app notices | on | 4 | D,I,S,U | user, system | the recipient reads and clears; a notice may be left only for yourself or someone you are connected to |
 | `onboarding_sections` | CLIN | which profile sections a patient completed | on | 1 | D,I,S,U | user, system | the person themself |
@@ -102,16 +102,16 @@ metadata · REF reference data. App role: S select, I insert, U update, D delete
 | `user_blocks` | PII | who a person blocked | on | 1 | D,I,S,U | user, system | the blocker |
 | `user_devices` | AUTH | each signed-in browser or device | on | 1 | D,I,S,U | user, system | the person themself |
 | `user_mfa` | AUTH | clinicians, staff, administrators (encrypted authenticator secret, lock-out state) | on | 1 | D,I,S,U | system | server only: nobody, including the owner of the secret, can read it through the application role |
-| `users` | PII, AUTH, CLIN | every account (password hash, contact details, date of birth, emergency profile) | on | 3 | I,S,U | user, system | self; the other side of a doctor connection or care-circle invitation; colleagues in the same organization; an administrator sees clinicians, administrators, organization staff and message reporters, never other patients. Insert: server only, never an administrator. Update: self or server, role/e-mail/fixture flag immutable, e-mail verification server only. No DELETE privilege. |
+| `users` | PII, AUTH, CLIN | every account. The application role may READ only ten identifying columns (id, name, role, language, time zone, read receipts, fixture flag, created/deactivated/confirmed dates); the password hash, e-mail, phone, state, date of birth, emergency profile and preferences are released only by app_user_private / app_user_credentials* / app_user_contacts to the person, the server or the sign-in steps | on | 3 | I,U | user, system, definer | row: self; the other side of a doctor connection (live) or of a visit the doctor provides; care-circle parties; colleagues; an administrator sees clinicians, administrators, organization staff and message reporters. Column: public ten only. Insert: server only, never an administrator. Update: self or server, role/e-mail/fixture flag immutable, e-mail verification server only. No DELETE privilege. |
 
 ## 5. Functions
 
 All functions are executable only by their owner and, for the application role, only the policy helpers (`app_*`). `PUBLIC` holds no
 `EXECUTE` (it did before 0024: every function, including the trigger functions and `avela_apply_grants()`, was executable by every role).
 
-- SECURITY DEFINER functions: app_admin_may_see_user, app_busy_intervals, app_can_see_user, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_my_doctor_profiles
-- Policy helpers the application role may execute: app_admin_may_see_user, app_busy_intervals, app_can_read_patient, app_can_see_profile, app_can_see_user, app_can_write_patient, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_is_system, app_my_doctor_profiles, app_owns, app_restricted_session, app_user_id
-- Functions it may not execute: avela_append_only, avela_apply_grants, avela_credential_event_guard, avela_doctor_applications_guard, avela_doctor_profiles_guard, avela_health_entry_guard, avela_health_events_guard, avela_message_guard, avela_org_notes_guard, avela_parties_immutable, avela_prescription_guard, avela_users_guard, zz_fail_invitation
+- SECURITY DEFINER functions: app_admin_may_see_user, app_busy_intervals, app_can_see_user, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_private, app_verified_system, app_verified_user, avela_identity_check
+- Policy helpers the application role may execute: app_admin_may_see_user, app_busy_intervals, app_can_read_patient, app_can_see_profile, app_can_see_user, app_can_write_patient, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_is_system, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_owns, app_restricted_session, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_id, app_user_private, app_verified_system, app_verified_user
+- Functions it may not execute: avela_append_only, avela_apply_grants, avela_credential_event_guard, avela_doctor_applications_guard, avela_doctor_profiles_guard, avela_health_entry_guard, avela_health_events_guard, avela_identity_check, avela_message_guard, avela_org_notes_guard, avela_parties_immutable, avela_prescription_guard, avela_users_guard, zz_fail_invitation
 
 Every SECURITY DEFINER function fixes `search_path = public, pg_temp` (test: "gives every SECURITY DEFINER function a fixed search_path").
 `zz_fail_invitation` exists only in test databases.
@@ -144,16 +144,22 @@ Every SECURITY DEFINER function fixes `search_path = public, pg_temp` (test: "gi
 | F11 | **Real caregivers were invisible to row-level security.** Migration 0014's `app_is_caregiver_of` looked for membership status `'accepted'`; the application's value is `'active'` (invited \| active \| revoked). Under the restricted role (live in production since 2026-10-26) a caregiver therefore saw an empty overview. The 0014 tests inserted `'accepted'` by hand and agreed with the bug; it surfaced when the browser suite ran against the restricted role after `users` got a policy | High (fails closed, but breaks a feature, and shows how a policy can disagree with the application) | `app_is_caregiver_of` corrected in 0024; fixtures now use the real status | "shows a real caregiver the patient's name, today's medicines and upcoming visits" (goes through the real invitation and checks content; fails against the old helper), `e2e/roles.spec.ts` under `test:e2e:rls` |
 | F12 | No bounce or complaint suppression: invitations and reminders kept being sent to addresses that bounced permanently or complained | Medium | `isSuppressed` before every non-essential send | `emailDeliveries.test.ts` "suppression after a bounce or a complaint" |
 | F13 | Scheduler source was a self-chosen label: anyone holding the shared cron secret (a GitHub workflow) could appear as the dedicated scheduler | Medium | The server attests a caller by which secret it presents (`CRON_SECRET_CLOUDFLARE`); a claim is recorded as `claimed:…` | `scheduler.test.ts` "who called: attested by secret, not by label" |
+| F14 | **Identity was connection-scoped behind a transaction-mode connection pooler.** Production reaches Postgres through Neon's PgBouncer; session-wide settings written by the application were read back by other clients (26 of 200 reads) or not at all (own value 3 of 200) | **Critical** (cross-user data exposure under concurrency; hidden today by zero users and serial traffic) | Identity is transaction-local and signed (0025) | `identityBoundary.test.ts` ("a pooled connection never carries an identity…") with a mutation check |
+| F15 | The identity itself was forgeable by anyone who could run SQL as the application role (two plain settings) | High | Signed assertion verified in the database; key unreadable by the role | `identityBoundary.test.ts` (forged, tampered, expired, wrongly keyed, retired, plain settings, key access) |
+| F16 | A connected clinician (and a caregiver, a colleague, anyone who may see an account row) could read the whole row: password hash, e-mail, phone, date of birth, emergency profile, preferences | High | Column privileges: the role reads ten identifying columns only; private columns come through `app_user_*` functions that check who is asking (0026) | `privateAccountColumns.test.ts` (15 private columns × 6 identities, joins/subqueries/RETURNING, the functions, and a 400-request API crawl for hash, address and marker values) |
+| F17 | The database allowed a clinician to keep reading an ended conversation and a patient's follow-up tasks, and to rewrite a finished visit | Medium | Policies tightened (0027); visits stay the provider's record, changeable only while open | `connectionEnd.test.ts` (database level) |
+| F18 | Ending a connection settled upcoming visits implicitly (they just stayed) | Medium (product/privacy) | The patient must choose cancel or keep (409 until they do) | `connectionEnd.test.ts` |
 | F10 | `doctor_applications.password_hash` is a legacy column ("new registrations keep the password only on the user row"); 0 rows in production | Low | Left (empty); candidate for a later drop | — |
 
 ## 8. Unresolved exceptions (read these)
 
-1. **Application-asserted identity** (section 3): a compromised runtime credential or SQL injection defeats row-level security. Mitigated by parameterization evidence (`sqlHygiene.test.ts`), secret rotation, and not exposing the credential; design option D-03.
-2. **System identity is broad in `orgs.ts`**: 29 sites, correct by the permission matrix, not by row policies. Treat as security-critical.
-3. **`password_hash` and the emergency profile live on `users`** and are visible, through the row policy, to the counterparts in section 4's "Boundary" column for that table (a connected doctor sees the patient's whole account row, not only the columns the screens show). The application selects columns; the database cannot narrow columns without a redesign (D-04).
-4. **F8** above.
-5. **The test database is PostgreSQL 16**, production's is 18.6. The fingerprint comparison found no difference in what the migrations produce, but behaviour is not proven identical across versions (move CI to a PostgreSQL 18 service container).
+1. **The application process holds the signing key** (`IDENTITY_BOUNDARY.md` §4): code execution there can sign any identity.
+2. **`system` is one broad capability**, used by 16 public routes and many services; an injection in a public route would have it (§5 there; D-03b).
+3. **System identity in `orgs.ts`** (29 sites) is correct by the permission matrix, not by row policies. Treat as security-critical.
+4. **Historical visits stay with the provider** after a connection ends (F8, now an explicit rule in `docs/CONNECTION_END.md`; retention periods are a legal question).
+5. **The test database is PostgreSQL 16 locally** (18 in CI and production).
 6. Coarse policies by design (docs/SECURITY.md): they do not check which sections a patient shared or individual caregiver permissions; the application narrows further.
+7. Plain-text e-mail addresses remain in `doctor_applications` and the per-feature tables that hold an address of their own (care-circle invitations, organization invitations, password-reset tokens) — each behind its own policy, none readable by counterparts.
 
 ## 9. Where each required adversarial scenario is tested
 

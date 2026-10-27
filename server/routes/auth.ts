@@ -72,7 +72,7 @@ async function sessionUser(user: { emailVerifiedAt?: Date | null; id: string; na
 const verifyRequestLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 5, keyGenerator: userKey, message: "You've asked for several links. Please wait a while." });
 
 router.post("/email/verify/request", requireAuth, verifyRequestLimiter, async (req, res) => {
-  const user = await storage.getUser((req as any).userId);
+  const user = await storage.getUserPrivate((req as any).userId);
   if (!user) return res.status(404).json({ message: "Account not found" });
   if (user.emailVerifiedAt) return res.json({ verified: true, sent: false });
   const { token, tokenHash } = generateSecureToken();
@@ -196,7 +196,7 @@ router.post("/mfa/setup", systemAccess, mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
   if (!userId) return res.status(401).json({ message: EXPIRED });
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
   const started = await beginEnrollment(user);
   if (!started) return res.status(409).json({ message: "Sign-in codes are already set up for this account." });
@@ -207,7 +207,7 @@ router.post("/mfa/enable", systemAccess, mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
   const done = await completeEnrollment(userId, parsed.data.code);
   if (!done.ok) {
@@ -222,7 +222,7 @@ router.post("/mfa/verify", systemAccess, mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "verify") : null;
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt || (user.isDemo && !fixtureAccountsAllowed())) return res.status(401).json({ message: EXPIRED });
   const check = await checkSecondFactor(userId, parsed.data.code);
   if (!check.ok) {
@@ -235,7 +235,7 @@ router.post("/mfa/verify", systemAccess, mfaIpLimiter, async (req, res) => {
 
 router.get("/mfa/status", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   const state = await mfaState(userId);
   res.json({ required: !!user && roleRequiresMfa(user.role), enabled: state === "enabled", recoveryCodesLeft: state === "enabled" ? await storage.countRecoveryCodes(userId) : 0 });
 });
@@ -344,7 +344,7 @@ router.post("/session", requireAuth, async (req, res) => {
   if (!req.headers.authorization) return res.status(400).json({ message: "Not available" }); // already on a cookie
   const userId = (req as any).userId as string;
   const deviceId = (req as any).deviceId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(401).json({ message: "Your session has ended. Please sign in again." });
   setSessionCookie(req, res, signToken(user.id, user.role, deviceId, (req as any).sessionMfa === true));
   res.json({ user: await sessionUser(user) });
@@ -352,7 +352,7 @@ router.post("/session", requireAuth, async (req, res) => {
 
 router.get("/me", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
   res.json(await sessionUser(user));
 });
@@ -365,7 +365,7 @@ router.patch("/me/preferences", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
   if (parsed.data.readReceipts !== undefined) await storage.setReadReceipts(userId, parsed.data.readReceipts);
   if (parsed.data.language !== undefined) await storage.updateUserLanguage(userId, parsed.data.language);
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
   res.json(await sessionUser(user));
 });

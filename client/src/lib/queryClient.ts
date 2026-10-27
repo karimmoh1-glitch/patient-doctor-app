@@ -55,13 +55,15 @@ async function request(url: string, init: RequestInit): Promise<Response> {
 async function throwIfResNotOk(res: Response) {
   if (res.ok) return;
   let message = res.statusText || translate(getLocale(), "common.error.generic");
+  let data: any;
   try {
-    const data = await res.json();
+    data = await res.json();
     if (data?.message) message = data.message;
   } catch {
     // non-JSON error body (e.g. a proxy/HTML error page) — keep the fallback
   }
-  throw new Error(message);
+  // The status and the body travel with the error, so a screen can act on a structured answer (for example "choose what to do with these visits").
+  throw Object.assign(new Error(message), { status: res.status, data });
 }
 
 export async function apiRequest(

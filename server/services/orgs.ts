@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
 import { runAsSystem } from "../dbContext";
+import { storage } from "../storage";
 import {
   appointments, auditLogs, doctorProfiles, notifications, orgInvitations, orgMemberships, orgNotes, orgTasks, organizations, pairingRequests, users,
   type OrgMembership, type Organization,
@@ -129,12 +130,15 @@ const hashToken = (token: string) => crypto.createHmac("sha256", `${process.env.
 
 export async function listStaff(a: OrgAccess) {
   return runAsSystem(async () => {
-    const members = await db
-      .select({ m: orgMemberships, name: users.name, email: users.email })
+    const rows = await db
+      .select({ m: orgMemberships, name: users.name })
       .from(orgMemberships)
       .innerJoin(users, eq(users.id, orgMemberships.userId))
       .where(and(eq(orgMemberships.orgId, a.org.id)))
       .orderBy(desc(orgMemberships.createdAt));
+    // E-mail addresses are private to their owners and the server; staff who may invite are shown their colleagues' (a server decision, below).
+    const contacts = await storage.getUserContacts(rows.map((r) => r.m.userId));
+    const members = rows.map((r) => ({ ...r, email: contacts.get(r.m.userId)?.email ?? "" }));
     const invites = await db.select().from(orgInvitations).where(and(eq(orgInvitations.orgId, a.org.id), eq(orgInvitations.status, "pending")));
     const canSeeEmail = can(a.role, "org.staff.invite");
     return {
@@ -150,7 +154,7 @@ const MAX_INVITATIONS_PER_DAY = 30;
 export async function invite(a: OrgAccess, email: string, role: OrgRole) {
   if (!assignableRoles(a.role).includes(role)) fail(403, "forbidden", "You can't give that role.");
   return runAsSystem(async () => {
-    const [existingUser] = await db.select().from(users).where(eq(users.email, email));
+    const existingUser = await storage.getUserByEmail(email);
     // Whether this address has an account of some other kind is not revealed: an invitation that cannot be used is created all the same,
     // and the person simply cannot accept it (accepting checks the kind of account again).
     if (existingUser) {
@@ -193,7 +197,7 @@ export async function previewInvitation(token: string) {
       .innerJoin(organizations, eq(organizations.id, orgInvitations.orgId))
       .where(and(eq(orgInvitations.tokenHash, hashToken(token)), eq(orgInvitations.status, "pending"), sql`${orgInvitations.expiresAt} > now()`));
     if (!row || row.orgStatus === "suspended") throw NOT_FOUND();
-    const [u] = await db.select({ id: users.id }).from(users).where(eq(users.email, row.inv.email));
+    const u = await storage.getUserByEmail(row.inv.email);
     return { orgName: row.orgName, role: row.inv.role as OrgRole, email: row.inv.email, accountExists: !!u };
   });
 }
@@ -206,8 +210,9 @@ export async function acceptWithAccount(userId: string, token: string) {
       const [inv] = await tx.select().from(orgInvitations).where(and(eq(orgInvitations.tokenHash, hashToken(token)), eq(orgInvitations.status, "pending"), sql`${orgInvitations.expiresAt} > now()`)).for("update");
       if (!inv) throw NOT_FOUND();
       const [user] = await tx.select().from(users).where(eq(users.id, userId));
+      const contact = (await storage.getUserContacts([userId])).get(userId);
       // The invitation belongs to one e-mail address: possessing the link is not enough.
-      if (!user || user.email.toLowerCase() !== inv.email.toLowerCase()) throw NOT_FOUND();
+      if (!user || !contact || contact.email.toLowerCase() !== inv.email.toLowerCase()) throw NOT_FOUND();
       if (inv.role === "clinician" && user.role !== "doctor") throw NOT_FOUND();
       if (inv.role !== "clinician" && user.role !== "staff") throw NOT_FOUND();
       const [org] = await tx.select().from(organizations).where(eq(organizations.id, inv.orgId));
@@ -230,7 +235,7 @@ export async function claimInvitationForNewAccount(token: string) {
   return runAsSystem(async () => {
     const [inv] = await db.select().from(orgInvitations).where(and(eq(orgInvitations.tokenHash, hashToken(token)), eq(orgInvitations.status, "pending"), sql`${orgInvitations.expiresAt} > now()`));
     if (!inv || inv.role === "clinician") throw NOT_FOUND();
-    const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, inv.email));
+    const existing = await storage.getUserByEmail(inv.email);
     if (existing) fail(409, "account_exists", "An account with this e-mail already exists. Sign in, then accept the invitation.");
     const [org] = await db.select().from(organizations).where(eq(organizations.id, inv.orgId));
     if (!org || org.status === "suspended") throw NOT_FOUND();

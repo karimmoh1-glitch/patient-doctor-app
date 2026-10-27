@@ -6,6 +6,7 @@ import {
   type AllergyPicture, type EntryKind, type HealthEntry, type ProfileSection,
 } from "@shared/schema";
 import { logAudit } from "./auditService";
+import { storage } from "../storage";
 
 /**
  * A patient's own health information, with provenance.
@@ -396,7 +397,8 @@ export const ALLERGY_STATES_FOR_STATEMENT = ALLERGY_STATES.filter((s) => s !== "
 
 /** Everything held about this patient's health information, with provenance and history, for their own data download. */
 export async function exportProfile(patientId: string) {
-  const [u] = await db.select().from(users).where(eq(users.id, patientId));
+  // The person's own private details (their data download): the database releases these to them, the server, or a clinician they authorised.
+  const u = await storage.getUserPrivate(patientId);
   const entries = await db.select().from(healthEntries).where(eq(healthEntries.patientUserId, patientId)).orderBy(healthEntries.createdAt);
   const events = entries.length ? await db.select().from(healthEntryEvents).where(inArray(healthEntryEvents.entryId, entries.map((e) => e.id))).orderBy(healthEntryEvents.createdAt) : [];
   const nm = await names(Array.from(new Set([...entries.flatMap((e) => [e.enteredByUserId, e.verifiedByUserId].filter(Boolean) as string[])])));

@@ -3,7 +3,12 @@ import { bigint, date, index, integer, jsonb, pgTable, text, timestamp, varchar,
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
+// Every column of an account. NOT all of them are for anybody who may see the account's row: a connected doctor, a caregiver and a colleague
+// are allowed to see WHO a person is, not their password hash, e-mail address, phone number, date of birth or emergency profile. The
+// database enforces that with column privileges (migration 0026): the application role may read only USERS_PUBLIC_COLUMNS of this table,
+// and reads the rest through SECURITY DEFINER functions that check who is asking. `users` below is therefore the table the application
+// selects from; `usersFull` is for inserting an account and for writing private columns.
+const userColumns = {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   email: varchar("email").notNull().unique(),
@@ -45,7 +50,14 @@ export const users = pgTable("users", {
   // Null = unverified. Non-blocking today — verification isn't required to
   // use the app, only tracked.
   emailVerifiedAt: timestamp("email_verified_at"),
-});
+};
+
+/** The columns anyone who may see an account's row may read. Keep this list in step with migration 0026. */
+export const USERS_PUBLIC_COLUMNS = ["id", "name", "role", "language", "readReceipts", "isDemo", "timezone", "createdAt", "deactivatedAt", "emailVerifiedAt"] as const;
+const { id, name, role, language, readReceipts, isDemo, timezone, createdAt, deactivatedAt, emailVerifiedAt } = userColumns;
+
+export const usersFull = pgTable("users", userColumns);
+export const users = pgTable("users", { id, name, role, language, readReceipts, isDemo, timezone, createdAt, deactivatedAt, emailVerifiedAt });
 
 export const userDevices = pgTable("user_devices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -125,13 +137,18 @@ export const mfaRecoveryCodes = pgTable("mfa_recovery_codes", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertUserSchema = createInsertSchema(usersFull).omit({ id: true, createdAt: true });
 export const insertUserDeviceSchema = createInsertSchema(userDevices).omit({ id: true, firstSeenAt: true, lastSeenAt: true });
 export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).omit({ id: true, createdAt: true });
 export const insertEmailVerificationTokenSchema = createInsertSchema(emailVerificationTokens).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 
+/** What anyone allowed to see an account may see. */
 export type User = typeof users.$inferSelect;
+/** Everything on the account except the password hash: only the person themself, the server, or a clinician the person authorised may be handed this. */
+export type UserPrivate = Omit<typeof usersFull.$inferSelect, "passwordHash">;
+/** The whole row including the password hash: the sign-in and password flows only. */
+export type UserWithCredentials = typeof usersFull.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UserDevice = typeof userDevices.$inferSelect;
 export type InsertUserDevice = z.infer<typeof insertUserDeviceSchema>;

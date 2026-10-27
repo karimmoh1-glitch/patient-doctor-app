@@ -52,6 +52,12 @@ async function main() {
   }
   for (const name of Object.keys(CLASSIFICATION)) if (!rels.some((r) => r.relname === name)) findings.push(`${name}: classified but does not exist`);
 
+  if (hasApp) {
+    // Which columns of an account the application role can read: exactly the ones that identify a person (migration 0026).
+    const readable = (await q(`SELECT a.attname FROM pg_attribute a WHERE a.attrelid = 'public.users'::regclass AND a.attnum > 0 AND NOT a.attisdropped AND has_column_privilege('avela_app', 'public.users', a.attname, 'SELECT') ORDER BY 1`)).map((r) => r.attname as string);
+    const expected = ["created_at", "deactivated_at", "email_verified_at", "id", "is_demo", "language", "name", "read_receipts", "role", "timezone"];
+    if (JSON.stringify(readable) !== JSON.stringify(expected)) findings.push(`users: the application role can read [${readable.join(", ")}] but only [${expected.join(", ")}] are meant to be readable`);
+  }
   const fns = await q(`SELECT p.proname, p.prosecdef, p.proconfig::text AS cfg, ${hasApp ? "has_function_privilege('avela_app', p.oid, 'EXECUTE')" : "false"} AS app_exec,
                               EXISTS (SELECT 1 FROM aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE') AS public_exec
                          FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f' AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e') ORDER BY 1`);

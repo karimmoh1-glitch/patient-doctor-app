@@ -18,7 +18,7 @@ const deleteLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 5, failures
 // notes, and no file contents (the list of saved papers, not the papers).
 router.get("/export", requireAuth, requireRole("patient"), exportLimiter, async (req, res) => {
   const userId = (req as any).userId as string;
-  const user = (await storage.getUser(userId))!;
+  const user = (await storage.getUserPrivate(userId))!;
   const [reports, pairings, appointments, prescriptions, medications, reminders, docs, followUps, grants, circle, ai] = await Promise.all([
     storage.getSymptomReportsByPatient(userId),
     storage.getPairingRequestsByPatient(userId),
@@ -86,7 +86,7 @@ router.post("/delete-request", requireAuth, requireRole("patient"), deleteLimite
   const parsed = z.object({ password: z.string().min(1), confirm: z.literal(true) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Please confirm and enter your password." });
   const userId = (req as any).userId as string;
-  const user = (await storage.getUser(userId))!;
+  const user = (await storage.getUserWithCredentials(userId))!;
   if (!(await bcrypt.compare(parsed.data.password, user.passwordHash))) {
     // 403, not 401: a 401 would make the app think the session had ended and sign the person out.
     return res.status(403).json({ message: "That password isn't right." });

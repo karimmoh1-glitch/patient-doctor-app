@@ -44,7 +44,7 @@ describe("when a patient ends a connection, the doctor loses every route to them
     for (const [what, call] of doctorReads(doctor, pairingId)) {
       expect([200, 201], `${what} while connected`).toContain(await call());
     }
-    expect((await request(app).patch(`/api/pairings/${pairingId}/end`).set(auth(patient.token))).status).toBe(200);
+    expect((await request(app).patch(`/api/pairings/${pairingId}/end`).set(auth(patient.token)).send({ upcomingVisits: "keep" })).status).toBe(200);
     for (const [what, call] of doctorReads(doctor, pairingId)) {
       expect([401, 403, 404], `${what} after the connection ended`).toContain(await call());
     }
@@ -60,22 +60,6 @@ describe("when a patient ends a connection, the doctor loses every route to them
     expect(after.medications).toBeUndefined();
     expect(after.appointments).toBeUndefined();
     expect(after.documents).toBeUndefined();
-  });
-});
-
-describe("a documented exception: the provider of a visit keeps that visit's record", () => {
-  // DECISION PENDING (docs/PRODUCTION_READINESS.md, D-02): ending a connection stops messaging, the symptom report and every
-  // shared category at once, but a visit the doctor delivered or is booked to deliver stays in the doctor's own appointment list,
-  // including the patient's name and the reason they gave. Keeping a record of care you provided is normal; a patient who has
-  // ended the connection still seeing their upcoming booking disclosed to that doctor may not be what they expect. This test pins
-  // the CURRENT behaviour so that changing it (for example by cancelling future visits when a connection ends) is a decision.
-  it("still shows the doctor the visit after the patient ended the connection, and nothing else", async () => {
-    const { patient, doctor, pairingId, appt } = await scene();
-    await request(app).patch(`/api/pairings/${pairingId}/end`).set(auth(patient.token));
-    const visit = await request(app).get(`/api/appointments/${appt}`).set(auth(doctor.token));
-    expect(visit.status).toBe(200);
-    expect(visit.body.reason).toBe("private reason");
-    for (const [what, call] of doctorReads(doctor, pairingId)) expect([401, 403, 404], what).toContain(await call());
   });
 });
 

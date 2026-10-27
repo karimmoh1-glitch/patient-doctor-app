@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import type { Request } from "express";
 import { defaultTimezoneForState } from "@shared/timezones";
 import { storage } from "../storage";
+import { runAsSystem } from "../dbContext";
 import type { User } from "@shared/schema";
 
 export function isValidZone(tz: unknown): tz is string {
@@ -26,7 +27,7 @@ export function clockInZone(now: Date, tz: string): string {
  * Order of trust: the browser's zone sent with the request (and remembered),
  * then the last remembered zone, then a default for the patient's state.
  */
-export async function resolvePatientTimezone(req: Request | null, user: User): Promise<string> {
+export async function resolvePatientTimezone(req: Request | null, user: User & { state?: string | null }): Promise<string> {
   const header = req?.headers["x-timezone"];
   const fromBrowser = Array.isArray(header) ? header[0] : header;
   if (isValidZone(fromBrowser)) {
@@ -34,11 +35,12 @@ export async function resolvePatientTimezone(req: Request | null, user: User): P
     return fromBrowser;
   }
   if (isValidZone(user.timezone)) return user.timezone;
-  return defaultTimezoneForState(user.state);
+  return defaultTimezoneForState(user.state ?? null);
 }
 
 export async function patientTimezoneById(patientUserId: string): Promise<string> {
-  const user = await storage.getUser(patientUserId);
+  // Reading the person's own state (to pick a default zone) is the server's doing: the answer is a time zone, never the state.
+  const user = await runAsSystem(() => storage.getUserPrivate(patientUserId));
   if (!user) return "America/New_York";
   return resolvePatientTimezone(null, user);
 }

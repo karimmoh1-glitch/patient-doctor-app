@@ -8,7 +8,7 @@ const router = Router();
 
 router.get("/", requireAuth, requireRole("patient"), async (req, res) => {
   const userId = (req as any).userId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(404).json({ message: "Account not found" });
   res.json({
     emergencyContactName: user.emergencyContactName,
@@ -32,7 +32,7 @@ router.put("/", requireAuth, requireRole("patient"), async (req, res) => {
 
   // Allergies live in the health profile, with who said what; this older free-text field is no longer written to,
   // so an old client cannot wipe it (and nothing new is stored in it).
-  const current = await storage.getUser(userId);
+  const current = await storage.getUserPrivate(userId);
   const updated = await storage.updateEmergencyProfile(userId, {
     emergencyContactName: parsed.data.emergencyContactName || null,
     emergencyContactPhone: parsed.data.emergencyContactPhone || null,

@@ -2,8 +2,11 @@
  * The signing key that lets the database verify who an application transaction is for (migration 0025, docs/IDENTITY_BOUNDARY.md).
  * Run with the OWNER connection, from a trusted shell. No command prints a key.
  *
- *   npm run identity:key -- generate [--kid=k2] [--out=<file>]   create a new key: register it in the database and write the value the
- *                                                                 application needs (IDENTITY_KEY) to a private file (mode 600)
+ *   npm run identity:key -- generate [--kid=k2] [--out=<file>] [--no-register]
+ *                                                                 create a new key: register it in the database and write the value the
+ *                                                                 application needs (IDENTITY_KEY) to a private file (mode 600).
+ *                                                                 --no-register only writes the file (the database does not have the tables yet)
+ *   npm run identity:key -- register --from=<file>               register a key generated with --no-register
  *   npm run identity:key -- status                               which keys exist, which are retired, and whether enforcement is on
  *   npm run identity:key -- retire --kid=k1                      stop accepting a key (do this only after the application uses a newer one)
  *   npm run identity:enforce -- on|off                           honour only signed assertions (on) or also the old plain settings (off)
@@ -27,17 +30,36 @@ async function main() {
   if (command === "generate") {
     const kid = arg("kid") ?? `k${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
     if (!/^[a-z0-9_-]{1,32}$/.test(kid)) throw new Error("--kid must be 1-32 characters of a-z, 0-9, _ or -.");
-    const exists = await pool.query("SELECT 1 FROM app_identity_keys WHERE kid = $1", [kid]);
-    if (exists.rowCount) throw new Error(`A key called ${kid} already exists. Nothing was changed.`);
+    const register = !process.argv.includes("--no-register");
+    if (register) {
+      const exists = await pool.query("SELECT 1 FROM app_identity_keys WHERE kid = $1", [kid]);
+      if (exists.rowCount) throw new Error(`A key called ${kid} already exists. Nothing was changed.`);
+    }
     const key = crypto.randomBytes(32);
     const out = arg("out") ?? path.join(os.homedir(), ".avela-secrets", `identity-${kid}`);
     fs.mkdirSync(path.dirname(out), { recursive: true, mode: 0o700 });
     // Write the file first, with restrictive permissions from the start; register in the database only if that worked.
     fs.writeFileSync(out, `IDENTITY_KEY_ID=${kid}\nIDENTITY_KEY=${key.toString("base64")}\n`, { mode: 0o600, flag: "wx" });
+    if (register) {
+      await registerIdentityKey(pool, { kid, key });
+      await pool.query("INSERT INTO audit_logs (action, target_type, metadata) VALUES ('identity.key_registered', 'system', $1)", [JSON.stringify({ kid, operator: process.env.USER ?? "unknown" })]);
+      console.log(`Registered key ${kid} in the database. The value the application needs was written to ${out} (mode 600; not shown).`);
+    } else {
+      console.log(`Wrote key ${kid} to ${out} (mode 600; not shown). It is NOT registered in the database yet: after the migrations, run \`npm run identity:key -- register --from=${out}\`.`);
+    }
+    console.log("Next: set IDENTITY_KEY_ID and IDENTITY_KEY on the host from that file (npx vercel env add NAME production --sensitive < file-with-just-the-value), deploy, verify, then `npm run identity:enforce -- on`.");
+  } else if (command === "register") {
+    const from = arg("from");
+    if (!from) throw new Error("--from=<file written by generate> is required");
+    const text = fs.readFileSync(from, "utf8");
+    const kid = /^IDENTITY_KEY_ID=(.+)$/m.exec(text)?.[1]?.trim();
+    const value = /^IDENTITY_KEY=(.+)$/m.exec(text)?.[1]?.trim();
+    if (!kid || !value) throw new Error("That file does not hold IDENTITY_KEY_ID and IDENTITY_KEY.");
+    const key = Buffer.from(value, "base64");
+    if (key.length !== 32) throw new Error("IDENTITY_KEY must be 32 random bytes, base64 encoded.");
     await registerIdentityKey(pool, { kid, key });
     await pool.query("INSERT INTO audit_logs (action, target_type, metadata) VALUES ('identity.key_registered', 'system', $1)", [JSON.stringify({ kid, operator: process.env.USER ?? "unknown" })]);
-    console.log(`Registered key ${kid} in the database. The value the application needs was written to ${out} (mode 600; not shown).`);
-    console.log("Next: set IDENTITY_KEY_ID and IDENTITY_KEY on the host from that file (npx vercel env add NAME production --sensitive < file-with-just-the-value), deploy, verify, then `npm run identity:enforce -- on`.");
+    console.log(`Registered key ${kid} in the database.`);
   } else if (command === "retire") {
     const kid = arg("kid");
     if (!kid) throw new Error("--kid=<id> is required");

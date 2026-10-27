@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import type { Express } from "express";
-import { getApp, signupPatient, createAdmin, createDoctor, auth, uniqueEmail, PASSWORD, authenticatorSecretFor, signIn, completeSecondFactor } from "./helpers";
+import { getApp, signupPatient, createAdmin, createDoctor, auth, uniqueEmail, PASSWORD, authenticatorSecretFor, signIn, completeSecondFactor, operatorPool } from "./helpers";
 import { totp, stepAt } from "../server/lib/totp";
 import { pool } from "../server/db";
 import { encryptSecret, decryptSecret, signChallenge, readChallenge, allowCodeReuse } from "../server/services/mfaService";
@@ -92,7 +92,7 @@ describe("setting up the authenticator", () => {
     expect(setup.status).toBe(200);
     expect(setup.body.secret).toMatch(/^[A-Z2-7]{32}$/);
     expect(setup.body.otpauthUri).toContain(`secret=${setup.body.secret}`);
-    const stored = (await pool.query("SELECT secret_ciphertext, pending FROM user_mfa WHERE user_id = (SELECT id FROM users WHERE email = $1)", [c.email])).rows[0];
+    const stored = (await operatorPool().query("SELECT secret_ciphertext, pending FROM user_mfa WHERE user_id = (SELECT id FROM users WHERE email = $1)", [c.email])).rows[0];
     expect(stored.pending).toBe(true);
     expect(stored.secret_ciphertext).not.toContain(setup.body.secret);
     expect(stored.secret_ciphertext).toMatch(/^v2\./);
