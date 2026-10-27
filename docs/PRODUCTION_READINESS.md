@@ -120,8 +120,8 @@ deployment, passed 18 of 18 with no retries.
 | | |
 | --- | --- |
 | Branch / PR | `mission2/close-security-gaps`, draft PR #1 (base `main` at `f4131a3`; production is `704b7df`) |
-| Candidate commit | CANDIDATE_SHA (a later commit on the branch changes documentation only: check `git diff <sha>..HEAD --stat`) |
-| CI for that exact commit | CI_RESULT |
+| Candidate commit | code tip `deb942c` (any later commit on the branch changes documentation only: `git diff deb942c..HEAD --stat`) |
+| CI for that exact commit | **green**: run 40446616819, jobs `test` (typecheck, 618-test suite, build, production-build smoke, browser suite) and `restricted-role` (suite and browser suite as `avela_app`, `audit:db`, migration rehearsal) both success, on PostgreSQL 18. The previous code commit `0e3323d` failed CI on `test:prod` (the production-mode server now needs an identity key; the smoke config was missing one) and was fixed in `deb942c`; the same commit also removes a step-boundary race in that smoke test's authenticator-code offsets |
 | What it contains | migrations 0024-0027 (RLS on every table and guards; signed identity; private account columns; connection-end rules), the application changes they need, the operator tooling, the docs. `git diff 704b7df..HEAD --stat` |
 | Diff reviewed | no secret-shaped string (scan of the added lines: only CI-only throwaway credentials in the workflow and placeholders in comments); `npm audit --omit=dev`: 0 vulnerabilities (4 moderate in dev tooling, accepted); production build and `test:prod` (22) pass |
 | Local runs on the candidate | `npm run test:rls` 618 passed; `npm test` 609 passed + 9 skipped (the restricted-role-only blocks, which `test:rls` runs); `npm run test:e2e:rls` 145 passed (then 2 new patient-journey tests passed in both modes); `npm run test:e2e` 147 passed; `npm run test:prod` 22 passed; typecheck clean; `audit:db` 0 findings; restore drill PASS (local, synthetic) |
