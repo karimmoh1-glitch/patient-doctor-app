@@ -140,6 +140,7 @@ Result 2026-10-26: all checks pass. It proves the procedure and the schema's res
 5. **Data:** compare row counts of `users`, `messages`, `audit_logs`, `appointments` between source and branch (counts only, no row data on screen).
 6. **Behaviour as the restricted role:** `DATABASE_URL=$B npm run verify:production` (database checks); point a **preview** deployment at the branch with
    `APP_DATABASE_URL` (the runtime role on the branch) and `DB_ENFORCE_RLS=on`, then `LIVE_URL=<preview> npm run test:live`.
+6b. **Identity through the real pooler** (needs the key registered on the branch and the release's migrations): `APP_DATABASE_URL=<branch pooled runtime url> DB_ENFORCE_RLS=on npm run pooler:check` must print `0 under the wrong identity`; the narrow scopes must survive the restore (`ops/restore-drill.sh` checks this locally).
 7. Record: restore point, how long each step took (that is your real recovery time), anything that differed. Delete the branch.
 Until this is done G16 stays BLOCKED; the local `ops/restore-drill.sh` is not a substitute.
 

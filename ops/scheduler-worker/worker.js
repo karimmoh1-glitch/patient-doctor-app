@@ -7,7 +7,7 @@
 // failure is visible in Cloudflare and (optionally) in a webhook, never silent.
 //
 // Secrets (set with `wrangler secret put`, never committed):
-//   CRON_SECRET   the same value as Avela's CRON_SECRET environment variable
+//   CRON_SECRET   the value of the host's CRON_SECRET_CLOUDFLARE (not CRON_SECRET: only that secret is recorded as the dependable scheduler)
 // Variables (wrangler.toml [vars], not secret):
 //   AVELA_URL     e.g. https://avela-taupe.vercel.app
 // Optional secret:

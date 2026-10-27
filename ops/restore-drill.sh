@@ -79,6 +79,12 @@ if q "$ADMIN_URL" "SELECT 1 FROM pg_roles WHERE rolname='avela_app'" | grep -q 1
   token=$(cd "$here" && npx tsx -e 'import { devIdentityKey, signAssertion } from "./server/identity"; console.log(signAssertion({ system: true }, devIdentityKey()))' 2>/dev/null)
   some=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = '$token'" -c "SELECT count(*) FROM appointments" | tail -1)
   check "avela_app, signed system identity: appointments visible" "$src_appts" "$some"
+  # The narrow scopes (migration 0028) must survive a restore too: the sign-in scope still sees accounts and still sees no visits.
+  auth_token=$(cd "$here" && npx tsx -e 'import { devIdentityKey, signAssertion } from "./server/identity"; console.log(signAssertion({ system: true, scope: "auth" }, devIdentityKey()))' 2>/dev/null)
+  auth_visits=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = '$auth_token'" -c "SELECT count(*) FROM appointments" | tail -1)
+  check "avela_app, signed sign-in scope: appointments visible" "0" "$auth_visits"
+  auth_users=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = '$auth_token'" -c "SELECT count(id) FROM users" | tail -1)
+  check "avela_app, signed sign-in scope: accounts visible" "$src_users" "$auth_users"
   forged=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = 'v1.dev.system.-.9999999999.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'" -c "SELECT count(*) FROM appointments" | tail -1)
   check "avela_app, forged identity: appointments visible" "0" "$forged"
   audit=$(cd "$here" && DATABASE_URL="$dst_url" NODE_ENV=development npx tsx script/audit-database.ts 2>&1 | tail -1)

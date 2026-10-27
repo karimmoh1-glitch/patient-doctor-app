@@ -40,5 +40,22 @@ delete process.env.RESEND_API_KEY;
 delete process.env.OPENAI_API_KEY;
 delete process.env.STT_PROVIDER;
 
+// Used only by the scope-matrix review (docs/IDENTITY_BOUNDARY.md §5): best-effort writes (audit entries, the e-mail ledger, notices) swallow their own
+// failure and log it, so a grant that was removed would not fail a test by itself. With this switch on, such a log line fails the test that caused it.
+if (process.env.AVELA_FAIL_ON_SWALLOWED === "1") {
+  const { afterEach } = await import("vitest");
+  const seen: string[] = [];
+  const original = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    const line = args.map((a) => (typeof a === "string" ? a : "")).join(" ");
+    if (/Failed to write audit log|could not record delivery evidence|could not check suppression|could not process one reminder|could not record the outcome|shared store unavailable|Internal Server Error/.test(line)) seen.push(line);
+    original(...args);
+  };
+  afterEach(() => {
+    const got = seen.splice(0);
+    if (got.length) throw new Error(`a best-effort write failed silently: ${got[0]}`);
+  });
+}
+
 // Optional diagnostics (see tests/stallProbe.ts).
 if (process.env.STALL_PROBE) await import("./stallProbe");

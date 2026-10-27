@@ -94,7 +94,7 @@ Common to every caller: the same secret in three places.
 openssl rand -hex 32                      # generate once; never paste it into chat, a ticket or a log
 # Vercel (production): CRON_SECRET     -> redeploy
 # GitHub repo secrets:  CRON_SECRET, AVELA_URL
-# Cloudflare Worker:    npx wrangler secret put CRON_SECRET
+# Cloudflare Worker:    npx wrangler secret put CRON_SECRET     (paste the value of the host's CRON_SECRET_CLOUDFLARE)
 ```
 
 Cloudflare Worker: see `ops/scheduler-worker/README.md`.

@@ -1,6 +1,6 @@
 # Production readiness: gates, evidence, risk register
 
-**Decision: NO-GO for real patients.** Last audited 2026-10-27 against the live deployment, the database behind it, and the Mission 3 release candidate (draft PR #1, not deployed). **Read R21 first: production's identity handling is unsafe under concurrent use; it is hidden only because nobody uses the site.**
+**Decision: NO-GO for real patients.** Last audited 2026-10-27 against the live deployment, the database behind it, and the Mission 4 release candidate (draft PR #1, not deployed). **Read R21 first: production's identity handling is unsafe under concurrent use; it is hidden only because nobody uses the site.**
 Where this page and the code disagree, the code and the evidence win; correct this page.
 
 Statuses (the only four used):
@@ -31,7 +31,70 @@ compliance claim (no HIPAA, GDPR or Egyptian-law statement). Human reviews are l
 | 4 users in production, all fabricated fixtures, all deactivated; 0 sessions active; 12 seeded doctors inactive; 3 appointments and 3 messages (fixture history) | database read, `audit_logs` entry `demo.retired` (13:24 UTC, backup file kept off-repo, mode 600) |
 | 0 real users, 0 real administrators, 0 e-mails recorded | same read |
 
-## Gates
+## Mission 4 verdict by level (read this first)
+
+| Level | Verdict | Why |
+| --- | --- | --- |
+| Engineering work that is in our hands | **Complete for the candidate** (`CANDIDATE_SHA`): scoped system identities, key-rotation/leak tests, pool-concurrency tests, expanded account crawl, two defects found and fixed (connection-end race, empty doctor-profile edit), release/rollback tooling for 0024-0028, pooler measurement tool. **Not complete** for everything that needs a provider login, an owner decision or a human reviewer (rows BLOCKED below) | `tests/*`, CI on the exact commit |
+| Safe to deploy to production | **Not yet.** Technically ready (CI green on the exact commit, local rehearsal and exact rollback, restore drill passes) but two things are missing before the owner should authorize it: the rehearsal on a Neon branch with the real pooler and PostgreSQL 18 (G40, needs `npx neonctl auth`) and the owner's explicit authorization (D-01). Deploying changes nothing for users because there are none; the risk of waiting is only that the live identity flaw (R21) stays until someone is invited | `docs/RELEASE_PROCEDURE.md` |
+| Safe for internal testing with synthetic data | **Yes, on a local or preview deployment of the candidate**, with accounts created for the purpose and no real person's information. Production itself: after the release | all suites |
+| Safe for limited real-user testing (a few invited clinicians, no real patient records) | **No.** Needs: the release done and verified (G34-G38, G41), a real administrator (G07), e-mail (G14), restore rehearsed on the provider (G16), secrets rotated (G26), monitoring (G17), and the owner's and counsel's written approval of that scope | rows below |
+| Safe for real patient information | **No.** Everything above plus the clinical, legal/privacy, Arabic, emergency-number and penetration-test reviews (G21-G25), a seven-day scheduler observation if reminders are offered (G12), an alert drill (G18), incident ownership (G27), a hosting plan fit for health information (G30) and the remaining unrestricted `server` scope narrowed or accepted in writing (D-03b) | rows below |
+
+**Decision: NO-GO for real patients. LIMITED GO is not yet available** (see conditions above).
+
+## Gate matrix (Mission 4)
+
+Status: **PASS** (evidence named) · **FAIL** (known unsafe or broken *today*) · **BLOCKED** (next step needs an account, a decision or a reviewer) · **NOT TESTED**. "Live" = the production deployment (704b7df); "cand." = the candidate branch.
+"Blocks" says whether the row stops every launch (**ALL**) or only the named capability (**scoped**). Detail and history are in the rows of the next table.
+
+| ID | Requirement | Status | Evidence | Remaining action | Responsible | Blocks |
+| --- | --- | --- | --- | --- | --- | --- |
+| G01 | Live version and migration state known and consistent | PASS | `/api/health` commit 704b7df; 24 migrations; fingerprint `5dc5a2698a1e` | re-run after each deploy | Engineering | ALL |
+| G02 | Runtime role cannot bypass RLS or change schema | PASS (live) | role flags, `pg_stat_activity` | none | Engineering | ALL |
+| G03a | Role boundaries hold (adversarial tests, owner and restricted role) | PASS (cand., CI) | `npm run test:rls` / `npm test` counts in "Release candidate" | none | Engineering | ALL |
+| G03b | Same against production with synthetic accounts | NOT TESTED | production holds only deactivated fixtures | after release, with owner-approved synthetic accounts | Owner | ALL |
+| G04 | No table outside RLS | FAIL (live: 12 tables) / PASS (cand.) | `audit:db` 0 findings on the candidate | release | Owner authorizes | ALL |
+| G05 | Append-only records stay append-only | PASS | guard triggers, tests | none | Engineering | ALL |
+| G06 | Demo/fixture data cannot sign in or be listed | PASS | `test:live`, `productionGuards.test.ts` | none | Engineering | ALL |
+| G07 | A real administrator exists | FAIL | `verify:production` `admin` | `npm run admin:create` | Owner | scoped: clinician approval and all admin actions |
+| G08 | Second factor for clinicians/staff/admins | PASS | `mfa.test.ts`, `totp.test.ts` | none | Engineering | ALL |
+| G09 | MFA enrolment/recovery exercised on production | NOT TESTED | needs G07 | after G07 | Owner | scoped: admin and clinician sign-in |
+| G10 | Recovery cannot bypass the second factor | PASS | `auth.test.ts`, `mfa.test.ts` | none | Engineering | ALL |
+| G11 | Credential verification records and expiry | PASS | `credentials.test.ts` | review process is the owner's | Owner | scoped: clinician onboarding |
+| G12 | Reminders run on a dependable external caller, 7 days | FAIL | `job_run_history` shows no dedicated caller | Cloudflare login, deploy Worker with `CRON_SECRET_CLOUDFLARE`, observe 7 days | Owner | scoped: reminders (a launch without reminders is conceivable) |
+| G13 | Reminder semantics correct | PASS | `personalSchedule`, `scheduler*` tests | none | Engineering | scoped: reminders |
+| G14 | E-mail provider, verified domain, webhook | BLOCKED | `features.email: false` | provider account, domain, webhook, key | Owner | ALL for password reset/confirmation (no sign-up without it) |
+| G15 | Webhook verified (signature, replay, idempotency) | PASS | `emailDeliveries.test.ts` | re-test with the provider sandbox after G14 | Engineering | scoped: e-mail |
+| G16 | Backup restores on the real provider and the app works on it | BLOCKED | local drill passes incl. 0028 scopes (`ops/restore-drill.sh`, 29 migrations, 55 RLS tables) | provider restore drill (runbook §5) | Owner (+ assistant with Neon login) | ALL |
+| G17 | Health checks + an external monitor | BLOCKED | endpoints and tests exist; no monitor | create monitor, heartbeat, alert address | Owner | ALL |
+| G18 | An alert received during a controlled failure drill | NOT TESTED | needs G17 | drill | Owner | ALL |
+| G19 | Live checks pass on the intended release | PASS (live 704b7df) | `test:live` 18/18 | re-run on the new release | Engineering | ALL |
+| G20 | Emergency info only when reviewed | PASS | `emergencyInfo.test.ts` | none | Engineering | scoped: emergency screens |
+| G21 | Emergency numbers verified by a person | BLOCKED | US cited; Egypt none official | reviewer (Egyptian resident for Egypt) | Reviewer | scoped: emergency numbers (screens show none) |
+| G22 | Clinical safety review of wording | BLOCKED | none | licensed clinician | Reviewer | ALL |
+| G23 | Legal/privacy review per jurisdiction | BLOCKED | none | counsel | Reviewer | ALL |
+| G24 | Arabic reviewed | BLOCKED | marked "awaiting review" | fluent reviewer | Reviewer | scoped: Arabic interface |
+| G25 | Independent penetration test | BLOCKED | internal tests only | third party | Owner | ALL for real patients |
+| G26 | Secrets that left the platform rotated | FAIL | owner DB credential was pulled to the laptop | rotation checklist (`OWNER_ACTIONS.md`) | Owner | ALL |
+| G27 | Incident response, on-call, breach decisions | NOT TESTED | runbook §8 only | name people and paths | Owner | ALL for real patients |
+| G28 | Dependencies and code scanned | PASS | `npm audit` 0, typecheck clean | optional CodeQL | Engineering | none |
+| G29 | CI green on the release commit; deploys only from green | FAIL | CI gating of deploys not in place | gated workflow | Owner + Engineering | ALL |
+| G30 | Hosting plan fit for health information | NOT TESTED | Hobby plan, ~30 min log retention | choose plan, DPA | Owner | ALL for real patients |
+| G31 | Every migration rehearsed, idempotent, row-neutral, exact rollback | PASS (cand.) | `migration:rehearse` for 0028: 7/7 PASS; earlier for 0024-0027 | repeat on the provider's PostgreSQL (G40) | Engineering | ALL |
+| G32 | Admin bootstrap/recovery safe | PASS | `operatorScripts.test.ts` | none | Engineering | ALL |
+| G33 | Deployment cannot be mistaken for a working scheduler/admin/protected DB | PASS | `verify:production` checks | none | Engineering | ALL |
+| G34 | The database verifies who each transaction is for; pooled connections cannot cross identities | FAIL (live) / PASS (cand., local pool) | `identityBoundary`, `poolConcurrency` tests | release + G40 | Owner authorizes | ALL |
+| G35 | Counterparts cannot read private account columns | FAIL (live) / PASS (cand.) | `privateAccountColumns`, `accountCrawl` (GET crawl 400+ calls, mutating crawl 1,500+ calls with empty and hostile bodies, public-flow enumeration, concurrent edits) | release | Owner authorizes | ALL |
+| G36 | Ending a connection enforced server-side with an explicit visit choice, race-free | FAIL (live) / PASS (cand.) | `connectionEnd`, `connectionEndRaces`; clinical/legal soundness unreviewed | release; D-02 review | Owner; Reviewer | ALL |
+| G37 | Release + rollback chain rehearsed locally | PASS (cand.) | `migrationChain.test.ts` (0024-0028) | none | Engineering | ALL |
+| G38 | A public route cannot reach clinical tables (scoped system identities) | FAIL (live) / PASS (cand.) | `systemScopes`, `scopeScenarios`, leave-one-out (`IDENTITY_BOUNDARY.md` §5) | release; narrow the ~90 `server` call sites (D-03b) | Engineering; Owner authorizes | ALL (the `server` residue: scoped to signed-in paths) |
+| G39 | Signing key protected; rotation locks nobody out; no leakage in logs/responses | PASS (cand., CI) | `identityBoundary`, `identityKeyRotation` | rotate for real during the release (checklist) | Engineering; Owner | ALL |
+| G40 | Behaviour with the real pooler / PostgreSQL 18 / remote latency measured on a Neon branch | BLOCKED | `pooler:check` and the procedure exist (RELEASE_PROCEDURE §1.3); not run | `npx neonctl auth`, then run §1.3 | Owner (+ assistant) | ALL |
+| G41 | Ending vs booking and double-end races cannot leave a visit unasked-about | PASS (cand., CI); live FAIL | `connectionEndRaces.test.ts` (failed before the fix, 5/5 green after) | release | Owner authorizes | ALL |
+| G42 | Candidate verified: CI green on the exact SHA, suites, restore drill | CANDIDATE_CI_STATUS | see "Release candidate" | none | Engineering | ALL |
+
+## Gate detail (history and evidence; the matrix above is authoritative for status)
 
 | ID | Gate | Risk | Status | Level | Evidence | Closes it |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -69,10 +132,10 @@ compliance claim (no HIPAA, GDPR or Egyptian-law statement). Human reviews are l
 | G31 | Every migration is rehearsed on a database built to production's state, is idempotent, touches no row, and rolls back exactly | High | **PASS** | local, CI | `npm run migration:rehearse` for 0024: applies, 2nd application changes nothing, no row changed, rollback restores the identical structure, re-apply reproduces it; runs in CI on PostgreSQL 18. `npm run migration:dry-run` runs the SQL in a transaction on any copy and rolls back | Before applying to production: dry-run on a Neon branch (runbook §4a step 4) |
 | G32 | The administrator bootstrap and recoveries cannot be used by the public, expose no secret, are audited and cannot escalate an existing account | High | **PASS** | CI | `tests/operatorScripts.test.ts` (runs the scripts as child processes against the test database): password asked at a terminal or supplied by the environment, never printed or logged; audit entries without secrets; an existing account is never changed; the application's own role is refused the `admin` role by a database trigger (`rlsIdentityTables.test.ts`); no route creates one | — (G07 remains: nobody has run it) |
 | G33 | A deployment cannot be mistaken for a working scheduler, an existing admin or a protected database | High | **PASS** | CI | `verify:production` checks: `rls-complete`, `scheduler-caller` (attested, hard fail), `admin`, `demo-accounts`; counts run as system so they cannot read zero through the restricted role (F7) | — |
-| G34 | The database verifies who each transaction is for, per transaction, and a pooled connection cannot carry an identity to someone else | **Critical** | **FAIL** | prod | **Production, today:** identity is two plain session settings written per connection, behind Neon's transaction-mode pooler. Measured (read-only, harmless setting name, 2026-10-26): own value read back 3/200, another client's 26/200, server connection changed 154 times (R21). Anyone with SQL under the runtime role can also set them to anything. **Candidate:** signed 60-second assertion, verified in the database with a key the role cannot read, set per transaction; 21 forgery variants, key access, concurrency (60 requests, small pool), residue and mutation checks (`tests/identityBoundary.test.ts`); the server refuses to serve on a key the database does not recognise | Owner: release procedure (docs/RELEASE_PROCEDURE.md), then `identity:enforce -- on` |
+| G34 | The database verifies who each transaction is for, per transaction, and a pooled connection cannot carry an identity to someone else | **Critical** | **FAIL** | prod | **Production, today:** identity is two plain session settings written per connection, behind Neon's transaction-mode pooler. Measured (read-only, harmless setting name, 2026-10-26): own value read back 3/200, another client's 26/200, server connection changed 154 times (R21). Anyone with SQL under the runtime role can also set them to anything. **Candidate:** signed 60-second assertion, verified in the database with a key the role cannot read, set per transaction; 21 forgery variants, key access, concurrency (60 requests, small pool), residue and mutation checks (`tests/identityBoundary.test.ts`); Mission 4: 300 interleaved requests of every identity kind, exceptions/rollbacks/timeouts/retries and a held connection (`tests/poolConcurrency.test.ts`), rotation without lockout and no key or signed identity in logs or responses (`tests/identityKeyRotation.test.ts`); **not yet run against the real pooler** (G40); the server refuses to serve on a key the database does not recognise | Owner: release procedure (docs/RELEASE_PROCEDURE.md), then `identity:enforce -- on` |
 | G35 | Anyone allowed to see a person's account row cannot read its private columns (hash, e-mail, phone, date of birth, emergency profile) | High | **FAIL** | prod | **Production, today:** a connected doctor's session can `SELECT *` the patient's account row. **Candidate:** column privileges leave ten identifying columns readable; 15 private columns × 6 identities refused, plus a 400-request crawl of every GET endpoint for the hash, address and marker values (`tests/privateAccountColumns.test.ts`); `audit:db` fails if the readable set changes | Same release |
-| G36 | Ending a connection is enforced server-side (routes and database), with an explicit choice for upcoming visits and the retention default documented for review | High | **FAIL** | prod | Production: routes enforce most of it, the database does not, and upcoming visits stay silently. **Candidate:** `docs/CONNECTION_END.md`; `tests/connectionEnd.test.ts` (12 tests incl. database-level shut-out, cancel/keep, reminders, reconnect) and an end-to-end test of the dialog. The clinical/legal soundness of the default is **not** established (approvals table) | Release + review |
-| G37 | The release and its rollback are rehearsed as a chain on a database built to production's state | High | **PASS** | local, CI | `tests/migrationChain.test.ts` (0024-0027 apply, are idempotent as a set, and the four rollback scripts newest-first restore production's exact structure, fingerprint `5dc5a2698a1e`); `migration:rehearse` per file; the Neon-branch dry run of the real server version is **not yet done** (needs the owner's Neon access) | Dry-run on a branch (RELEASE_PROCEDURE §1.3) |
+| G36 | Ending a connection is enforced server-side (routes and database), with an explicit choice for upcoming visits and the retention default documented for review | High | **FAIL** | prod | Production: routes enforce most of it, the database does not, and upcoming visits stay silently. **Candidate (Mission 4 also fixed a race: a visit booked in the same instant as an end used to be silently kept; `tests/connectionEndRaces.test.ts`):** `docs/CONNECTION_END.md`; `tests/connectionEnd.test.ts` (12 tests incl. database-level shut-out, cancel/keep, reminders, reconnect) and an end-to-end test of the dialog. The clinical/legal soundness of the default is **not** established (approvals table) | Release + review |
+| G37 | The release and its rollback are rehearsed as a chain on a database built to production's state | High | **PASS** | local, CI | `tests/migrationChain.test.ts` (0024-0028 apply, are idempotent as a set, and the five rollback scripts newest-first restore production's exact structure, fingerprint `5dc5a2698a1e`); `migration:rehearse` per file (0028: applies, idempotent, no row touched, exact rollback, re-apply identical); the Neon-branch dry run of the real server version is **not yet done** (needs the owner's Neon access) | Dry-run on a branch (RELEASE_PROCEDURE §1.3) |
 
 ## Live suite (`npm run test:live`, read-only, no accounts)
 
@@ -111,25 +174,28 @@ deployment, passed 18 of 18 with no retries.
 | R19 | After a patient ends a connection the clinician keeps the visit record (time, reason, name) of visits they provide; booked visits need the patient's explicit choice | Medium | `docs/CONNECTION_END.md` | Implemented as the conservative default; clinical and legal review decides (D-02) | `connectionEnd.test.ts` | — | Clinician + counsel |
 | R20 | Test database is PostgreSQL 16 locally, 18 in CI and production | Low | fingerprints equal; CI now 18 | Install 18 locally | CI | — | Engineering |
 | R21 | **Production's database identity is connection-scoped behind a transaction-mode pooler** (measured leak between clients) and forgeable by anyone with SQL as the runtime role | **Critical** the day real users arrive; harmless today (zero users, serial traffic) | `docs/IDENTITY_BOUNDARY.md` §1; G34 | Release the candidate; do **not** onboard anyone before it | `identityBoundary.test.ts` | `identity:enforce -- off` (instant) or the rollback chain | Owner |
-| R22 | `system` identity is one broad capability (16 public routes, many services); an injection in a public route would have it | High (no injection exists; `sqlHygiene.test.ts`) | `IDENTITY_BOUNDARY.md` §5 | Scoped system capabilities (D-03b) before scale | — | — | Engineering |
+| R22 | The unrestricted `server` system scope is still broad (about 90 call sites after a signed-in person's own permission check). **Narrowed in Mission 4:** every route reachable without signing in now runs in a narrow scope (migration 0028); an injection there reaches a few tables, not clinical data | Medium (was High) | `IDENTITY_BOUNDARY.md` §5; `systemScopes.test.ts` | Scopes for `staff`, `admin`, `maintenance` (D-03b); accept in writing or finish before scale | `scopeScenarios` + leave-one-out | `ops/rollback/0028…` | Engineering |
 | R23 | The application process holds the signing key; code execution there can sign any identity | Medium | §4 there | Secret custody, rotation (`identity:key`), no key in source/logs | `identityBoundary.test.ts` (key not in any function) | rotate | Owner |
-| R24 | Per-statement transaction wrapping adds two round trips per statement against a remote database | Medium (latency) | not yet measured on Neon | Measure on the Neon branch; batch or use the unpooled host if needed | — | `identity:enforce -- off` does not remove it; revert the release | Engineering |
+| R24 | Per-statement transaction wrapping adds two round trips per statement against a remote database | Medium (latency) | local measure only (`pooler:check`: ~0.1 ms on a local socket); **not measured on Neon** | Run `pooler:check` on the Neon branch (RELEASE_PROCEDURE §1.3); batch or use the unpooled host if needed | `pooler:check` | revert the release | Engineering |
+| R25 | Ending a connection while another request booked a visit silently kept that visit (the patient never answered) | Medium | found by `tests/connectionEndRaces.test.ts`, reproduced before the fix | **Fixed in the candidate**: end and booking serialise on the connection's row; booking on a connection that ended is refused | `connectionEndRaces.test.ts` (5/5 green repeats) | revert the release | Engineering |
+| R26 | An approved clinician's empty profile edit returned a server error | Low | found by `accountCrawl.test.ts` | **Fixed**: answers 400 "Nothing to change" | `accountCrawl.test.ts` | — | Engineering |
+| R27 | The Worker's README and comments told the owner to give the Worker `CRON_SECRET`, which would have been recorded as a non-dedicated caller and kept the scheduler gate failing | Medium | review in Mission 4 | **Fixed** in `ops/scheduler-worker/*` and `docs/SCHEDULER.md` | — | — | Engineering |
+| R28 | Nothing has been run against the real pooler, PostgreSQL 18 or a remote latency with the signed identity | High until done | G40 | Neon safe-branch rehearsal (RELEASE_PROCEDURE §1.3) | `pooler:check` | delete the branch | Owner + engineering |
 
 ## Release candidate
 
 | | |
 | --- | --- |
 | Branch / PR | `mission2/close-security-gaps`, draft PR #1 (base `main` at `f4131a3`; production is `704b7df`) |
-| Candidate commit | code tip `deb942c` (any later commit on the branch changes documentation only: `git diff deb942c..HEAD --stat`) |
-| CI for that exact commit | **green**: run 40446616819, jobs `test` (typecheck, 618-test suite, build, production-build smoke, browser suite) and `restricted-role` (suite and browser suite as `avela_app`, `audit:db`, migration rehearsal) both success, on PostgreSQL 18. The previous code commit `0e3323d` failed CI on `test:prod` (the production-mode server now needs an identity key; the smoke config was missing one) and was fixed in `deb942c`; the same commit also removes a step-boundary race in that smoke test's authenticator-code offsets |
-| What it contains | migrations 0024-0027 (RLS on every table and guards; signed identity; private account columns; connection-end rules), the application changes they need, the operator tooling, the docs. `git diff 704b7df..HEAD --stat` |
-| Diff reviewed | no secret-shaped string (scan of the added lines: only CI-only throwaway credentials in the workflow and placeholders in comments); `npm audit --omit=dev`: 0 vulnerabilities (4 moderate in dev tooling, accepted); production build and `test:prod` (22) pass |
-| Local runs on the candidate | `npm run test:rls` 618 passed; `npm test` 609 passed + 9 skipped (the restricted-role-only blocks, which `test:rls` runs); `npm run test:e2e:rls` 145 passed (then 2 new patient-journey tests passed in both modes); `npm run test:e2e` 147 passed; `npm run test:prod` 22 passed; typecheck clean; `audit:db` 0 findings; restore drill PASS (local, synthetic) |
-| Migration compatibility | **Not compatible with the live release in either direction** (old code on new schema fails sign-in; new code without its key refuses to start). Handled by the maintenance-window procedure in `docs/RELEASE_PROCEDURE.md`, with a rehearsed rollback chain. Roll-out is staged by `identity:enforce` |
+| Candidate commit | code tip `CANDIDATE_SHA` (any later commit on the branch changes documentation only: `git diff CANDIDATE_SHA..HEAD --stat`) |
+| CI for that exact commit | CANDIDATE_CI |
+| What it contains | migrations 0024-0028 (RLS on every table and guards; signed identity; private account columns; connection-end rules; scoped system identities), the application changes they need, two defect fixes found by the Mission 4 tests (connection-end/booking race; empty clinician profile edit), operator tooling (`pooler:check`), the docs. `git diff 704b7df..HEAD --stat` |
+| Local runs on the candidate | `npm run test:rls` 651 passed; `npm test` 633 passed + 18 skipped (the restricted-role-only blocks, which `test:rls` runs); LOCAL_E2E; typecheck clean; `audit:db` 0 findings on 55 tables / 44 functions; `migration:rehearse` for 0028 7/7 PASS; `ops/restore-drill.sh` PASS (29 migrations, 55 RLS tables, narrow scopes survive the restore) |
+| Migration compatibility | **Not compatible with the live release in either direction, nor with the Mission 3 candidate (e90ff77): a release that signs unscoped system assertions sees no clinical data after 0028.** Handled by the maintenance-window procedure in `docs/RELEASE_PROCEDURE.md` with a rehearsed rollback chain (newest first: 0028, 0027, 0026, 0025, 0024). Roll-out is staged by `identity:enforce` |
 | Production environment requirements | new: `IDENTITY_KEY_ID`, `IDENTITY_KEY`; optional: `CRON_SECRET_CLOUDFLARE`, `MFA_ENCRYPTION_KEY_PREVIOUS` (runbook §1) |
 | Health and readiness | `/api/health`, `/api/health/ready`, `/api/health/scheduler`; `verify:production` gains `rls-complete`, `identity-enforced`, hard `scheduler-caller`, `email` + `email-from` |
 | Rollback | RELEASE_PROCEDURE §6: application rollback + `ops/rollback/*.down.sql` newest first (exact, proven by `tests/migrationChain.test.ts`), or restore the pre-release Neon branch into a new branch |
-| Deployed? | **No.** Nothing in either mission was deployed, migrated in production, rotated, created or written to production. Production was read (schema, roles, counts) and a harmless pooler experiment was made with the runtime credential |
+| Deployed? | **No.** Nothing in any mission was deployed, migrated in production, rotated, created or written to production. Mission 4 read production once (schema fingerprint, role flags, counts) in Phase 1 and made no write; the owner-credential file pulled for that read was deleted afterwards |
 
 ## Human approvals and reviews (engineering does not self-certify these)
 
@@ -149,14 +215,14 @@ deployment, passed 18 of 18 with no retries.
 
 | ID | Decision | Options | Recommendation |
 | --- | --- | --- | --- |
-| D-01 | Deploy the candidate (migrations 0024-0027), and when | the window in RELEASE_PROCEDURE.md now (no real users), or later | Soon, **before any user is invited**: production's identity handling is unsafe under concurrent use (R21). After the Neon-branch dry run |
+| D-01 | Deploy the candidate (migrations 0024-0028), and when | the window in RELEASE_PROCEDURE.md now (no real users), or later | Soon, **before any user is invited**: production's identity handling is unsafe under concurrent use (R21). After the Neon-branch dry run |
 | D-02 | The connection-end default (docs/CONNECTION_END.md): immediate revocation, clinician keeps what they authored/provided, patient chooses cancel/keep for booked visits | accept, change retention, change visit handling | Clinical and legal review decide; implemented as the conservative default |
 | D-03 | Signed identity | **built** (migration 0025) | Release it |
-| D-03b | Replace the broad `system` capability with scoped ones (authentication, scheduler, webhook, staff, admin action) | now, or before scale | Before real patients at any scale: it is the one weakness the signed identity does not remove |
+| D-03b | Replace the broad `system` capability with scoped ones | **partly built** (0028: authentication, invitations, session, scheduler, webhook, rate limit); the remaining `server` scope covers organization staff, administrator actions and clean-up | Finish `staff`/`admin`/`maintenance` scopes before real patients at any scale, or accept the residue in writing |
 | D-04 | Narrow `users` by column | **built** (migration 0026) | Release it |
 | D-05 | Rotate `MFA_ENCRYPTION_KEY` now, while nobody has enrolled | rotate (free today), or keep | Rotate now; the rotation path exists for later (`MFA_ENCRYPTION_KEY_PREVIOUS`, `mfa:rekey`) |
 | D-06 | Hosting plan and log retention for a service holding health information | stay on Hobby, or move | Move before real patients |
-| D-07 | Measure and, if needed, reduce the two extra round trips per statement the per-transaction identity costs | measure on the Neon branch; options: unpooled host for the runtime, batching | Measure first |
+| D-07 | Measure and, if needed, reduce the two extra round trips per statement the per-transaction identity costs | `npm run pooler:check` on the Neon branch (needs the Neon login); options: unpooled host for the runtime, batching | Measure first |
 
 ## What Avela does not do (state it to every user)
 
@@ -167,17 +233,17 @@ operations modules beyond appointments, staff, follow-up tasks and an activity l
 
 ## Recommendation
 
-**NO-GO for real patient information.** The engineering work that was in our hands is done and tested in the candidate: the database now verifies who is asking (and survives a
-transaction-mode pooler, which production uses and which the old design did not), every table is behind row-level security, a counterpart can read only ten identifying
-columns of an account, ending a connection is enforced in the database and makes the patient choose what happens to booked visits, and the release has a rehearsed procedure with an
-exact rollback chain. **None of it is live.** Production still runs 704b7df and is safe only because it has no users: **do not invite anyone before the release (R21).**
+**NO-GO for real patient information.** **LIMITED GO is not available.** Engineering has taken what is in its hands as far as it can without your accounts: the database verifies who is asking (and survives a pool that shares
+connections: tested locally), every table is behind row-level security, every route reachable without signing in now works in a narrow scope and cannot reach clinical data, a counterpart reads only ten identifying
+columns of an account, ending a connection is enforced in the database and cannot silently keep a visit (a race found and fixed this mission), and the release has a rehearsed procedure with an exact rollback chain.
+**None of it is live.** Production still runs 704b7df and is safe only because it has no users: **do not invite anyone before the release (R21).**
 
-What blocks launch, and is not code: no administrator (G07); no dependable scheduler (G12: Cloudflare login); no e-mail (G14); secrets copied to a laptop are not rotated (G26);
-the Neon dry run and the provider restore rehearsal have not been done (G16, G37: Neon login); no external monitor or alert drill (G17, G18); emergency numbers unreviewed
-(G21); clinical, legal, Arabic and penetration-test reviews have not happened (G22-G25); the clinical/legal soundness of the connection-end default is unreviewed (G36). One
-engineering weakness is known and open: `system` identity is broad (R22/D-03b).
+What blocks launch, and is not code: the rehearsal on a Neon branch with the real pooler (G40: `npx neonctl auth`); no administrator (G07); no dependable scheduler (G12: Cloudflare login); no e-mail (G14); secrets
+copied to a laptop are not rotated (G26); the provider restore rehearsal (G16); no external monitor or alert drill (G17, G18); emergency numbers unreviewed (G21); clinical, legal, Arabic and penetration-test reviews
+have not happened (G22-G25); the clinical/legal soundness of the connection-end default is unreviewed (G36); no incident owner (G27); a hosting plan unfit for health information (G30). One engineering weakness is known and open: the
+unrestricted `server` scope is still broad for signed-in code paths (R22, D-03b, narrowed not closed).
 
-A "LIMITED GO" (a few invited clinicians, in-app messaging only, no reminders, no real patient records) becomes conceivable only after the release is done and verified
-(`release:verify`, `audit:db`, `identity:enforce -- on`), G07, G14, G16 and G26 are closed, and the owner and counsel approve that scope in writing.
+A "LIMITED GO" (a few invited clinicians, in-app messaging only, no reminders, no real patient records) becomes conceivable only after the release is done and verified (`release:verify`, `pooler:check`, `audit:db`,
+`identity:enforce -- on`), G07, G14, G16, G17 and G26 are closed, and the owner and counsel approve that scope in writing.
 
 Next actions, in order: `docs/OWNER_ACTIONS.md`.

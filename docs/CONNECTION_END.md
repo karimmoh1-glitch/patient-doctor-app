@@ -40,8 +40,12 @@ Booking and ending serialise on the connection's row (Mission 4, found by `tests
 2. **Emergency access.** None exists; a patient's emergency information is shown only to the patient. Any "break the glass" access would need its own authorization model.
 3. **Whether an ended connection should also hide the clinician's own prescriptions from the patient** (currently the patient keeps seeing authorized prescriptions).
 4. **Clinical hand-over.** Ending a connection does not notify any other clinician or transfer care; the patient's other connections are unaffected.
+5. **A decision covers the visits that exist at the moment of ending.** The dialog lists the visits the patient was shown; one booked afterwards (their own second tab) is covered by the same answer (cancelled with "cancel", kept with "keep"). A reviewer may prefer to ask again; the alternative is a second confirmation round.
+6. **What the clinician is told.** A notice with two counts (cancelled, kept), no name, no reason. Whether a prescriber must be told more is a clinical and legal question.
+7. **A kept visit survives the end for the clinician until it is over**, including the visit's type and reason text the patient wrote when booking. Whether that reason should be hidden after the connection ends is open.
+8. **The patient is never asked more than once and never defaulted:** with a booked visit and no answer the end is refused (409) and nothing changes, in the screen and in the API.
 
 ## Verified by
 
-`tests/connectionEnd.test.ts` (no visits, decision required, invalid answers, cancel, keep and complete, database-level shut-out of messages and tasks, retained visits,
+`tests/connectionEndRaces.test.ts` (ending while another request books; two ends at once), `tests/connectionEnd.test.ts` (no visits, decision required, invalid answers, cancel, keep and complete, database-level shut-out of messages and tasks, retained visits,
 name visibility, reminders follow the decision, reconnecting), `tests/accessEndsEverywhere.test.ts` (six clinician endpoints and the caregiver, before and after).

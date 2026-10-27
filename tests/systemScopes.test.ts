@@ -29,10 +29,10 @@ type Scope = Exclude<SystemScope, "server">;
 
 /** The intended permissions, written down a second time here on purpose: the migration is checked against THIS, not against itself. */
 const ALLOWED: Record<Scope, string[]> = {
-  auth: ["audit_logs", "doctor_applications", "doctor_profiles", "email_deliveries", "email_verification_tokens", "mfa_recovery_codes", "password_reset_tokens", "user_devices", "user_mfa", "users"],
-  invite: ["audit_logs", "care_circle_members", "org_invitations", "org_memberships", "organizations", "user_devices", "user_mfa", "users"],
+  auth: ["audit_logs", "doctor_applications", "email_deliveries", "email_verification_tokens", "mfa_recovery_codes", "password_reset_tokens", "user_devices", "user_mfa", "users"],
+  invite: ["audit_logs", "care_circle_members", "org_invitations", "org_memberships", "organizations", "user_devices", "users"],
   session: ["user_devices", "users"],
-  scheduler: ["appointments", "email_deliveries", "health_entries", "job_run_history", "job_runs", "medication_reminders", "medications", "notifications", "personal_reminder_deliveries", "personal_reminders", "prescription_events", "prescriptions", "reminder_deliveries", "users"],
+  scheduler: ["appointments", "email_deliveries", "job_run_history", "job_runs", "medication_reminders", "medications", "notifications", "personal_reminder_deliveries", "personal_reminders", "prescriptions", "reminder_deliveries", "users"],
   webhook: ["email_deliveries", "email_webhook_events"],
   ratelimit: ["rate_limit_hits"],
 };
@@ -179,6 +179,9 @@ describe("what a narrow scope can really reach (rows that exist)", () => {
     expect(inner.rowCount).toBe(0);
     const whoami = await runAsSystem(() => runAsSystem(() => pool.query(`SELECT app_verified_scope() AS s`)), "invite");
     expect(whoami.rows[0].s).toBe("invite");
+    // Code in a narrow scope cannot ask for the server scope, directly or from a helper.
+    expect(() => runAsSystem(() => runAsSystem(() => pool.query("SELECT 1"), "server"), "auth")).toThrow(/cannot widen/);
+    expect(() => runAsSystem(() => runAsSystem(() => pool.query("SELECT 1"), "server"), "scheduler")).toThrow(/cannot widen/);
     // A person's request that asks for the server scope explicitly still gets it (that is the reviewed code path), and a user identity stays a user.
     expect((await runAsSystem(() => pool.query(`SELECT app_verified_scope() AS s`))).rows[0].s).toBe("server");
     expect((await runAsUser(A.id, () => pool.query(`SELECT app_verified_scope() AS s`))).rows[0].s).toBeNull();

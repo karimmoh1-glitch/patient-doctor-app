@@ -79,17 +79,16 @@ INSERT INTO scope_matrix VALUES
   -- sign-in, sign-up, recovery, second factor, clinician registration
   ('users', 'auth'), ('user_devices', 'auth'), ('password_reset_tokens', 'auth'), ('email_verification_tokens', 'auth'),
   ('user_mfa', 'auth'), ('mfa_recovery_codes', 'auth'), ('audit_logs', 'auth'), ('email_deliveries', 'auth'),
-  ('doctor_applications', 'auth'), ('doctor_profiles', 'auth'),
+  ('doctor_applications', 'auth'),
   -- redeeming an invitation (creates or finds an account, attaches it to the inviter's care circle or organization)
   ('users', 'invite'), ('user_devices', 'invite'), ('audit_logs', 'invite'),
   ('care_circle_members', 'invite'), ('org_invitations', 'invite'), ('org_memberships', 'invite'), ('organizations', 'invite'),
-  ('user_mfa', 'invite'),
   -- session lookup
   ('user_devices', 'session'), ('users', 'session'),
   -- the reminder run
-  ('medication_reminders', 'scheduler'), ('medications', 'scheduler'), ('prescriptions', 'scheduler'), ('prescription_events', 'scheduler'),
+  ('medication_reminders', 'scheduler'), ('medications', 'scheduler'), ('prescriptions', 'scheduler'),
   ('reminder_deliveries', 'scheduler'), ('notifications', 'scheduler'), ('appointments', 'scheduler'), ('personal_reminders', 'scheduler'),
-  ('personal_reminder_deliveries', 'scheduler'), ('health_entries', 'scheduler'), ('job_runs', 'scheduler'), ('job_run_history', 'scheduler'),
+  ('personal_reminder_deliveries', 'scheduler'), ('job_runs', 'scheduler'), ('job_run_history', 'scheduler'),
   ('email_deliveries', 'scheduler'), ('users', 'scheduler'),
   -- the e-mail provider's reports
   ('email_deliveries', 'webhook'), ('email_webhook_events', 'webhook'),

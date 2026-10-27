@@ -8,7 +8,7 @@ reviewer should expect back. None of them is a statement of compliance with any 
 **Reviewer:** a licensed clinician (preferably one who has run a telehealth service).
 **Read:** the patient-facing text for reminders, prescriptions (as displayed), onboarding, "stop sharing" and the emergency screen (`client/src/locales/en/*.ts`); `docs/SAFETY_AND_COMPLIANCE.md`; `docs/CONNECTION_END.md`.
 **Avela claims:** it gives no diagnosis, dosing, interaction or treatment advice; a reminder is a nudge, never a record of a dose; prescriptions are written and authorised by the clinician and are not sent to any pharmacy; it is not an emergency service.
-**Questions:** (1) Is any wording a patient could read as advice? (2) Is "not confirmed" the right way to describe an unlogged dose to a caregiver? (3) Is the connection-end rule safe (a patient can end at once; a booked visit needs an explicit choice; the clinician keeps their own record)? Should a prescriber be told when a patient ends? (4) What must happen to an authorised prescription when the connection ends? (5) Is a three-hour late-reminder cut-off acceptable?
+**Questions:** (1) Is any wording a patient could read as advice? (2) Is "not confirmed" the right way to describe an unlogged dose to a caregiver? (3) Is the connection-end rule safe (a patient can end at once; a booked visit needs an explicit choice; the clinician keeps their own record)? Should a prescriber be told when a patient ends? (3b) A patient ending while another tab books a visit: the end now waits for the booking and then asks about it; is "ask, then end" the right behaviour or should the booking be refused with an explanation instead? (4) What must happen to an authorised prescription when the connection ends? (5) Is a three-hour late-reminder cut-off acceptable?
 **Evidence back:** a signed review note naming the version reviewed (commit), with required changes listed.
 
 ## 2. Legal and privacy review (per jurisdiction: US states served, Egypt)
@@ -32,8 +32,8 @@ reviewer should expect back. None of them is a statement of compliance with any 
 
 ## 5. Independent penetration test
 **Reviewer:** a third-party security firm.
-**Scope to offer:** the deployed application; the authentication, second-factor and recovery flows; every role boundary (`docs/DATABASE_ACCESS_AUDIT.md` §9 lists the claims to attack); the signed-identity boundary (`docs/IDENTITY_BOUNDARY.md`, especially §4-5: a public-route injection is the known weak point); organization-staff scoping (`server/services/orgs.ts`); the scheduler and webhook endpoints; the release and rollback procedure.
-**Provide:** a staging deployment on a restored copy with synthetic accounts (needs the provider restore drill), the threat model, the audit, this list of known limits.
+**Scope to offer:** the deployed application; the authentication, second-factor and recovery flows; every role boundary (`docs/DATABASE_ACCESS_AUDIT.md` §9 lists the claims to attack); the signed-identity boundary and the scope matrix (`docs/IDENTITY_BOUNDARY.md` §4-5: try to make a public route reach a clinical table, to forge or widen a scope, to carry an identity across a pooled connection; the known weak point left is the unrestricted `server` scope used after a signed-in person's own permission check, about 90 call sites, starting with `server/services/orgs.ts`); organization-staff scoping (`server/services/orgs.ts`); the scheduler and webhook endpoints; the release and rollback procedure.
+**Provide (also say what is not covered):** the pooler has not been tested with the real provider yet (`docs/RELEASE_PROCEDURE.md` §1.3); a staging deployment on a restored copy with synthetic accounts (needs the provider restore drill), the threat model, the audit, this list of known limits.
 **Evidence back:** a report with severities and a retest.
 
 ## 6. E-mail provider terms and data-processing requirements

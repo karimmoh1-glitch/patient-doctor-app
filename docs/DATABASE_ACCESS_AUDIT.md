@@ -36,9 +36,15 @@ route (`systemAccess`: sign-in, sign-up, password reset, e-mail confirmation, in
 set by `requireAuth` after a system-identity lookup of the session. Row policies decide which rows; **column privileges** (migration 0026) decide which
 columns: of an account row the application role can read only the ten that identify a person.
 
-**What this does not protect against.** The application process holds the signing key: code execution inside it can sign any identity. SQL injection inside
-a *public* route runs as `system`. Both are discussed with the full threat table in `docs/IDENTITY_BOUNDARY.md` §4–5 and are why `tests/sqlHygiene.test.ts` forbids
-interpolated SQL, why the key is custody-managed and rotatable, and why a scoped replacement for `system` is recommended (D-03b).
+**System identities are scoped (migration 0028).** The assertion for the server's own work names a scope (`auth`, `invite`, `session`, `scheduler`, `webhook`, `ratelimit`, or the
+unrestricted `server`); `app_is_system()` means `server` only, and each narrow scope is opened by added `avela_scope_<table>_<command>` policies to the few tables its job needs
+(table in `docs/IDENTITY_BOUNDARY.md` §5). A public route can therefore no longer reach a patient's medicines, messages, visits, prescriptions, documents, symptom reports or sharing decisions.
+The "Policies" column below counts those added policies too.
+
+**What this does not protect against.** The application process holds the signing key: code execution inside it can sign any identity. SQL injection inside a code path that runs in the
+unrestricted `server` scope (about 90 call sites after a signed-in person's own permission check; none reachable without signing in) would have all of `system`'s old reach. Both are discussed
+with the full threat table in `docs/IDENTITY_BOUNDARY.md` §4–5 and are why `tests/sqlHygiene.test.ts` forbids interpolated SQL, why the key is custody-managed and rotatable, and why the
+remaining `server` call sites are the next thing to narrow (D-03b, narrowed not closed).
 
 ## 4. Table inventory (generated: `npm run audit:db -- --markdown`)
 
@@ -51,66 +57,71 @@ metadata · REF reference data. App role: S select, I insert, U update, D delete
 | `allergy_statements` | CLIN | allergies as stated, with who stated them | on | 1 | D,I,S,U | user, system | the patient and people allowed to see the patient's profile |
 | `app_identity_config` | OPS | whether signed identities are enforced, and the longest assertion lifetime accepted | on | 0 | (none) | definer | owner only; read solely by avela_identity_check() |
 | `app_identity_keys` | AUTH | the keys the database verifies identity assertions with (HMAC pad blocks, never the key itself) | on | 0 | (none) | definer | owner only: no privilege for the application role; read solely by avela_identity_check() (a SECURITY DEFINER function). Whoever can read this table can mint any identity |
-| `appointments` | CLIN, PII | visits (time, reason, status) | on | 4 | D,I,S,U | user, system, definer | the patient, a connected doctor, a caregiver (read), the provider of the visit (who keeps the record after a connection ends and may change it only while open); parties immutable; others see only free/busy through app_busy_intervals |
+| `appointments` | CLIN, PII | visits (time, reason, status) | on | 8 | D,I,S,U | user, system, definer | the patient, a connected doctor, a caregiver (read), the provider of the visit (who keeps the record after a connection ends and may change it only while open); parties immutable; others see only free/busy through app_busy_intervals |
 | `assist_grants` | CLIN | a patient letting a clinician help fill in their profile | on | 2 | D,I,S,U | user, system | the patient; the named clinician reads |
-| `audit_logs` | OPS, PII | who read or did what to whose records (append-only) | on | 2 | I,S | user, system | the subject and the actor read their own entries; an administrator reads all; anyone may add an entry only in their own name; no UPDATE or DELETE privilege, trigger-enforced |
-| `care_circle_members` | PII | caregivers a patient invited, and what they may see | on | 2 | D,I,S,U | user, system | the patient writes; the caregiver reads their own membership |
+| `audit_logs` | OPS, PII | who read or did what to whose records (append-only) | on | 4 | I,S | user, system | the subject and the actor read their own entries; an administrator reads all; anyone may add an entry only in their own name; no UPDATE or DELETE privilege, trigger-enforced |
+| `care_circle_members` | PII | caregivers a patient invited, and what they may see | on | 6 | D,I,S,U | user, system | the patient writes; the caregiver reads their own membership |
 | `credential_events` | OPS | append-only history of a credential's review | on | 1 | D,I,S,U | system | server only; trigger-enforced append-only |
 | `data_requests` | PII | export and deletion requests | on | 1 | D,I,S,U | user, system | the person themself |
-| `doctor_applications` | PII | a clinician's licence and registry details while under review | on | 4 | D,I,S,U | user, system | the applicant, an administrator, the server; an applicant can submit but not decide, and cannot touch review fields |
+| `doctor_applications` | PII | a clinician's licence and registry details while under review | on | 8 | D,I,S,U | user, system | the applicant, an administrator, the server; an applicant can submit but not decide, and cannot touch review fields |
 | `doctor_availability` | OPS | a clinician's published weekly windows | on | 2 | D,I,S,U | user, system | public while the clinician is listed; written by that clinician only |
 | `doctor_credentials` | PII | licence evidence and its review | on | 2 | D,I,S,U | system, user | the clinician reads their own; the server writes |
 | `doctor_directory` (view) | REF | VIEW: listed clinicians' public details | n/a (owner's rights) | 0 | S | definer | open to every session by design (a public page); excludes phone, licence and registry numbers; read-only for the application role |
-| `doctor_profiles` | PII | a clinician's directory entry (phone, licence and registry numbers are private) | on | 4 | D,I,S,U | user, system, definer | the clinician, an administrator, and anyone with a connection to that doctor; the public sees the doctor_directory view; a clinician edits description and contact details only; only the server creates or removes |
+| `doctor_profiles` | PII | a clinician's directory entry (phone, licence and registry numbers are private) | on | 8 | D,I,S,U | user, system, definer | the clinician, an administrator, and anyone with a connection to that doctor; the public sees the doctor_directory view; a clinician edits description and contact details only; only the server creates or removes |
 | `documents` | CLIN | a patient's saved papers | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
-| `email_deliveries` | PII, OPS | what was e-mailed to whom and its delivery state | on | 1 | D,I,S,U | system | server only |
-| `email_verification_tokens` | AUTH | single-use confirmation links (hashed) | on | 1 | D,I,S,U | system | server only |
-| `email_webhook_events` | OPS | provider delivery reports (deduplicated) | on | 1 | D,I,S,U | system | server only |
+| `email_deliveries` | PII, OPS | what was e-mailed to whom and its delivery state | on | 5 | D,I,S,U | system | server only |
+| `email_verification_tokens` | AUTH | single-use confirmation links (hashed) | on | 5 | D,I,S,U | system | server only |
+| `email_webhook_events` | OPS | provider delivery reports (deduplicated) | on | 5 | D,I,S,U | system | server only |
 | `follow_up_tasks` | CLIN | a patient's follow-up items | on | 4 | D,I,S,U | user, system | the patient and a LIVE connection's clinician (the clinician sees and changes tasks only while connected); parties immutable |
-| `health_entries` | CLIN | conditions and history | on | 1 | D,I,S,U | user, system | the patient and people allowed to see the patient's profile; edits recorded; trigger-guarded |
+| `health_entries` | CLIN | conditions and history | on | 5 | D,I,S,U | user, system | the patient and people allowed to see the patient's profile; edits recorded; trigger-guarded |
 | `health_entry_events` | CLIN, OPS | append-only history of profile entries | on | 2 | D,I,S,U | user, system | through the entry; trigger-enforced append-only |
-| `job_run_history` | OPS | one row per scheduler call (evidence of scheduling) | on | 1 | D,I,S,U | system | server only |
-| `job_runs` | OPS | scheduler state and leases | on | 1 | D,I,S,U | system | server only |
+| `job_run_history` | OPS | one row per scheduler call (evidence of scheduling) | on | 5 | D,I,S,U | system | server only |
+| `job_runs` | OPS | scheduler state and leases | on | 5 | D,I,S,U | system | server only |
 | `medication_logs` | CLIN | doses taken or skipped | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
-| `medication_reminders` | CLIN | reminder settings | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
-| `medications` | CLIN | a patient's tracked medicines | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
+| `medication_reminders` | CLIN | reminder settings | on | 6 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
+| `medications` | CLIN | a patient's tracked medicines | on | 6 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
 | `message_reports` | CLIN, OPS | a person reporting a message | on | 3 | D,I,S,U | user, system | the reporter reads; an administrator resolves |
 | `messages` | CLIN, PII | doctor-patient messages | on | 3 | D,I,S,U | user, system | the patient always; the clinician only while the connection is live; writing only while live; sender and body immutable (trigger); the recipient may only mark delivered/read |
-| `mfa_recovery_codes` | AUTH | second-factor recovery (hashed codes) | on | 1 | D,I,S,U | system | server only |
-| `notifications` | PII | in-app notices | on | 4 | D,I,S,U | user, system | the recipient reads and clears; a notice may be left only for yourself or someone you are connected to |
+| `mfa_recovery_codes` | AUTH | second-factor recovery (hashed codes) | on | 5 | D,I,S,U | system | server only |
+| `notifications` | PII | in-app notices | on | 8 | D,I,S,U | user, system | the recipient reads and clears; a notice may be left only for yourself or someone you are connected to |
 | `onboarding_sections` | CLIN | which profile sections a patient completed | on | 1 | D,I,S,U | user, system | the person themself |
-| `org_invitations` | TENANT, AUTH | staff invitations (hashed tokens) | on | 1 | D,I,S,U | system | server only |
-| `org_memberships` | TENANT, PII | who works where, in what role | on | 2 | D,I,S,U | user, system | yourself and colleagues in the same organization; the server writes |
+| `org_invitations` | TENANT, AUTH | staff invitations (hashed tokens) | on | 5 | D,I,S,U | system | server only |
+| `org_memberships` | TENANT, PII | who works where, in what role | on | 6 | D,I,S,U | user, system | yourself and colleagues in the same organization; the server writes |
 | `org_notes` | TENANT, CLIN | internal staff notes (append-only) | on | 2 | D,I,S,U | system, user | members read; the server writes; never shown to patients |
 | `org_tasks` | TENANT, CLIN | staff tasks about patients | on | 2 | D,I,S,U | system, user | members of the organization read; the server writes; staff reach patients only through server-side scoping |
-| `organizations` | TENANT | clinics and hospitals | on | 2 | D,I,S,U | user, system | members read their own organization; the server writes after the permission matrix |
+| `organizations` | TENANT | clinics and hospitals | on | 6 | D,I,S,U | user, system | members read their own organization; the server writes after the permission matrix |
 | `pairing_invitations` | AUTH, PII | a clinician's invitation codes (hashed) | on | 2 | D,I,S,U | user, system | the inviting clinician; the server redeems |
 | `pairing_requests` | CLIN, PII | a patient-doctor connection and its state | on | 4 | D,I,S,U | user, system | the two parties; parties immutable; only the server deletes |
-| `password_reset_tokens` | AUTH, PII | single-use reset links (hashed) | on | 1 | D,I,S,U | system | server only |
+| `password_reset_tokens` | AUTH, PII | single-use reset links (hashed) | on | 5 | D,I,S,U | system | server only |
 | `patient_consents` | CLIN | recorded consents | on | 2 | D,I,S,U | user, system | the patient; a clinician with an assist grant reads |
-| `personal_reminder_deliveries` | OPS | delivery ledger of personal reminders | on | 1 | D,I,S,U | user, system | through the person's own reminder |
-| `personal_reminders` | CLIN | a person's own reminders | on | 1 | D,I,S,U | user, system | the person themself |
+| `personal_reminder_deliveries` | OPS | delivery ledger of personal reminders | on | 5 | D,I,S,U | user, system | through the person's own reminder |
+| `personal_reminders` | CLIN | a person's own reminders | on | 5 | D,I,S,U | user, system | the person themself |
 | `pharmacies` | REF | pharmacy list (demonstration data, no personal information) | on | 1 | S | user | any signed-in person reads; nobody writes through the application role |
 | `pharmacy_orders` | CLIN | demonstration fulfilment records | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor |
-| `prescription_events` | CLIN, OPS | append-only history of a prescription | on | 2 | I,S | user, system | visible exactly when the prescription is; add only in your own name; no UPDATE or DELETE privilege |
-| `prescriptions` | CLIN | prescriptions (drafts hidden from the patient) | on | 4 | D,I,S,U | user, system | the doctor of record and connected doctors; the patient and caregivers once authorized; a doctor creates only in their own name for a connected patient; frozen after authorization by trigger |
-| `rate_limit_hits` | OPS | shared rate-limit counters keyed by a one-way hash | on | 1 | D,I,S,U | system | server only |
-| `reminder_deliveries` | OPS, CLIN | which reminder was sent when, and whether it worked | on | 2 | D,I,S,U | system, user | read only through a reminder you may read; written by the server |
+| `prescription_events` | CLIN, OPS | append-only history of a prescription | on | 4 | I,S | user, system | visible exactly when the prescription is; add only in your own name; no UPDATE or DELETE privilege |
+| `prescriptions` | CLIN | prescriptions (drafts hidden from the patient) | on | 8 | D,I,S,U | user, system | the doctor of record and connected doctors; the patient and caregivers once authorized; a doctor creates only in their own name for a connected patient; frozen after authorization by trigger |
+| `rate_limit_hits` | OPS | shared rate-limit counters keyed by a one-way hash | on | 5 | D,I,S,U | system | server only |
+| `reminder_deliveries` | OPS, CLIN | which reminder was sent when, and whether it worked | on | 6 | D,I,S,U | system, user | read only through a reminder you may read; written by the server |
 | `schema_migrations` | OPS | which migrations have run | on | 0 | (none) | none | no privilege at all for the application role; row-level security on with no policy |
 | `sharing_grants` | CLIN | what a patient lets a doctor see | on | 2 | D,I,S,U | user, system | the patient; the named doctor can see that the grant exists |
 | `symptom_reports` | CLIN | what a patient wrote when asking for help | on | 2 | D,I,S,U | user, system | the patient, a connected active doctor, an invited caregiver (read only); written by the patient or a connected doctor; a doctor also sees the report attached to a request addressed to them |
 | `user_blocks` | PII | who a person blocked | on | 1 | D,I,S,U | user, system | the blocker |
-| `user_devices` | AUTH | each signed-in browser or device | on | 1 | D,I,S,U | user, system | the person themself |
-| `user_mfa` | AUTH | clinicians, staff, administrators (encrypted authenticator secret, lock-out state) | on | 1 | D,I,S,U | system | server only: nobody, including the owner of the secret, can read it through the application role |
-| `users` | PII, AUTH, CLIN | every account. The application role may READ only ten identifying columns (id, name, role, language, time zone, read receipts, fixture flag, created/deactivated/confirmed dates); the password hash, e-mail, phone, state, date of birth, emergency profile and preferences are released only by app_user_private / app_user_credentials* / app_user_contacts to the person, the server or the sign-in steps | on | 3 | I,U | user, system, definer | row: self; the other side of a doctor connection (live) or of a visit the doctor provides; care-circle parties; colleagues; an administrator sees clinicians, administrators, organization staff and message reporters. Column: public ten only. Insert: server only, never an administrator. Update: self or server, role/e-mail/fixture flag immutable, e-mail verification server only. No DELETE privilege. |
+| `user_devices` | AUTH | each signed-in browser or device | on | 5 | D,I,S,U | user, system | the person themself |
+| `user_mfa` | AUTH | clinicians, staff, administrators (encrypted authenticator secret, lock-out state) | on | 5 | D,I,S,U | system | server only: nobody, including the owner of the secret, can read it through the application role |
+| `users` | PII, AUTH, CLIN | every account. The application role may READ only ten identifying columns (id, name, role, language, time zone, read receipts, fixture flag, created/deactivated/confirmed dates); the password hash, e-mail, phone, state, date of birth, emergency profile and preferences are released only by app_user_private / app_user_credentials* / app_user_contacts to the person, the server or the sign-in steps | on | 6 | I,U | user, system, definer | row: self; the other side of a doctor connection (live) or of a visit the doctor provides; care-circle parties; colleagues; an administrator sees clinicians, administrators, organization staff and message reporters. Column: public ten only. Insert: server only, never an administrator. Update: self or server, role/e-mail/fixture flag immutable, e-mail verification server only. No DELETE privilege. |
+
+SECURITY DEFINER functions: app_admin_may_see_user, app_busy_intervals, app_can_see_user, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_private, app_verified_scope, app_verified_system, app_verified_user, avela_identity_check
+Policy helpers the application role may execute: app_admin_may_see_user, app_busy_intervals, app_can_read_patient, app_can_see_profile, app_can_see_user, app_can_write_patient, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_is_system, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_owns, app_restricted_session, app_system_in, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_id, app_user_private, app_verified_scope, app_verified_system, app_verified_user
+Functions it may not execute: avela_append_only, avela_apply_grants, avela_credential_event_guard, avela_doctor_applications_guard, avela_doctor_profiles_guard, avela_health_entry_guard, avela_health_events_guard, avela_identity_check, avela_message_guard, avela_org_notes_guard, avela_parties_immutable, avela_prescription_guard, avela_users_guard, zz_fail_invitation
+55 tables, 55 behind row-level security, 44 functions, 0 finding(s).
 
 ## 5. Functions
 
 All functions are executable only by their owner and, for the application role, only the policy helpers (`app_*`). `PUBLIC` holds no
 `EXECUTE` (it did before 0024: every function, including the trigger functions and `avela_apply_grants()`, was executable by every role).
 
-- SECURITY DEFINER functions: app_admin_may_see_user, app_busy_intervals, app_can_see_user, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_private, app_verified_system, app_verified_user, avela_identity_check
-- Policy helpers the application role may execute: app_admin_may_see_user, app_busy_intervals, app_can_read_patient, app_can_see_profile, app_can_see_user, app_can_write_patient, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_is_system, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_owns, app_restricted_session, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_id, app_user_private, app_verified_system, app_verified_user
+- SECURITY DEFINER functions: app_admin_may_see_user, app_busy_intervals, app_can_see_user, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_private, app_verified_scope, app_verified_system, app_verified_user, avela_identity_check
+- Policy helpers the application role may execute: app_admin_may_see_user, app_busy_intervals, app_can_read_patient, app_can_see_profile, app_can_see_user, app_can_write_patient, app_doctor_has_report, app_has_assist_grant, app_has_pairing_with_profile, app_in_pairing, app_is_admin, app_is_caregiver_of, app_is_connected_doctor, app_is_listed_doctor, app_is_org_member, app_is_system, app_may_read_conversation, app_may_write_conversation, app_my_doctor_profiles, app_owns, app_restricted_session, app_system_in, app_user_contacts, app_user_credentials, app_user_credentials_by_id, app_user_id, app_user_private, app_verified_scope, app_verified_system, app_verified_user
 - Functions it may not execute: avela_append_only, avela_apply_grants, avela_credential_event_guard, avela_doctor_applications_guard, avela_doctor_profiles_guard, avela_health_entry_guard, avela_health_events_guard, avela_identity_check, avela_message_guard, avela_org_notes_guard, avela_parties_immutable, avela_prescription_guard, avela_users_guard, zz_fail_invitation
 
 Every SECURITY DEFINER function fixes `search_path = public, pg_temp` (test: "gives every SECURITY DEFINER function a fixed search_path").
@@ -120,12 +131,12 @@ Every SECURITY DEFINER function fixes `search_path = public, pg_temp` (test: "gi
 
 | Family | Where | What bounds it |
 | --- | --- | --- |
-| Pre-sign-in public endpoints | `systemAccess` on `POST /api/auth/{signup,login,forgot-password,reset-password,email/verify,mfa/setup,mfa/enable,mfa/verify}`, `POST /api/doctors/register`, `GET/POST /api/care-circle/invitations/*`, `POST /api/orgs/invitations/{preview,accept-new}`, `POST /api/webhooks/resend`, `GET/POST /api/cron/reminders` | `tests/routeInventory.test.ts` enumerates every endpoint and fails on one that is not classified; rate limits; single-use hashed tokens; webhook signature and cron secret checks |
-| Session lookup | `server/middleware/auth.ts`: device and user are read as system, then `enterUser(id)` | session needs a live, unrevoked device row; suspension revokes in the same transaction |
+| Pre-sign-in public endpoints | `systemAccess("auth"\|"invite"\|"webhook"\|"scheduler")` (a narrow scope per route; `tests/systemScopes.test.ts` fails if a route names none or `server`) on `POST /api/auth/{signup,login,forgot-password,reset-password,email/verify,mfa/setup,mfa/enable,mfa/verify}`, `POST /api/doctors/register`, `GET/POST /api/care-circle/invitations/*`, `POST /api/orgs/invitations/{preview,accept-new}`, `POST /api/webhooks/resend`, `GET/POST /api/cron/reminders` | `tests/routeInventory.test.ts` enumerates every endpoint and fails on one that is not classified; rate limits; single-use hashed tokens; webhook signature and cron secret checks |
+| Session lookup | `server/middleware/auth.ts`: device and user are read in scope **`session`** (two tables), then `enterUser(id)` | session needs a live, unrevoked device row; suspension revokes in the same transaction |
 | Organization staff | `server/services/orgs.ts` (29 `runAsSystem` sites) | staff have no relationship row a policy could test; every function checks the permission matrix and scopes to the organization's own clinicians' accepted, staff-visible patients first. **Security-critical file**; attacked from outside by `tests/orgs.test.ts` and `tests/reviewFindings.test.ts` |
 | Administrator workflows | `approve/suspend/reinstate` doctor, message-report resolution, credential review (`storage.ts`, `credentialService.ts`) | `adminOnly` (role read live + second factor); every decision audited |
-| Background work | reminders, personal reminders, e-mail delivery ledger, integrations check (`services/*`) | called only from the cron endpoint or the server itself |
-| Rate limiter | `server/middleware/pgRateLimitStore.ts` | writes only hashed counters |
+| Background work | reminders, personal reminders, e-mail delivery ledger, integrations check (`services/*`) | the cron endpoint runs the whole reminder job in scope **`scheduler`** (12 tables, `tests/scopeScenarios.test.ts`); other callers use `server` |
+| Rate limiter | `server/middleware/pgRateLimitStore.ts`, scope **`ratelimit`** (one table) | writes only hashed counters |
 | Operator scripts | `script/*` on the owner connection | run from a trusted shell; `script/asOperator.ts` makes them ignore the restricted URL |
 
 ## 7. Findings and what was done

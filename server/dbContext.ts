@@ -61,6 +61,8 @@ export const runAsUser = <T>(userId: string, fn: () => T): T => scoped({ userId 
 export const runAsSystem = <T>(fn: () => T, scope?: SystemScope): T => {
   const current = store.getStore();
   const inherited = current?.system ? current.scope : undefined;
+  // Code running in a narrow scope can name another narrow scope, never the unrestricted one.
+  if (inherited && inherited !== "server" && scope === "server") throw new Error(`The ${inherited} scope cannot widen itself to the server scope`);
   return scoped({ system: true, scope: scope ?? inherited }, fn);
 };
 

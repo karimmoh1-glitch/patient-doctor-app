@@ -131,7 +131,7 @@ owner connection (`npm run admin:create`). The public doctor directory is a read
 
 ## Known gaps and risks
 - **Production runs the restricted role since 2026-10-26.** Row-level security still protects against mistakes in query scoping, not against SQL
-  injection or a stolen runtime credential (the role also sets the identity): see `docs/DATABASE_ACCESS_AUDIT.md` §3 and decision D-03.
+  injection or a stolen runtime credential (the role also sets the identity): see `docs/DATABASE_ACCESS_AUDIT.md` §3 and decision D-03. Since migration 0028 the server's own database work carries a *scope*: sign-in, sign-up, recovery, invitations, the webhook, the scheduler, the session lookup and the rate limiter can each reach only the few tables their job needs (`docs/IDENTITY_BOUNDARY.md` §5); the broad `server` scope remains for code that runs after a signed-in person's own permission check.
 - **A second factor exists** (TOTP, encrypted secret, recovery codes, lock-out, replay refusal) for clinicians, organization
   staff and administrators; **patients and caregivers are not required to use one.** Losing `MFA_ENCRYPTION_KEY` locks those accounts out.
 - **Credentials are checked by a person, not by a registry.** The record says how and when; nothing is looked up automatically.

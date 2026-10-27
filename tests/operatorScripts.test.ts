@@ -129,3 +129,14 @@ describe("npm run password:reset", () => {
     void signIn;
   });
 });
+
+describe("npm run pooler:check", () => {
+  it("runs through the application's own pool, reports no crossed identity, and prints no connection string or key", async () => {
+    const r = await run("pooler-check.ts", [], { APP_DATABASE_URL: appRoleUrl(process.env.DATABASE_URL!), DB_ENFORCE_RLS: "on", POOLER_CHECK_ROUNDS: "2", POOLER_CHECK_WIDTH: "30" });
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toMatch(/\b0 under the wrong identity/);
+    expect(r.out).toContain("PASS");
+    expect(r.out).not.toMatch(/postgres(ql)?:\/\//);
+    expect(r.out).not.toMatch(/IDENTITY_KEY|v1\.[a-z0-9_-]+\.(user|system)\./);
+  });
+});

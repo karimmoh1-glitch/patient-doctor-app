@@ -26,6 +26,7 @@
     "schema:fingerprint": "tsx script/schema-fingerprint.ts",
     "audit:db": "tsx script/audit-database.ts",
     "release:verify": "tsx script/release-verify.ts",
+    "pooler:check": "tsx script/pooler-check.ts",
     "rotation:verify": "tsx script/verify-rotation.ts",
     "migration:rehearse": "tsx script/rehearse-migration.ts",
     "migration:dry-run": "tsx script/dry-run-migration.ts",
