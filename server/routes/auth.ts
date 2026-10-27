@@ -84,7 +84,7 @@ router.post("/email/verify/request", requireAuth, verifyRequestLimiter, async (r
   res.json({ verified: false, sent });
 });
 
-router.post("/email/verify", systemAccess, authLimiter, async (req, res) => {
+router.post("/email/verify", systemAccess("auth"), authLimiter, async (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token : "";
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return res.status(404).json({ message: "That link isn't valid or has expired." });
   const tokenHash = hashToken(token);
@@ -105,7 +105,7 @@ const signupBodySchema = z.object({
   language: z.enum(["en", "ar"]).optional(),
 });
 
-router.post("/signup", systemAccess, authLimiter, async (req, res) => {
+router.post("/signup", systemAccess("auth"), authLimiter, async (req, res) => {
   const parsed = signupBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid signup details" });
@@ -151,7 +151,7 @@ const loginBodySchema = z.object({
   password: z.string().min(1),
 });
 
-router.post("/login", systemAccess, loginIpLimiter, loginAccountLimiter, async (req, res) => {
+router.post("/login", systemAccess("auth"), loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const parsed = loginBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Email and password are required" });
@@ -192,7 +192,7 @@ async function mfaFailureResponse(res: any, result: { reason: "invalid" | "locke
   return res.status(401).json({ message: "That code isn't right. Check your authenticator app and try again." });
 }
 
-router.post("/mfa/setup", systemAccess, mfaIpLimiter, async (req, res) => {
+router.post("/mfa/setup", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
   if (!userId) return res.status(401).json({ message: EXPIRED });
@@ -203,7 +203,7 @@ router.post("/mfa/setup", systemAccess, mfaIpLimiter, async (req, res) => {
   res.json({ secret: started.secret, otpauthUri: started.otpauthUri, account: user.email });
 });
 
-router.post("/mfa/enable", systemAccess, mfaIpLimiter, async (req, res) => {
+router.post("/mfa/enable", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
@@ -218,7 +218,7 @@ router.post("/mfa/enable", systemAccess, mfaIpLimiter, async (req, res) => {
   await completeSession(req, res, user, { user: await sessionUser(user), recoveryCodes: done.recoveryCodes }, 200, true);
 });
 
-router.post("/mfa/verify", systemAccess, mfaIpLimiter, async (req, res) => {
+router.post("/mfa/verify", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "verify") : null;
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
@@ -253,7 +253,7 @@ router.post("/mfa/recovery-codes", requireAuth, mfaIpLimiter, async (req, res) =
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
 
-router.post("/forgot-password", systemAccess, authLimiter, async (req, res) => {
+router.post("/forgot-password", systemAccess("auth"), authLimiter, async (req, res) => {
   const parsed = forgotPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "A valid email is required" });
@@ -283,7 +283,7 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8).max(200),
 });
 
-router.post("/reset-password", systemAccess, authLimiter, async (req, res) => {
+router.post("/reset-password", systemAccess("auth"), authLimiter, async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid request" });

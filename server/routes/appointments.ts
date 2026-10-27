@@ -35,6 +35,10 @@ const BOOKING_FAILURE_MESSAGES = {
     status: 409,
     message: "That time is no longer available. Please choose another time.",
   },
+  not_connected: {
+    status: 409,
+    message: "You're no longer connected with this doctor.",
+  },
 } as const;
 
 // Times a connected patient may actually book with this doctor. Only the

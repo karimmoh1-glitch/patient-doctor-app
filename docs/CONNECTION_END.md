@@ -32,7 +32,7 @@ The patient chooses:
   counts only, no name and no reason;
 * **keep** them: the visits stay confirmed; the clinician can see **those visits** and complete them, and nothing else about the patient; the patient keeps being reminded.
 
-A visit booked in the instant between the check and the end is covered by the same decision (or kept and recorded as `kept_by_default` if none was given).
+Booking and ending serialise on the connection's row (Mission 4, found by `tests/connectionEndRaces.test.ts`): the end takes the row exclusively before it asks about visits, a booking takes it shared before it writes one. A booking in flight therefore finishes first and is seen by the question (the patient is asked about it); a booking that starts after the end is refused ("no longer connected"). There is no longer any way for an end to leave a visit standing that the patient was not asked about. (Before this fix, the visit booked in that instant was silently kept and recorded as `kept_by_default`; that value no longer exists.) Two simultaneous ends: exactly one finishes, the other is told the connection is not active.
 
 ## Not decided here (for review)
 

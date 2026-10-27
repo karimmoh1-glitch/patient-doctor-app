@@ -169,7 +169,7 @@ export async function getOpenSlots(doctorProfileId: string, days: number, now = 
   };
 }
 
-export type BookingFailure = "no_availability" | "slot_unavailable";
+export type BookingFailure = "no_availability" | "slot_unavailable" | "not_connected";
 
 export type BookingResult =
   | { ok: true; appointment: Appointment }
@@ -193,6 +193,10 @@ export async function bookSlot(input: {
   try {
     return await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT id FROM doctor_profiles WHERE id = ${input.pairing.doctorProfileId} FOR UPDATE`);
+      // The connection must still be live when the visit is written, and stay so until this commits: ending a connection takes the same row
+      // exclusively, so an end either waits for this booking (and then sees it, and asks the patient) or goes first (and this booking is refused).
+      const live = await tx.execute(sql`SELECT status FROM pairing_requests WHERE id = ${input.pairing.id} FOR SHARE`);
+      if ((live.rows[0] as { status?: string } | undefined)?.status !== "accepted") return { ok: false, reason: "not_connected" } as const;
 
       const window = {
         start: new Date(input.start.getTime() - 60 * 60_000),

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "async_hooks";
+import type { SystemScope } from "./identity";
 
 /**
  * Who the database should believe is asking, carried alongside each request.
@@ -17,6 +18,8 @@ import { AsyncLocalStorage } from "async_hooks";
 export interface DbIdentity {
   userId?: string;
   system?: boolean;
+  /** For a system identity: what part of the server is acting (server/identity.ts SYSTEM_SCOPES). Omitted means the unrestricted "server". */
+  scope?: SystemScope;
 }
 
 const store = new AsyncLocalStorage<DbIdentity>();
@@ -49,8 +52,17 @@ function scoped<T>(identity: DbIdentity, fn: () => T): T {
 /** Runs `fn` (and everything it awaits) as this signed-in person. */
 export const runAsUser = <T>(userId: string, fn: () => T): T => scoped({ userId }, fn);
 
-/** Runs `fn` with system access. Use sparingly, around the smallest piece of work that needs it. */
-export const runAsSystem = <T>(fn: () => T): T => scoped({ system: true }, fn);
+/**
+ * Runs `fn` with system access. Use sparingly, around the smallest piece of work that needs it.
+ *
+ * The SCOPE says what the work is. An explicit scope wins. With none given, code running inside a narrower system scope (a public sign-in
+ * route, the scheduler) keeps ITS scope, so a helper it calls cannot quietly widen it; anywhere else the old, unrestricted "server" scope applies.
+ */
+export const runAsSystem = <T>(fn: () => T, scope?: SystemScope): T => {
+  const current = store.getStore();
+  const inherited = current?.system ? current.scope : undefined;
+  return scoped({ system: true, scope: scope ?? inherited }, fn);
+};
 
 /** Makes the rest of the current request this person. Called once, by the authentication step. */
 export const enterUser = (userId: string): void => {

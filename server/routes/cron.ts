@@ -72,7 +72,7 @@ async function runReminders(req: any, res: any) {
   res.json({ ok: true, runId: summary.runId, ...summary.result });
 }
 
-router.get("/reminders", systemAccess, guessLimiter, runReminders);
-router.post("/reminders", systemAccess, guessLimiter, runReminders);
+router.get("/reminders", systemAccess("scheduler"), guessLimiter, runReminders);
+router.post("/reminders", systemAccess("scheduler"), guessLimiter, runReminders);
 
 export default router;

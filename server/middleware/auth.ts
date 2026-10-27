@@ -150,7 +150,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       if (!device || device.userId !== decoded.userId || device.revokedAt) return { device: undefined, user: undefined };
       storage.touchUserDevice(decoded.deviceId!).catch(() => {});
       return { device, user: await storage.getUser(decoded.userId) };
-    });
+    }, "session");
     if (!device) {
       return res.status(401).json({ message: "Your session has ended. Please sign in again." });
     }

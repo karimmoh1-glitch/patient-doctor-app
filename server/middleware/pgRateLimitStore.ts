@@ -5,7 +5,7 @@ import { runAsSystem } from "../dbContext";
 
 // The counters belong to the server alone (row-level security gives nobody else any access), and the limiter runs before
 // anyone is signed in, so every statement here says so explicitly.
-const q = (text: string, params?: unknown[]) => runAsSystem(() => pool.query(text, params));
+const q = (text: string, params?: unknown[]) => runAsSystem(() => pool.query(text, params), "ratelimit");
 
 /**
  * A rate-limit store in Postgres, so the limit holds across every server

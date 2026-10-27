@@ -140,7 +140,7 @@ router.delete("/:id", requireAuth, requireRole("patient"), async (req, res) => {
 
 // --- Invite acceptance (public until the token is redeemed) ---
 
-router.get("/invitations/validate/:token", systemAccess, inviteRedeemLimiter, async (req, res) => {
+router.get("/invitations/validate/:token", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
   const tokenHash = hashToken(req.params.token);
   const member = await storage.getCareCircleMemberByTokenHash(tokenHash);
   if (!member || !isInviteLive(member)) {
@@ -160,7 +160,7 @@ router.get("/invitations/validate/:token", systemAccess, inviteRedeemLimiter, as
 
 const acceptSchema = z.object({ password: z.string().min(8).max(200) });
 
-router.post("/invitations/accept/:token", systemAccess, inviteRedeemLimiter, async (req, res) => {
+router.post("/invitations/accept/:token", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
   const parsed = acceptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "A password of at least 8 characters is required" });
 

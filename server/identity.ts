@@ -11,13 +11,24 @@ import crypto from "crypto";
  * choose an identity. See docs/IDENTITY_BOUNDARY.md for exactly what this does and does not defend against.
  *
  * Format:  v1.<kid>.<mode>.<sub>.<exp>.<mac>
- *   mode  "user" (sub = the person's id) or "system" (sub = "-", for the server's own pre-sign-in and background work)
+ *   mode  "user" (sub = the person's id) or "system" (sub = the SCOPE, see SYSTEM_SCOPES: what part of the server is acting)
  *   exp   seconds since the epoch; the database rejects anything expired or further ahead than its configured limit
  *   mac   base64url(HMAC-SHA256(key, "avela-identity-v1\n" kid "\n" mode "\n" sub "\n" exp))
  */
+/**
+ * What a system identity is FOR. Each public or background entry point asks for the narrowest scope that does its job, and the database
+ * policies (migration 0028) let each scope touch only the tables that job needs: an injection in the sign-in route can reach the
+ * sign-in tables, not a patient's medicines, messages or visits. "server" is the old, unrestricted system identity, kept for the code that
+ * acts for an already-authenticated person with an explicit permission check (and for tests); nothing reachable without signing in uses it.
+ */
+export const SYSTEM_SCOPES = ["server", "auth", "invite", "session", "scheduler", "webhook", "ratelimit"] as const;
+export type SystemScope = (typeof SYSTEM_SCOPES)[number];
+
 export interface SignedIdentity {
   userId?: string;
   system?: boolean;
+  /** For a system identity: which scope. Omitted means "server". */
+  scope?: SystemScope;
 }
 
 export const ASSERTION_TTL_SECONDS = 60;
@@ -63,7 +74,8 @@ const message = (kid: string, mode: string, sub: string, exp: number) => `avela-
 export function signAssertion(id: SignedIdentity | undefined, k: IdentityKey, nowMs = Date.now(), ttl = ASSERTION_TTL_SECONDS): string | null {
   const mode = id?.system ? "system" : id?.userId ? "user" : null;
   if (!mode) return null;
-  const sub = mode === "system" ? "-" : id!.userId!;
+  const sub = mode === "system" ? id!.scope ?? "server" : id!.userId!;
+  if (mode === "system" && !(SYSTEM_SCOPES as readonly string[]).includes(sub)) throw new Error("Unknown system scope.");
   if (mode === "user" && !SUB.test(sub)) throw new Error("This user id cannot be asserted.");
   const exp = Math.floor(nowMs / 1000) + ttl;
   const mac = crypto.createHmac("sha256", k.key).update(message(k.kid, mode, sub, exp)).digest("base64url");

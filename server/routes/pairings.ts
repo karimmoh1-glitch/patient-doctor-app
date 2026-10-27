@@ -282,37 +282,24 @@ router.patch("/:id/end", requireAuth, requireRole("patient"), async (req, res) =
   if (pairing.status !== "accepted") return res.status(409).json({ message: "This connection is not active" });
 
   const decision = parsed.data.upcomingVisits;
-  const upcoming = await storage.getUpcomingAppointmentsByPairing(pairing.id, new Date());
-  if (upcoming.length > 0 && !decision) {
+  const result = await storage.endPairing(pairing.id, userId, pairing.doctorProfileId, decision, new Date());
+  if (result.kind === "inactive") return res.status(409).json({ message: "This connection is not active" });
+  if (result.kind === "decide") {
     return res.status(409).json({
       code: "decide_upcoming_visits",
       message: "You have visits booked with this clinician. Choose whether to cancel them or keep them before ending the connection.",
-      upcoming: upcoming.map((a) => ({ id: a.id, type: a.type, scheduledAt: a.scheduledAt, status: a.status })),
+      upcoming: result.upcoming.map((a) => ({ id: a.id, type: a.type, scheduledAt: a.scheduledAt, status: a.status })),
     });
   }
-
-  const updated = await storage.transitionPairingStatus(pairing.id, ["accepted"], "ended");
-  if (!updated) {
-    return res.status(409).json({ message: "This connection is not active" });
-  }
-  // Stopping sharing means all of it: any extra categories the patient had granted this doctor end with the connection.
-  const grant = await storage.getActiveSharingGrantFor(userId, pairing.doctorProfileId);
-  if (grant) await storage.revokeSharingGrant(grant.id);
-
-  // Visits booked between the check above and the end are covered by the same decision (or, with none given, kept and recorded as such).
-  const visits = await storage.getUpcomingAppointmentsByPairing(pairing.id, new Date());
-  let cancelled = 0;
-  if (decision === "cancel") {
-    for (const a of visits) {
-      if (await storage.transitionAppointmentStatus(a.id, ["requested", "confirmed"], "cancelled")) {
-        cancelled++;
-        await logAudit({ actorUserId: userId, action: "appointment.cancelled", targetType: "appointment", targetId: a.id, metadata: { because: "connection_ended" } });
-      }
-    }
+  const updated = result.pairing;
+  const visits = result.visits;
+  const cancelled = result.cancelled.length;
+  for (const a of result.cancelled) {
+    await logAudit({ actorUserId: userId, action: "appointment.cancelled", targetType: "appointment", targetId: a.id, metadata: { because: "connection_ended" } });
   }
   await logAudit({
     actorUserId: userId, action: "pairing.ended", targetType: "pairing_request", targetId: pairing.id,
-    metadata: { upcomingVisits: visits.length === 0 ? "none" : decision ?? "kept_by_default", cancelled, kept: visits.length - cancelled },
+    metadata: { upcomingVisits: visits.length === 0 ? "none" : decision, cancelled, kept: visits.length - cancelled },
   });
   // The clinician is told, plainly and without the patient's name or any reason.
   const doctor = await storage.getDoctorProfile(pairing.doctorProfileId);

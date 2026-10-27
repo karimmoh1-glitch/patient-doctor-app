@@ -9,7 +9,7 @@ import { systemAccess } from "../middleware/systemAccess";
  */
 const router = Router();
 
-router.post("/resend", systemAccess, express.raw({ type: "*/*", limit: "100kb" }), async (req, res) => {
+router.post("/resend", systemAccess("webhook"), express.raw({ type: "*/*", limit: "100kb" }), async (req, res) => {
   if (!webhookSecretConfigured()) return res.status(503).json({ message: "Not configured" });
   const raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
   if (!verifyWebhookSignature(raw, req.headers)) return res.status(401).json({ message: "Invalid signature" });

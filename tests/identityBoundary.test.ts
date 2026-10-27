@@ -171,9 +171,9 @@ describe("the key cannot be read, written or minted from SQL", () => {
        WHERE p.pronamespace = 'public'::regnamespace AND has_function_privilege('avela_app', p.oid, 'EXECUTE') AND p.prokind = 'f' ORDER BY 1`);
     const names = rows.map((r) => r.proname as string);
     expect(names.filter((n) => !n.startsWith("app_")), "only policy helpers").toEqual([]);
-    expect(names.filter((n) => /sign|mint|token|assert|key|hmac/i.test(n) && !/^app_verified_(user|system)$/.test(n))).toEqual([]);
+    expect(names.filter((n) => /sign|mint|token|assert|key|hmac/i.test(n) && !/^app_verified_(user|system|scope)$/.test(n))).toEqual([]);
     // The two verifiers only ever answer who the settings in front of them say, in the form the policies need.
-    expect(rows.filter((r) => /^app_verified_/.test(r.proname)).map((r) => r.result).sort()).toEqual(["boolean", "text"]);
+    expect(rows.filter((r) => /^app_verified_/.test(r.proname)).map((r) => r.result).sort()).toEqual(["boolean", "text", "text"]);
     // A person cannot use them to learn another's identity: they report the caller's own verified identity or nothing.
     expect(await whoIs({ "app.assertion": assertionFor({ userId: A }) })).toEqual({ user: A, system: false });
   });

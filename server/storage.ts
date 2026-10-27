@@ -37,6 +37,11 @@ import {
   type CareCircleMember, type InsertCareCircleMember,
 } from "@shared/schema";
 
+export type EndPairingResult =
+  | { kind: "inactive" }
+  | { kind: "decide"; upcoming: Appointment[] }
+  | { kind: "ended"; pairing: PairingRequest; visits: Appointment[]; cancelled: Appointment[] };
+
 export interface IStorage {
   /** Who a person is: the columns anybody allowed to see the account may read. For anything private use getUserPrivate / getUserWithCredentials. */
   getUser(id: string): Promise<User | undefined>;
@@ -124,6 +129,7 @@ export interface IStorage {
   updatePairingRequestStatus(id: string, status: "accepted" | "declined" | "cancelled"): Promise<PairingRequest | undefined>;
   /** Moves a connection to `to` only if it is currently in one of `from`. Returns undefined if the guard failed. */
   transitionPairingStatus(id: string, from: PairingStatus[], to: PairingStatus): Promise<PairingRequest | undefined>;
+  endPairing(pairingId: string, patientUserId: string, doctorProfileId: string, decision: "cancel" | "keep" | undefined, now: Date): Promise<EndPairingResult>;
   /** Visits under this connection that have not happened yet and have not been cancelled. */
   getUpcomingAppointmentsByPairing(pairingId: string, now: Date): Promise<Appointment[]>;
 
@@ -729,6 +735,37 @@ export class DbStorage implements IStorage {
       .from(appointments)
       .where(and(eq(appointments.pairingRequestId, pairingId), inArray(appointments.status, ["requested", "confirmed"]), sqlOp`${appointments.scheduledAt} > ${now}`))
       .orderBy(appointments.scheduledAt);
+  }
+
+  /**
+   * Ends a live connection and applies the patient's decision about booked visits, as one step. The connection's row is locked first, so a
+   * booking in flight finishes (and is seen here) before the question is asked, and a booking that starts later is refused: the patient is never
+   * ended past a visit they were not asked about. Without a decision and with visits booked, nothing changes and the visits are returned.
+   */
+  async endPairing(pairingId: string, patientUserId: string, doctorProfileId: string, decision: "cancel" | "keep" | undefined, now: Date): Promise<EndPairingResult> {
+    return db.transaction(async (tx) => {
+      const locked = await tx.execute(sqlOp`SELECT status FROM pairing_requests WHERE id = ${pairingId} FOR UPDATE`);
+      if ((locked.rows[0] as { status?: string } | undefined)?.status !== "accepted") return { kind: "inactive" } as const;
+      const upcoming = await tx
+        .select()
+        .from(appointments)
+        .where(and(eq(appointments.pairingRequestId, pairingId), inArray(appointments.status, ["requested", "confirmed"]), sqlOp`${appointments.scheduledAt} > ${now}`))
+        .orderBy(appointments.scheduledAt);
+      if (upcoming.length > 0 && !decision) return { kind: "decide", upcoming } as const;
+
+      const [ended] = await tx.update(pairingRequests).set({ status: "ended", respondedAt: now }).where(and(eq(pairingRequests.id, pairingId), eq(pairingRequests.status, "accepted"))).returning();
+      if (!ended) return { kind: "inactive" } as const;
+      // Stopping sharing means all of it: any extra categories the patient had granted this doctor end with the connection.
+      await tx.update(sharingGrants).set({ revokedAt: now }).where(and(eq(sharingGrants.patientUserId, patientUserId), eq(sharingGrants.sharedWithDoctorProfileId, doctorProfileId), isNull(sharingGrants.revokedAt)));
+      const cancelled: Appointment[] = [];
+      if (decision === "cancel") {
+        for (const a of upcoming) {
+          const [c] = await tx.update(appointments).set({ status: "cancelled" }).where(and(eq(appointments.id, a.id), inArray(appointments.status, ["requested", "confirmed"]))).returning();
+          if (c) cancelled.push(c);
+        }
+      }
+      return { kind: "ended", pairing: ended, visits: upcoming, cancelled } as const;
+    });
   }
 
   async transitionPairingStatus(id: string, from: PairingStatus[], to: PairingStatus): Promise<PairingRequest | undefined> {
