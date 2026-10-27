@@ -41,8 +41,11 @@ const check = (ok: boolean, message: string) => {
   if (!ok) failed = true;
 };
 
-async function counts(pool: pg.Pool): Promise<string> {
-  const { rows } = await pool.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations' ORDER BY 1");
+// Row counts of the tables that exist now (or, when `only` is given, of those). A migration may add tables and seed its own rows; what
+// matters is that no row of anything that was already there changed.
+async function counts(pool: pg.Pool, only?: string[]): Promise<string> {
+  const all = (await pool.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations' ORDER BY 1")).rows;
+  const rows = only ? all.filter((r) => only.includes(r.tablename)) : all;
   const out: string[] = [];
   for (const r of rows) out.push(`${r.tablename}=${(await pool.query(`SELECT count(*)::int AS n FROM "${r.tablename}"`)).rows[0].n}`);
   return out.join(",");
@@ -68,6 +71,7 @@ async function main() {
     await scratch.query(`INSERT INTO users (id, name, email, password_hash, role) VALUES ('s1', 'Synthetic Patient', 's1@synthetic.invalid', 'x', 'patient'), ('s2', 'Synthetic Doctor', 's2@synthetic.invalid', 'x', 'doctor')`);
     await scratch.query(`INSERT INTO doctor_profiles (id, user_id, name, specialty, state, phone, source) VALUES ('p1', 's2', 'Dr Synthetic', 'Family Medicine', 'CA', '+10000000000', 'application')`).catch(() => {});
     await scratch.query(`INSERT INTO audit_logs (action) VALUES ('rehearsal')`).catch(() => {});
+    const tablesBefore = (await scratch.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'")).rows.map((r) => r.tablename as string);
     const rowsBefore = await counts(scratch);
     const fpBefore = await fp();
 
@@ -76,7 +80,7 @@ async function main() {
     check(applied.length === 1 && applied[0] === target, `${target} applies cleanly to the pre-migration state`);
     const fpAfter = await fp();
     check(md5(fpAfter.join("\n")) !== md5(fpBefore.join("\n")), `it changes the structure (${fpAfter.length} facts after, ${fpBefore.length} before)`);
-    check((await counts(scratch)) === rowsBefore, "no existing row was added, changed or removed");
+    check((await counts(scratch, tablesBefore)) === rowsBefore, "no existing row was added, changed or removed");
 
     // Idempotent: run the file's SQL again by hand (the runner would skip it as already recorded).
     await scratch.query(fs.readFileSync(path.join(root, "migrations", target), "utf8"));
@@ -88,7 +92,7 @@ async function main() {
       const fpDown = await fp();
       const diff = fpBefore.filter((l) => !fpDown.includes(l)).concat(fpDown.filter((l) => !fpBefore.includes(l)));
       check(diff.length === 0, `the rollback restores the exact pre-migration structure${diff.length ? ` (${diff.length} differences, first: ${diff[0].slice(0, 100)})` : ""}`);
-      check((await counts(scratch)) === rowsBefore, "the rollback touched no row");
+      check((await counts(scratch, tablesBefore)) === rowsBefore, "the rollback touched no row");
       await runMigrations(url, tmp);
       check(md5((await fp()).join("\n")) === md5(fpAfter.join("\n")), "re-applying after the rollback reproduces the identical post-migration structure");
     } else {

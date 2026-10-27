@@ -13,12 +13,18 @@ process.env.DATABASE_URL =
 // indexer, a backup) made single COMMITs take seconds and whole runs 10-15x slower; measured and
 // reproduced under deliberate disk load, see docs/TESTING.md. This is applied only here, never to the app.
 import { appRoleUrl, fastCommitUrl } from "./fastCommit";
+import { devIdentityKey } from "../server/identity";
 process.env.DATABASE_URL = fastCommitUrl(process.env.DATABASE_URL);
 // `npm run test:rls`: the whole suite again, but the application connects as the restricted role with
 // row-level security enforced, exactly as it would in production once APP_DATABASE_URL is set.
 if (process.env.TEST_AS_APP_ROLE === "1") {
   process.env.APP_DATABASE_URL = appRoleUrl(process.env.DATABASE_URL);
   process.env.DB_ENFORCE_RLS = "on";
+  // Some tests flip NODE_ENV to "production" to see how the server behaves there; production never falls back to the development
+  // key, so the (publicly known) test key is configured explicitly, as a real deployment would configure its own.
+  const dev = devIdentityKey();
+  process.env.IDENTITY_KEY_ID = dev.kid;
+  process.env.IDENTITY_KEY = dev.key.toString("base64");
 }
 
 const dbName = new URL(process.env.DATABASE_URL).pathname.replace(/^\//, "");

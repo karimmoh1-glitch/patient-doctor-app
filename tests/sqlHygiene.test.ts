@@ -17,7 +17,10 @@ describe("server code never builds SQL from strings", () => {
       const src = fs.readFileSync(file, "utf8");
       const rel = path.relative(path.resolve(__dirname, ".."), file);
       // pool.query(`... ${x} ...`)  /  client.query(`...${x}`)  /  db.execute(`...${x}`) with a plain (non-sql-tagged) template
-      for (const m of src.matchAll(/\.(?:query|execute)\(\s*`([^`]*)`/g)) if (/\$\{/.test(m[1])) offences.push(`${rel}: interpolated template in a query call`);
+      // The one deliberate exception: the identity assertion in server/db.ts is inlined (one round trip instead of two). It can only ever
+      // contain [A-Za-z0-9._-] (assertionSql and signAssertion both refuse anything else; tests/identityBoundary.test.ts proves it).
+      const allowed = (m: string) => rel === path.join("server", "db.ts") && /^BEGIN; \$\{assertionSql\(\w+\)\}$/.test(m);
+      for (const m of src.matchAll(/\.(?:query|execute)\(\s*`([^`]*)`/g)) if (/\$\{/.test(m[1]) && !allowed(m[1])) offences.push(`${rel}: interpolated template in a query call`);
       // .query("..." + x)
       for (const m of src.matchAll(/\.(?:query|execute)\(\s*(?:"[^"]*"|'[^']*')\s*\+/g)) offences.push(`${rel}: concatenated query string (${m[0].slice(0, 40)})`);
       if (/\bsql\s*\.\s*raw\s*\(|\bsqlOp\s*\.\s*raw\s*\(/.test(src)) offences.push(`${rel}: sql.raw`);

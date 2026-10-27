@@ -73,5 +73,7 @@ export const CLASSIFICATION: Record<string, TableFacts> = {
   job_runs: { data: ["OPS"], whose: "scheduler state and leases", path: ["system"], boundary: "server only" },
   job_run_history: { data: ["OPS"], whose: "one row per scheduler call (evidence of scheduling)", path: ["system"], boundary: "server only" },
   rate_limit_hits: { data: ["OPS"], whose: "shared rate-limit counters keyed by a one-way hash", path: ["system"], boundary: "server only" },
+  app_identity_keys: { data: ["AUTH"], whose: "the keys the database verifies identity assertions with (HMAC pad blocks, never the key itself)", path: ["definer"], boundary: "owner only: no privilege for the application role; read solely by avela_identity_check() (a SECURITY DEFINER function). Whoever can read this table can mint any identity" },
+  app_identity_config: { data: ["OPS"], whose: "whether signed identities are enforced, and the longest assertion lifetime accepted", path: ["definer"], boundary: "owner only; read solely by avela_identity_check()" },
   schema_migrations: { data: ["OPS"], whose: "which migrations have run", path: [], boundary: "no privilege at all for the application role; row-level security on with no policy" },
 };

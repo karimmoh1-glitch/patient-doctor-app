@@ -82,6 +82,7 @@ describe("what a production server refuses to start with", () => {
     NODE_ENV: "production", DATABASE_URL: "postgresql://owner@db/x", APP_DATABASE_URL: "postgresql://runtime@db/x", DB_ENFORCE_RLS: "on",
     JWT_SECRET: "j".repeat(40), APP_URL: "https://avela.example.org",
     MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    IDENTITY_KEY_ID: "k20261027", IDENTITY_KEY: Buffer.alloc(32, 9).toString("base64"),
   } as NodeJS.ProcessEnv;
   const ids = (env: NodeJS.ProcessEnv) => productionConfigProblems(env).map((p) => p.id);
 
@@ -111,6 +112,15 @@ describe("what a production server refuses to start with", () => {
     expect(ids({ ...good, MFA_ENCRYPTION_KEY: "short" })).toContain("mfa-key");
     expect(ids({ ...good, MFA_ENCRYPTION_KEY: Buffer.alloc(16, 1).toString("base64") })).toContain("mfa-key"); // wrong length
     expect(ids({ ...good, MFA_ALLOW_CODE_REUSE: "1" })).toEqual(["mfa-reuse"]);
+  });
+
+  it("refuses the restricted role without a signing key for the identity the database verifies, or with the development key", () => {
+    expect(ids({ ...good, IDENTITY_KEY: undefined })).toEqual(["identity-key"]);
+    expect(ids({ ...good, IDENTITY_KEY_ID: undefined })).toEqual(["identity-key"]);
+    expect(ids({ ...good, IDENTITY_KEY: Buffer.alloc(16, 1).toString("base64") })).toEqual(["identity-key"]);
+    expect(ids({ ...good, IDENTITY_KEY_ID: "dev" })).toEqual(["identity-key-dev"]);
+    // The owner-role exception needs no signing key: nothing is being verified.
+    expect(ids({ ...good, APP_DATABASE_URL: undefined, DB_ENFORCE_RLS: undefined, IDENTITY_KEY: undefined, ALLOW_OWNER_DATABASE_ROLE: "true" })).toEqual([]);
   });
 
   it("refuses to connect as the table owner, unless that is a named, visible exception", () => {

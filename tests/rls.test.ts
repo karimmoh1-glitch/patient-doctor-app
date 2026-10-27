@@ -4,6 +4,7 @@ import pg from "pg";
 import type { Express } from "express";
 import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, connect, issuePrescription, prescriptionBody, auth, uniqueEmail, PASSWORD, type TestUser, type TestDoctor } from "./helpers";
 import { appRoleUrl } from "./fastCommit";
+import { assertionFor } from "./identityHelpers";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { medications, notifications } from "@shared/schema";
@@ -22,10 +23,10 @@ let app: Express;
 async function as<T>(who: Who, fn: (q: (text: string, params?: unknown[]) => Promise<pg.QueryResult>) => Promise<T>): Promise<T> {
   const c = await app_.connect();
   try {
-    await c.query("SELECT set_config('app.user_id', $1, false), set_config('app.system', $2, false)", [who.userId ?? "", who.system ? "on" : ""]);
+    await c.query("SELECT set_config('app.assertion', $1, false)", [assertionFor(who)]);
     return await fn((text, params) => c.query(text, params));
   } finally {
-    await c.query("SELECT set_config('app.user_id', '', false), set_config('app.system', '', false)").catch(() => {});
+    await c.query("SELECT set_config('app.assertion', '', false)").catch(() => {});
     c.release();
   }
 }

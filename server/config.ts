@@ -68,6 +68,13 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
       "The application would connect to the database as the table owner. Set APP_DATABASE_URL and DB_ENFORCE_RLS=on (docs/OPERATIONS_RUNBOOK.md), or, as a visible temporary exception, ALLOW_OWNER_DATABASE_ROLE=true.",
     );
   }
+  // With the restricted role, the database verifies who each transaction is for with a signed assertion; without the key the server
+  // would sign nothing and every request would be anonymous (or, worse, run in the unverified roll-out mode forever).
+  if (restricted) {
+    const keyOk = !!env.IDENTITY_KEY && Buffer.from(env.IDENTITY_KEY, "base64").length === 32 && /^[a-z0-9_-]{1,32}$/.test(env.IDENTITY_KEY_ID ?? "");
+    if (!keyOk) add("identity-key", "IDENTITY_KEY_ID and IDENTITY_KEY (32 random bytes, base64) must be set with the restricted database role: `npm run identity:key -- generate` (docs/IDENTITY_BOUNDARY.md).");
+    if (env.IDENTITY_KEY_ID === "dev") add("identity-key-dev", "IDENTITY_KEY_ID is the development key's id. Generate a real key.");
+  }
   if (env.ALLOW_OWNER_DATABASE_ROLE === "true" && restricted) {
     add("owner-role-contradiction", "ALLOW_OWNER_DATABASE_ROLE=true is set although the restricted role is configured. Remove it.");
   }

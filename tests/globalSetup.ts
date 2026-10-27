@@ -1,5 +1,6 @@
 import pg from "pg";
 import { runMigrations } from "../script/migrate";
+import { prepareLocalIdentity } from "../script/lib/devIdentity";
 import { fastCommitUrl } from "./fastCommit";
 
 // Runs once before the whole suite: empties the (already schema-pushed)
@@ -23,4 +24,5 @@ export default async function setup() {
     await pool.end();
   }
   await runMigrations(fastCommitUrl(url));
+  await prepareLocalIdentity(fastCommitUrl(url));
 }

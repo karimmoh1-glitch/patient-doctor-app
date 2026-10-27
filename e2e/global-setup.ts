@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
 import pg from "pg";
 import { runMigrations } from "../script/migrate";
+import { prepareLocalIdentity } from "../script/lib/devIdentity";
 import { E2E_DB, E2E_MFA_KEY } from "../playwright.config";
 
 // Gives every e2e run a brand-new, migrated, seeded database — and refuses to
@@ -27,6 +28,7 @@ export default async function globalSetup() {
     await db.end();
   }
   await runMigrations(E2E_DB);
+  await prepareLocalIdentity(E2E_DB);
   execFileSync("npx", ["tsx", "script/seed.ts"], {
     env: { ...process.env, DATABASE_URL: E2E_DB, NODE_ENV: "development", MFA_ENCRYPTION_KEY: E2E_MFA_KEY },
     stdio: "pipe",

@@ -17,6 +17,8 @@ import { CLASSIFICATION } from "./dbClassification";
 
 const q = async (sql: string) => (await pool.query(sql)).rows as Record<string, any>[];
 const APPEND_ONLY = ["audit_logs", "prescription_events"];
+// Owner-only tables: row-level security on, no policy, and no privilege at all for the application role.
+const OWNER_ONLY = ["schema_migrations", "app_identity_keys", "app_identity_config"];
 
 async function main() {
   const findings: string[] = [];
@@ -39,11 +41,11 @@ async function main() {
     const granted = privs.get(r.relname) ?? "(none)";
     if (!facts) findings.push(`${r.relname}: no entry in script/dbClassification.ts`);
     if (r.relkind === "r" && !r.rls) findings.push(`${r.relname}: outside row-level security`);
-    if (r.relkind === "r" && r.rls && r.npolicies === 0 && r.relname !== "schema_migrations") findings.push(`${r.relname}: row-level security on but no policy (nobody but the owner can use it)`);
+    if (r.relkind === "r" && r.rls && r.npolicies === 0 && !OWNER_ONLY.includes(r.relname)) findings.push(`${r.relname}: row-level security on but no policy (nobody but the owner can use it)`);
     if (r.relkind === "r" && r.owner !== ownerName) findings.push(`${r.relname}: owned by ${r.owner}, not the schema owner`);
     if (hasApp && /TRUNCATE|REFERENCES|TRIGGER/.test(granted)) findings.push(`${r.relname}: the application role holds ${granted}`);
     if (hasApp && APPEND_ONLY.includes(r.relname) && /UPDATE|DELETE/.test(granted)) findings.push(`${r.relname}: append-only table is writable by the application role (${granted})`);
-    if (hasApp && r.relname === "schema_migrations" && granted !== "(none)") findings.push(`schema_migrations: the application role holds ${granted}`);
+    if (hasApp && OWNER_ONLY.includes(r.relname) && granted !== "(none)") findings.push(`${r.relname}: the application role holds ${granted}`);
     if (hasApp && r.relkind === "v" && /INSERT|UPDATE|DELETE/.test(granted)) findings.push(`${r.relname}: a view the application role can write through (runs with the owner's rights)`);
     const c = facts ?? { data: ["?"], whose: "?", path: [], boundary: "?" };
     rows.push(`| \`${r.relname}\`${r.relkind === "v" ? " (view)" : ""} | ${c.data.join(", ")} | ${c.whose} | ${r.relkind === "v" ? "n/a (owner's rights)" : r.rls ? "on" : "**OFF**"} | ${r.npolicies} | ${granted.replace(/DELETE/g, "D").replace(/INSERT/g, "I").replace(/SELECT/g, "S").replace(/UPDATE/g, "U")} | ${c.path.join(", ") || "none"} | ${c.boundary} |`);

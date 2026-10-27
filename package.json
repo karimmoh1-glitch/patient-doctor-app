@@ -29,6 +29,8 @@
     "demo:retire": "tsx script/retire-demo.ts",
     "test:live": "playwright test -c playwright.live.config.ts",
     "mfa:reset": "tsx script/reset-mfa.ts",
+    "identity:key": "tsx script/identity-keys.ts",
+    "identity:enforce": "tsx script/identity-keys.ts enforce",
     "mfa:rekey": "tsx script/rekey-mfa.ts",
     "password:reset": "tsx script/reset-password.ts",
     "erase:user": "tsx script/erase-user.ts"

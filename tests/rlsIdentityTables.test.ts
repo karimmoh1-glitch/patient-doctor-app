@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import pg from "pg";
 import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, connect, issuePrescription, uniqueEmail, operatorPool, type TestUser, type TestDoctor } from "./helpers";
 import { appRoleUrl } from "./fastCommit";
+import { assertionFor } from "./identityHelpers";
 
 // Migration 0024 put row-level security on the tables that held identity and account state, the access log, the directory
 // and the server's own bookkeeping. This attacks each of them directly, as the restricted runtime role, saying who it is the
@@ -16,10 +17,10 @@ type Q = (text: string, params?: unknown[]) => Promise<pg.QueryResult>;
 async function as<T>(who: Who, fn: (q: Q) => Promise<T>): Promise<T> {
   const c = await app_.connect();
   try {
-    await c.query("SELECT set_config('app.user_id', $1, false), set_config('app.system', $2, false)", [who.userId ?? "", who.system ? "on" : ""]);
+    await c.query("SELECT set_config('app.assertion', $1, false)", [assertionFor(who)]);
     return await fn((text, params) => c.query(text, params));
   } finally {
-    await c.query("SELECT set_config('app.user_id', '', false), set_config('app.system', '', false), set_config('row_security', 'on', false)").catch(() => {});
+    await c.query("SELECT set_config('app.assertion', '', false), set_config('row_security', 'on', false)").catch(() => {});
     c.release();
   }
 }
@@ -91,9 +92,12 @@ describe("every table is behind row-level security, and the application role hol
       SELECT c.relname AS t, c.relrowsecurity AS rls, (SELECT count(*)::int FROM pg_policy p WHERE p.polrelid = c.oid) AS policies
         FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' ORDER BY 1`);
     expect(rows.filter((r) => !r.rls).map((r) => r.t), "tables outside row-level security").toEqual([]);
-    expect(rows.filter((r) => r.policies === 0).map((r) => r.t), "tables with no policy at all (nobody but the owner can use them)").toEqual(["schema_migrations"]);
-    const mig = await owner.query(`SELECT has_table_privilege('avela_app', 'schema_migrations', 'SELECT') AS can`);
-    expect(mig.rows[0].can).toBe(false);
+    expect(rows.filter((r) => r.policies === 0).map((r) => r.t), "tables with no policy at all (nobody but the owner can use them)").toEqual(["app_identity_config", "app_identity_keys", "schema_migrations"]);
+    // …and for those, the privilege itself is withheld: nobody but the owner can read the migration record or the identity keys.
+    for (const t of ["schema_migrations", "app_identity_keys", "app_identity_config"]) {
+      const can = await owner.query(`SELECT has_table_privilege('avela_app', $1, 'SELECT') AS can`, [t]);
+      expect(can.rows[0].can, t).toBe(false);
+    }
   });
 
   it("limits the application role's table privileges to what each table is for", async () => {
@@ -107,12 +111,14 @@ describe("every table is behind row-level security, and the application role hol
       audit_logs: "INSERT,SELECT", prescription_events: "INSERT,SELECT", // append-only
       pharmacies: "SELECT", doctor_directory: "SELECT", // reference data and a view
       users: "INSERT,SELECT,UPDATE", // people are not deleted by the application
-      schema_migrations: undefined,
+      schema_migrations: undefined, app_identity_keys: undefined, app_identity_config: undefined,
     };
     for (const [t, g] of Object.entries(granted)) {
       expect(g, `privileges on ${t}`).toBe(t in special ? special[t] : "DELETE,INSERT,SELECT,UPDATE");
     }
     expect(granted.schema_migrations).toBeUndefined();
+    expect(granted.app_identity_keys).toBeUndefined();
+    expect(granted.app_identity_config).toBeUndefined();
   });
 
   it("lets nobody but the owner run the database's functions, except the policy helpers the application role needs", async () => {

@@ -1,6 +1,7 @@
 import { execFileSync } from "child_process";
 import pg from "pg";
 import { runMigrations } from "../script/migrate";
+import { prepareLocalIdentity } from "../script/lib/devIdentity";
 import { PROD_DB, PROD_SMOKE_MFA_KEY } from "../playwright.prod.config";
 
 // A brand-new migrated and seeded database for every run; refuses anything
@@ -26,6 +27,7 @@ export default async function globalSetup() {
     await db.end();
   }
   await runMigrations(PROD_DB);
+  await prepareLocalIdentity(PROD_DB);
   execFileSync("npx", ["tsx", "script/seed.ts"], {
     env: { ...process.env, DATABASE_URL: PROD_DB, NODE_ENV: "development", SEED_AS_REAL_ACCOUNTS: "1", MFA_ENCRYPTION_KEY: PROD_SMOKE_MFA_KEY },
     stdio: "pipe",
