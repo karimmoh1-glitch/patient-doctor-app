@@ -67,6 +67,14 @@ async function readiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]
   const bare = await db.query("SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace AND NOT relrowsecurity ORDER BY 1");
   add("rls-complete", bare.rows.length === 0, "fail", "Every table is behind row-level security",
     `${bare.rows.length} table(s) are outside row-level security: ${bare.rows.map((r: { relname: string }) => r.relname).join(", ")} (migration 0024)`);
+  // Signed identities (migration 0025): the database must be enforcing them, with a key registered. Until then it still honours the plain
+  // settings an attacker with SQL could write, and the roll-out is not finished.
+  const identity = await db
+    .query("SELECT (SELECT enforce FROM app_identity_config LIMIT 1) AS enforce, (SELECT count(*)::int FROM app_identity_keys WHERE retired_at IS NULL) AS keys")
+    .catch(() => ({ rows: [{ enforce: false, keys: 0 }] }));
+  const idRow = identity.rows[0] as { enforce: boolean | null; keys: number };
+  add("identity-enforced", idRow.enforce === true && idRow.keys >= 1, "fail", "The database verifies signed identities and ignores plain settings (a key is registered)",
+    `Signed identities are not enforced (enforce=${idRow.enforce}, active keys=${idRow.keys}): run the release procedure, then \`npm run identity:enforce -- on\``);
   const appRole = await db.query("SELECT r.rolcanlogin, r.rolsuper, r.rolbypassrls FROM pg_roles r WHERE r.rolname = 'avela_runtime'");
   const role = appRole.rows[0];
   add("app-role", !!role && role.rolcanlogin && !role.rolsuper && !role.rolbypassrls, "fail",

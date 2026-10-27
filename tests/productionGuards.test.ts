@@ -197,6 +197,20 @@ describe("the readiness check before real patients", () => {
     expect(await level(realEnv, "email-from")).toBe("ok");
   });
 
+  it("is not ready until the database enforces signed identities with a registered key", async () => {
+    const { setIdentityEnforcement } = await import("../script/lib/identityKeys");
+    // The owner connection, as `npm run verify:production` uses: the identity tables are not readable by the application role.
+    const level = async () => (await checkReadiness(realEnv, operatorPool())).find((c) => c.id === "identity-enforced")!.level;
+    expect(await level()).toBe("ok"); // the test databases are set up as production should be
+    await setIdentityEnforcement(operatorPool(), false);
+    try {
+      expect(await level()).toBe("fail");
+    } finally {
+      await setIdentityEnforcement(operatorPool(), true);
+    }
+    expect(await level()).toBe("ok");
+  });
+
   it("reports each blocker without printing any secret", async () => {
     const checks = await checkReadiness({ ...realEnv, JWT_SECRET: "short" }, pool);
     expect(checks.find((c) => c.id === "jwt-secret")!.level).toBe("fail");

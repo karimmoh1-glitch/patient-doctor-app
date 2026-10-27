@@ -11,6 +11,7 @@ Required in production (the server refuses to start otherwise; `server/config.ts
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` (or `OWNER_DATABASE_URL`) | Owner connection: migrations and operator scripts only |
+| `IDENTITY_KEY_ID`, `IDENTITY_KEY` | The key the server signs per-transaction identity assertions with and the database verifies (docs/IDENTITY_BOUNDARY.md). 32 random bytes, base64; generated and registered with `npm run identity:key`. Required with the restricted role; the server refuses to start without it, or with the development key, and refuses to serve if the database does not recognise it |
 | `APP_DATABASE_URL`, `DB_ENFORCE_RLS=on` | The restricted runtime role (see §2). Until set, `ALLOW_OWNER_DATABASE_ROLE=true` is needed (a deliberate, visible exception) |
 | `JWT_SECRET` | 32+ random characters |
 | `MFA_ENCRYPTION_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`). Losing it locks every clinician and administrator out of their second factor. Rotating it is safe only with the steps in §9 (`MFA_ENCRYPTION_KEY_PREVIOUS`, `npm run mfa:rekey`) |
@@ -109,7 +110,7 @@ existing account (`tests/operatorScripts.test.ts`). Do it on a trusted machine, 
    `SELECT action, created_at FROM audit_logs WHERE action = 'admin.bootstrapped'`.
 4. Sign in on the live site. You are asked to set up an authenticator app and shown recovery codes **once**: store them offline. (Requires `MFA_ENCRYPTION_KEY`
    in production, which the server insists on.)
-5. Delete any local copy of the connection string. Verify: `npm run verify:production` shows `admin` PASS.
+5. Delete any local copy of the connection string. Verify: `npm run verify:production` shows `admin` PASS, and `ADMIN_EMAIL=you@example.org DATABASE_URL=<owner url> npm run admin:check` (read-only; prints no address or secret) confirms the account is a live non-fixture `admin`, the bootstrap is recorded once in the audit log, the database guard that stops the application creating or promoting administrators is present, and shows the second-factor state (`none` until your first sign-in, then `enabled`). Run it again after you have enrolled.
 6. Rollback: `UPDATE users SET deactivated_at = now() WHERE email = '…' AND role = 'admin'` (and revoke the sessions in `user_devices`).
 
 **Recovery** (each is run by an operator on the owner connection, audited, and ends the account's sessions):
@@ -216,6 +217,7 @@ found **none** in any of them (so nothing was printed to the assistant). Treat a
 | 4 | `avela_runtime` password | database role; `APP_DATABASE_URL` | the application cannot connect until the host has the new URL | `AVELA_RUNTIME_PASSWORD=<new> DATABASE_URL=<owner> npm run db:create-app-role` then set `APP_DATABASE_URL` and redeploy **immediately**; verify the old password is refused (connect with it) |
 | 5 | Database owner password (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_*`, `PG*`) | Neon role; Vercel (Neon integration variables) | migrations and operator scripts; the runtime does not use it | Reset the role password in the Neon console (the integration updates its variables), or set them by hand; redeploy; verify: the old password is refused; delete every local copy |
 | 6 | `MFA_ENCRYPTION_KEY` | host | **see below**: not free once anyone has enrolled | `ops/generate-rotation-secrets.sh`, then below |
+| 6b | `IDENTITY_KEY` | host; database key table | rotates the signing identity; no user is signed out | `npm run identity:key -- generate --kid=<new>`, set `IDENTITY_KEY_ID`/`IDENTITY_KEY`, redeploy, then `identity:key -- retire --kid=<old>` (docs/IDENTITY_BOUNDARY.md §3) |
 | 7 | `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET` | host; provider | e-mail | rotate in the provider, set, redeploy; verify a message and a signed event |
 | 8 | `SCHEDULER_HEARTBEAT_URL`, `OPS_ALERT_EMAIL` | host | monitoring | provider-specific |
 | 9 | Vercel / Cloudflare / GitHub tokens and your own login sessions | those services | — | revoke unused tokens; an admin password is changed with `npm run password:reset` |
@@ -226,7 +228,9 @@ secrets with the old key and writes with the new one; recovery codes issued unde
 (secrets are re-encrypted; counts only are printed; any unreadable one means that person needs `mfa:reset`); (3) once every person has used up or regenerated their
 recovery codes, remove `MFA_ENCRYPTION_KEY_PREVIOUS`. Removing it earlier makes those people's codes stop working. Tested: `tests/mfaKeyRotation.test.ts`.
 
-**Proving the old credential is dead** (do this, do not assume): a request with the old `CRON_SECRET` → 401 (`curl -H "Authorization: Bearer <old>" …/api/cron/reminders`); an old session token → 401 on `/api/auth/me`;
+**Order against the release (docs/RELEASE_PROCEDURE.md).** Rotate secrets 1-6 and 8-9 *before* the release window, each verified on its own; the owner database password (5) especially, because the release uses it. The identity key is created fresh for the release and rotated later with the same command. Nothing in this section is done by the assistant: every step is the owner's, on a trusted machine, with values read from files and never typed or pasted into a chat.
+
+**Proving the old credential is dead** (do this, do not assume): `OLD_OWNER_DATABASE_URL=… OLD_APP_DATABASE_URL=… OLD_CRON_SECRET=… LIVE_URL=… npm run rotation:verify` prints PASS only for an explicit authentication failure (a blocked network is reported INCONCLUSIVE, not PASS). Individually: a request with the old `CRON_SECRET` → 401 (`curl -H "Authorization: Bearer <old>" …/api/cron/reminders`); an old session token → 401 on `/api/auth/me`;
 `psql` with the old runtime/owner password → authentication failure; the old `APP_DATABASE_URL` removed from the host; the generated files deleted: `rm -rf ~/.avela-secrets/next-*` after the values are in a password manager.
 Never paste a value into chat, an issue or a log.
 

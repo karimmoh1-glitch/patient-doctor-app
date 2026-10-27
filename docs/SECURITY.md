@@ -114,6 +114,13 @@ owner (the owner is exempt from row-level security).
 Risks of the switch: a code path not exercised by the tests would see no data (fail closed) until fixed; latency rises
 slightly. Rehearse on a copy of production data in a non-production environment first.
 
+## Who is asking, and what an account row shows (migrations 0025-0027)
+
+The database no longer believes a plain setting for "who is asking": the application presents a signed 60-second assertion per transaction, verified in the database with
+a key its role cannot read (`docs/IDENTITY_BOUNDARY.md`, including what it does and does not defend against and the measured connection-pooler leak it replaced). Of an
+account row, the application role can read only the ten columns that identify a person; the rest comes through functions that check who is asking. Ending a connection
+is enforced in the database too, and visits still booked need the patient's explicit choice (`docs/CONNECTION_END.md`).
+
 ## Database guards beyond row policies (migration 0024)
 
 A row policy cannot say "this column may not change"; triggers bound to the restricted role can: it cannot create an `admin` or change anyone's role, e-mail

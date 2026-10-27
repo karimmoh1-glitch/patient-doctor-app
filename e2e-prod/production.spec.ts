@@ -23,6 +23,9 @@ function watch(page: Page) {
 
 // A production server accepts an authenticator code once, ever. The two browser projects (phone, then desktop) sign the same
 // accounts in, so each uses its own time-step: always newer than the other's, always inside the server's one-step tolerance.
+// Steps are "now" (phone) and "now + 1" (desktop). The phone used to take "now - 1", which is two steps behind the server whenever a step
+// boundary fell between computing the code and the server checking it (about once in a hundred runs, seen once in CI: the admin sign-in
+// bounced to /login); "now" is one behind at worst, and desktop's "now + 1" is still newer than phone's.
 async function signInThroughTheForm(page: Page, email: string, project: string) {
   await page.goto("/login");
   await page.getByLabel("Email address").fill(email);
@@ -33,7 +36,7 @@ async function signInThroughTheForm(page: Page, email: string, project: string) 
   // Either the app moved on (signed in) or the code screen appeared; the page shows neither for a moment while the request runs.
   await expect.poll(async () => (await codeStep.isVisible()) || !/\/login/.test(page.url()), { timeout: 15_000 }).toBe(true);
   if (await codeStep.isVisible()) {
-    const offset = project === "phone" ? -1 : 1;
+    const offset = project === "phone" ? 0 : 1;
     await page.getByLabel("Six-digit code").fill(totp(FIXTURE_MFA_SECRET, Date.now() + offset * 30_000));
     await page.getByRole("button", { name: "Continue" }).click();
   }

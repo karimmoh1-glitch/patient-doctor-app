@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { execFile } from "child_process";
 import path from "path";
 import request from "supertest";
-import { getApp, signIn, uniqueEmail, operatorPool, signupPatient, PASSWORD } from "./helpers";
+import { getApp, signIn, uniqueEmail, operatorPool, signupPatient, createDoctor, PASSWORD } from "./helpers";
 import { appRoleUrl } from "./fastCommit";
 
 // The two ways back into an administrator account, run for real as a child process against the test database, the way an operator
@@ -104,6 +104,20 @@ describe("npm run password:reset", () => {
     expect(audit).toHaveLength(1);
     expect(JSON.stringify(audit[0].metadata)).toContain("identity confirmed");
     expect(JSON.stringify(audit[0].metadata)).not.toContain(STRONG);
+  });
+
+  it("never removes or bypasses the second factor: a reset password still needs the authenticator, and sessions end", async () => {
+    const doctor = await createDoctor(); // enrolled in the second factor, like every clinician and administrator
+    const before = (await operatorPool().query("SELECT secret_ciphertext FROM user_mfa WHERE user_id = $1", [doctor.id])).rows[0].secret_ciphertext;
+    const r = await run("reset-password.ts", [`--email=${doctor.email}`, "--reason=forgot password; identity confirmed by phone call"], { NEW_PASSWORD: STRONG });
+    expect(r.code, r.out).toBe(0);
+    expect((await operatorPool().query("SELECT secret_ciphertext FROM user_mfa WHERE user_id = $1", [doctor.id])).rows[0].secret_ciphertext).toBe(before); // the authenticator is untouched
+    const app = await getApp();
+    const login = await request(app).post("/api/auth/login").send({ email: doctor.email, password: STRONG });
+    expect(login.status).toBe(200);
+    expect(login.body.token, "the new password alone opens nothing").toBeUndefined();
+    expect(login.body.mfa).toBe("verify");
+    expect((await request(app).get("/api/auth/me").set({ Authorization: `Bearer ${doctor.token}` })).status, "the session held before the reset").toBe(401);
   });
 
   it("needs a stated reason and a real account, and a strong password", async () => {
