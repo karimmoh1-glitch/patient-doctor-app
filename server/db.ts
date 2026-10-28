@@ -32,10 +32,10 @@ type Tracked = pg.PoolClient & { __avela?: { inTx: boolean; asserted: string } }
 
 const BEGIN = /^\s*(begin|start\s+transaction)\b/i;
 const END = /^\s*(commit|end|rollback|abort)\b(?!\s+(to|prepared))/i;
-const TOKEN = /^[A-Za-z0-9._-]+$/;
+const TOKEN = /^[A-Za-z0-9._~-]+$/;
 
 function identityKeyOf(id: ReturnType<typeof currentIdentity>): string {
-  return id?.system ? `system:${id.scope ?? "server"}` : id?.userId ? `user:${id.userId}` : "none";
+  return id?.system ? `system:${id.scope ?? "server"}~${id.actor ?? ""}` : id?.userId ? `user:${id.userId}` : "none";
 }
 
 export function assertionSql(token: string | null): string {

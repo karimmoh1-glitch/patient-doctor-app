@@ -25,7 +25,7 @@ export default function AcceptCareCircleInvite({ onAccept }: { onAccept: (token:
 
   useEffect(() => {
     if (!token) return;
-    fetch(`/api/care-circle/invitations/validate/${token}`)
+    fetch("/api/care-circle/invitations/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
       .then(async (res) => {
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || t("invite.invalid.default"));
         return res.json();

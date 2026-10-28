@@ -27,6 +27,8 @@ const NEW_SCOPES: Record<string, Record<string, Cmds>> = {
   staff: { appointments: "S", audit_logs: "SI", doctor_profiles: "S", notifications: "SI", org_invitations: "SIU", org_memberships: "SIU", org_notes: "SI", org_tasks: "SIU", organizations: "SIU", pairing_requests: "SU", users: "S" },
   review: { audit_logs: "SI", credential_events: "SI", doctor_applications: "SU", doctor_credentials: "SIU", doctor_profiles: "SIU", message_reports: "SU", organizations: "SU", user_devices: "SU", users: "SU" },
   mfa: { mfa_recovery_codes: "SIUD", user_devices: "SU", user_mfa: "SIUD" },
+  // 0030: the same organization work as `staff`, but only for the verified actor's own organizations and patients (tests/actorBinding.test.ts).
+  orgmember: { appointments: "S", audit_logs: "SI", doctor_profiles: "S", org_invitations: "SIU", org_memberships: "SU", org_notes: "SI", org_tasks: "SIU", organizations: "SU", pairing_requests: "S", users: "S" },
   notify: { notifications: "SI" },
   contact: {},
   audit: { audit_logs: "S" },
@@ -326,7 +328,7 @@ describe("concurrent changes to the accounts involved", () => {
     if (!hashToken) return;
     const token = crypto.randomBytes(32).toString("base64url");
     await operatorPool().query("UPDATE care_circle_members SET token_hash = $2 WHERE id = $1", [row.id, hashToken(token)]);
-    const results = await Promise.all(Array.from({ length: 6 }, () => request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: "CorrectHorse-9-battery" })));
+    const results = await Promise.all(Array.from({ length: 6 }, () => request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: "CorrectHorse-9-battery" })));
     expect(results.filter((r) => r.status === 200)).toHaveLength(1);
     expect(results.filter((r) => r.status >= 500)).toEqual([]);
     expect((await operatorPool().query("SELECT status FROM care_circle_members WHERE id = $1", [row.id])).rows[0].status).toBe("active");

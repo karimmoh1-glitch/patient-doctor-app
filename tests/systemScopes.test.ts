@@ -29,7 +29,7 @@ type Scope = Exclude<SystemScope, "server">;
 
 /** The intended permissions, written down a second time here on purpose: the migration is checked against THIS, not against itself. */
 const ALLOWED: Record<Scope, string[]> = {
-  auth: ["audit_logs", "doctor_applications", "email_deliveries", "email_verification_tokens", "mfa_recovery_codes", "password_reset_tokens", "user_devices", "user_mfa", "users"],
+  auth: ["audit_logs", "doctor_applications", "email_deliveries", "email_verification_tokens", "password_reset_tokens", "user_devices", "users"], // second-factor tables left in 0030: only the mfa scope, with a verified actor
   invite: ["audit_logs", "care_circle_members", "org_invitations", "org_memberships", "organizations", "user_devices", "users"],
   session: ["user_devices", "users"],
   scheduler: ["appointments", "email_deliveries", "job_run_history", "job_runs", "medication_reminders", "medications", "notifications", "personal_reminder_deliveries", "personal_reminders", "prescriptions", "reminder_deliveries", "users"],
@@ -201,7 +201,7 @@ describe("what the application asks for on each route", () => {
     expect(found.filter((f) => f.scope === "server" || !(SYSTEM_SCOPES as readonly string[]).includes(f.scope))).toEqual([]);
     expect(Object.fromEntries(found.map((f) => [f.route, f.scope]))).toMatchObject({
       "POST /api/auth/login": "auth", "POST /api/auth/signup": "auth", "POST /api/auth/forgot-password": "auth", "POST /api/auth/reset-password": "auth",
-      "POST /api/doctors/register": "auth", "POST /api/care-circle/invitations/accept/:token": "invite", "POST /api/orgs/invitations/accept-new": "invite",
+      "POST /api/doctors/register": "auth", "POST /api/care-circle/invitations/accept": "invite", "POST /api/orgs/invitations/accept-new": "invite",
       "POST /api/webhooks/resend": "webhook", "GET /api/cron/reminders": "scheduler", "POST /api/cron/reminders": "scheduler",
     });
   });

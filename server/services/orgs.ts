@@ -70,7 +70,7 @@ export interface OrgAccess { org: Organization; membership: OrgMembership; role:
 
 /** The caller's membership of this organization, or "not found". Never says whether the organization exists. */
 export async function access(userId: string, orgId: string, permission: Permission): Promise<OrgAccess> {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const [row] = await db
       .select({ org: organizations, membership: orgMemberships })
       .from(orgMemberships)
@@ -114,7 +114,7 @@ export async function myOrganizations(userId: string) {
 }
 
 export async function updateOrg(a: OrgAccess, input: Partial<OrgInput>) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     // Changing what an organization IS (its name, kind, country) is not covered by a check made of the old one: it goes back to unverified.
     const identityChanged = (input.name !== undefined && input.name !== a.org.name) || (input.kind !== undefined && input.kind !== a.org.kind) || (input.country !== undefined && input.country !== a.org.country);
     const set: Partial<typeof organizations.$inferInsert> = { ...input, ...(identityChanged && a.org.status === "verified" ? { status: "unverified" as const } : {}) };
@@ -129,7 +129,7 @@ export async function updateOrg(a: OrgAccess, input: Partial<OrgInput>) {
 const hashToken = (token: string) => crypto.createHmac("sha256", `${process.env.JWT_SECRET || "dev-secret-change-me"}:org-invitation:v1`).update(token).digest("hex");
 
 export async function listStaff(a: OrgAccess) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const rows = await db
       .select({ m: orgMemberships, name: users.name })
       .from(orgMemberships)
@@ -153,7 +153,7 @@ const MAX_INVITATIONS_PER_DAY = 30;
 
 export async function invite(a: OrgAccess, email: string, role: OrgRole) {
   if (!assignableRoles(a.role).includes(role)) fail(403, "forbidden", "You can't give that role.");
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const existingUserId = await storage.findAccountIdByEmail(email);
     // Whether this address has an account of some other kind is not revealed: an invitation that cannot be used is created all the same,
     // and the person simply cannot accept it (accepting checks the kind of account again).
@@ -181,7 +181,7 @@ export async function invite(a: OrgAccess, email: string, role: OrgRole) {
 }
 
 export async function revokeInvitation(a: OrgAccess, id: string) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const [row] = await db.update(orgInvitations).set({ status: "revoked" }).where(and(eq(orgInvitations.id, id), eq(orgInvitations.orgId, a.org.id), eq(orgInvitations.status, "pending"))).returning({ id: orgInvitations.id });
     if (!row) throw NOT_FOUND();
     await orgAudit(a, { action: "org.invitation_revoked", targetType: "org_invitation", targetId: id });
@@ -261,7 +261,7 @@ async function requireAnotherOwner(tx: Tx, orgId: string, excludingMembership: s
 }
 
 export async function changeRole(a: OrgAccess, membershipId: string, role: OrgRole) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const done = await db.transaction(async (tx) => {
       const [row] = await tx
         .select({ m: orgMemberships, accountRole: users.role })
@@ -283,7 +283,7 @@ export async function changeRole(a: OrgAccess, membershipId: string, role: OrgRo
 }
 
 export async function revokeMember(a: OrgAccess, membershipId: string) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const target = await db.transaction(async (tx) => {
       const [t] = await tx.select().from(orgMemberships).where(and(eq(orgMemberships.id, membershipId), eq(orgMemberships.orgId, a.org.id), eq(orgMemberships.status, "active")));
       if (!t) throw NOT_FOUND();
@@ -333,7 +333,7 @@ async function scopeFor(a: OrgAccess): Promise<Scope> {
 }
 
 export async function listPatients(a: OrgAccess) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const scope = await scopeFor(a);
     if (scope.patientIds.length === 0) return [];
     const rows = await db.select({ id: users.id, name: users.name }).from(users).where(and(inArray(users.id, scope.patientIds), sql`${users.deactivatedAt} IS NULL`)).orderBy(asc(users.name));
@@ -343,7 +343,7 @@ export async function listPatients(a: OrgAccess) {
 }
 
 export async function listAppointments(a: OrgAccess, days = 7, now = new Date()) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const scope = await scopeFor(a);
     if (scope.patientIds.length === 0) return [];
     const until = new Date(now.getTime() + days * 86_400_000);
@@ -368,7 +368,7 @@ async function patientInScope(a: OrgAccess, patientUserId: string, scope?: Scope
 }
 
 export async function listTasks(a: OrgAccess, status: "open" | "done" | "all" = "open") {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const scope = await scopeFor(a);
     if (scope.patientIds.length === 0) return [];
     const conds = [eq(orgTasks.orgId, a.org.id), inArray(orgTasks.patientUserId, scope.patientIds)];
@@ -393,7 +393,7 @@ export async function listTasks(a: OrgAccess, status: "open" | "done" | "all" = 
 }
 
 export async function createTask(a: OrgAccess, input: z.infer<typeof taskInput>) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     await patientInScope(a, input.patientUserId);
     if (input.assignedToUserId) {
       const [m] = await db.select({ id: orgMemberships.id }).from(orgMemberships).where(and(eq(orgMemberships.orgId, a.org.id), eq(orgMemberships.userId, input.assignedToUserId), eq(orgMemberships.status, "active")));
@@ -406,7 +406,7 @@ export async function createTask(a: OrgAccess, input: z.infer<typeof taskInput>)
 }
 
 export async function updateTask(a: OrgAccess, id: string, change: { status?: "open" | "done" | "cancelled"; assignedToUserId?: string | null }) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     const [t] = await db.select().from(orgTasks).where(and(eq(orgTasks.id, id), eq(orgTasks.orgId, a.org.id)));
     if (!t) throw NOT_FOUND();
     await patientInScope(a, t.patientUserId);
@@ -428,7 +428,7 @@ export async function updateTask(a: OrgAccess, id: string, change: { status?: "o
 }
 
 export async function listNotes(a: OrgAccess, patientUserId: string) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     await patientInScope(a, patientUserId);
     // Reading what staff wrote about a person is itself recorded before anything is returned.
     await orgAuditStrict(a, { action: "org.notes_read", targetType: "organization", targetId: a.org.id, subjectUserId: patientUserId });
@@ -444,7 +444,7 @@ export async function listNotes(a: OrgAccess, patientUserId: string) {
 }
 
 export async function addNote(a: OrgAccess, patientUserId: string, body: string) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     await patientInScope(a, patientUserId);
     const [n] = await db.insert(orgNotes).values({ orgId: a.org.id, patientUserId, body, authorUserId: a.membership.userId }).returning();
     // The audit entry records that a note was written, not what it said.
@@ -458,7 +458,7 @@ export async function addNote(a: OrgAccess, patientUserId: string, body: string)
 export async function dashboard(a: OrgAccess, now = new Date()) {
   const out: Record<string, unknown> = { organization: { id: a.org.id, name: a.org.name, status: a.org.status, role: a.role } };
   const today = now.toISOString().slice(0, 10);
-  await withScope("staff", async () => {
+  await withScope("orgmember", async () => {
     if (can(a.role, "org.staff.view")) {
       const staff = await db.select({ role: orgMemberships.role }).from(orgMemberships).where(and(eq(orgMemberships.orgId, a.org.id), eq(orgMemberships.status, "active")));
       out.staff = { total: staff.length, byRole: Object.fromEntries(ORG_ROLES.map((r) => [r, staff.filter((s) => s.role === r).length])) };
@@ -495,7 +495,7 @@ async function listAppointmentsRaw(a: OrgAccess, days: number, now: Date) {
 
 /** What staff of this organization did, for the organization's own auditors and administrators. Actions and times; no content. */
 export async function searchAudit(a: OrgAccess, filter: { action?: string; actorUserId?: string; from?: Date; to?: Date }) {
-  return withScope("staff", async () => {
+  return withScope("orgmember", async () => {
     // Only events recorded as belonging to THIS organization: a member's actions elsewhere (another organization, clinical work,
     // or after they left) are not this organization's to read.
     const conds = [sql`${auditLogs.metadata}->>'orgId' = ${a.org.id}`];

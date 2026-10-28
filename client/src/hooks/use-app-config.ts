@@ -11,7 +11,7 @@ export interface AppConfig {
   };
   /** Set by the host on a test deployment; shown on every screen. */
   environmentNotice: string | null;
-  features: { email: boolean; videoVisits: boolean; documentUploads: boolean; smsReminders: boolean; liveSupportChat: boolean };
+  features: { email: boolean; organizations: boolean; videoVisits: boolean; documentUploads: boolean; smsReminders: boolean; liveSupportChat: boolean };
   support: { phone: string | null; email: string | null; hours: string | null };
 }
 

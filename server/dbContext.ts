@@ -20,6 +20,12 @@ export interface DbIdentity {
   system?: boolean;
   /** For a system identity: what part of the server is acting (server/identity.ts SYSTEM_SCOPES). Omitted means the unrestricted "server". */
   scope?: SystemScope;
+  /**
+   * The authenticated person the current request is for: the signed-in user, or (in the sign-in steps) the person a verified challenge named. It is set
+   * by the authentication step, never by the code that uses it, and is carried into any scope that asks for it (withScope) so the database can check the
+   * rows a scope touches against the person who is really acting (migration 0030).
+   */
+  actor?: string;
 }
 
 const store = new AsyncLocalStorage<DbIdentity>();
@@ -92,12 +98,22 @@ export const withScope = <T>(scope: Exclude<SystemScope, "server">, fn: () => T)
   const current = store.getStore();
   const entry = current?.system && current.scope && current.scope in ENTRY_MAY_USE ? current.scope : undefined;
   const use = entry && entry !== scope && !ENTRY_MAY_USE[entry].includes(scope) ? entry : scope;
-  return scoped({ system: true, scope: use }, fn);
+  return scoped({ system: true, scope: use, actor: current?.actor ?? current?.userId }, fn);
 };
 
 /** Makes the rest of the current request this person. Called once, by the authentication step. */
 export const enterUser = (userId: string): void => {
   store.enterWith({ userId });
+};
+
+/**
+ * In the sign-in steps nobody is signed in yet, but a person has proved who they are (a password just verified, or a signed challenge). From here
+ * the request acts FOR them: the second-factor scope may then touch their rows and nobody else's. Called by the authentication step only
+ * (tests/scopeAuthority.test.ts lists the callers).
+ */
+export const bindActor = (userId: string): void => {
+  const current = store.getStore();
+  store.enterWith({ ...(current ?? {}), actor: userId });
 };
 
 export const enforcementEnabled = (): boolean => process.env.DB_ENFORCE_RLS === "on";

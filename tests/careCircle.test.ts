@@ -40,7 +40,7 @@ describe("care circle invitations", () => {
     const email = uniqueEmail("daughter");
     const { token } = await invite(patient.token, email, { permissionMedicationStatus: true, permissionDocuments: false });
 
-    const accept = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const accept = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     expect(accept.status).toBe(200);
     expect(accept.body.user.role).toBe("caregiver");
 
@@ -59,12 +59,12 @@ describe("care circle invitations", () => {
     const victim = await createDoctor();
     const { token } = await invite(patient.token, victim.email);
 
-    const attack = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: "any-password-1234" });
+    const attack = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: "any-password-1234" });
     expect(attack.status).toBeGreaterThanOrEqual(400);
     expect(attack.body.token).toBeUndefined();
 
     // Even with the doctor's real password: a doctor account can't become a caregiver.
-    const attack2 = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const attack2 = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     expect(attack2.status).toBeGreaterThanOrEqual(400);
     expect(attack2.body.token).toBeUndefined();
   });
@@ -74,11 +74,11 @@ describe("care circle invitations", () => {
     const patient = await signupPatient();
     const { token } = await invite(patient.token, existing.email);
 
-    const wrong = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: "not-their-password-1" });
+    const wrong = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: "not-their-password-1" });
     expect(wrong.status).toBe(401);
     expect(wrong.body.token).toBeUndefined();
 
-    const right = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const right = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     expect(right.status).toBe(200);
     expect(right.body.user.id).toBe(existing.id);
   });
@@ -88,17 +88,17 @@ describe("care circle invitations", () => {
     const { memberId, token } = await invite(patient.token, uniqueEmail("late"));
     await db.update(careCircleMembers).set({ invitedAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) }).where(eq(careCircleMembers.id, memberId));
 
-    const validate = await request(app).get(`/api/care-circle/invitations/validate/${token}`);
+    const validate = await request(app).post("/api/care-circle/invitations/validate").send({ token: token });
     expect(validate.status).toBe(404);
-    const accept = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const accept = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     expect(accept.status).toBe(404);
   });
 
   it("can be used only once", async () => {
     const patient = await signupPatient();
     const { token } = await invite(patient.token, uniqueEmail("once"));
-    expect((await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD })).status).toBe(200);
-    expect((await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD })).status).toBe(404);
+    expect((await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD })).status).toBe(200);
+    expect((await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD })).status).toBe(404);
   });
 });
 
@@ -111,7 +111,7 @@ describe("sending an invitation", () => {
     // No email provider is configured in tests, so nothing was emailed — and it says so.
     expect(res.body.emailSent).toBe(false);
     const token = new URL(res.body.inviteLink).searchParams.get("token")!;
-    const accept = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const accept = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     expect(accept.status).toBe(200);
   });
 });
@@ -121,7 +121,7 @@ describe("revoking caregiver access", () => {
     const patient = await signupPatient();
     const email = uniqueEmail("rev");
     const { memberId, token } = await invite(patient.token, email);
-    const accept = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const accept = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     const cg = accept.body.token as string;
 
     expect((await request(app).get(`/api/care-circle/caregiver/patients/${patient.id}/overview`).set(auth(cg))).status).toBe(200);

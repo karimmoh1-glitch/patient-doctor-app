@@ -3,6 +3,7 @@ import { videoAvailable } from "../services/videoService";
 import { DOCUMENT_UPLOADS_ENABLED } from "./documents";
 import { reminderDeliveryStatus } from "../services/reminderService";
 import { publicEmergency } from "../services/emergencyInfo";
+import { organizationsEnabled } from "../routes";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.get("/", async (_req, res) => {
       // Real, configured capabilities only. Add a flag here when — and only
       // when — an integration is wired up and tested.
       email: !!process.env.RESEND_API_KEY,
+      organizations: organizationsEnabled(),
       videoVisits: videoAvailable(),
       documentUploads: DOCUMENT_UPLOADS_ENABLED,
       // "active" only if the scheduler has actually run recently; otherwise the

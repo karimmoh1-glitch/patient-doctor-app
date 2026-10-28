@@ -7,6 +7,7 @@ import { weakPasswordReason } from "../lib/password";
 import { logAudit } from "../services/auditService";
 import { normalizeLang } from "../services/serverText";
 import { signToken, issueSession, completeSession, clearSessionCookie, requireAuth } from "../middleware/auth";
+import { bindActor } from "../dbContext";
 import { beginEnrollment, checkSecondFactor, completeEnrollment, lockMessageMinutes, mfaState, readChallenge, regenerateRecoveryCodes, roleRequiresMfa } from "../services/mfaService";
 import { isWebClient, setSessionCookie } from "../middleware/session";
 import { insertUserSchema } from "@shared/schema";
@@ -195,6 +196,7 @@ async function mfaFailureResponse(res: any, result: { reason: "invalid" | "locke
 router.post("/mfa/setup", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
+  if (userId) bindActor(userId); // a verified challenge names the person this step acts for
   if (!userId) return res.status(401).json({ message: EXPIRED });
   const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
@@ -206,6 +208,7 @@ router.post("/mfa/setup", systemAccess("auth"), mfaIpLimiter, async (req, res) =
 router.post("/mfa/enable", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
+  if (userId) bindActor(userId); // a verified challenge names the person this step acts for
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
   const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
@@ -221,6 +224,7 @@ router.post("/mfa/enable", systemAccess("auth"), mfaIpLimiter, async (req, res) 
 router.post("/mfa/verify", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "verify") : null;
+  if (userId) bindActor(userId); // a verified challenge names the person this step acts for
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
   const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt || (user.isDemo && !fixtureAccountsAllowed())) return res.status(401).json({ message: EXPIRED });

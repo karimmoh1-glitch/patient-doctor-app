@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { fixtureAccountsAllowed } from "../config";
 import { mfaState, roleRequiresMfa, signChallenge } from "../services/mfaService";
-import { enterUser, runAsSystem } from "../dbContext";
+import { bindActor, enterUser, runAsSystem } from "../dbContext";
 import { clearSessionCookie, cookieRequestAllowed, isWebClient, readSessionCookie, setSessionCookie } from "./session";
 
 // The insecure fallback secret is only ever allowed in an explicit local
@@ -82,6 +82,8 @@ export async function issueSession(
   status = 200,
 ): Promise<void> {
   if (roleRequiresMfa(user.role)) {
+    // The person has just proved who they are; the second-factor state below is theirs and only theirs to read (migration 0030).
+    bindActor(user.id);
     const state = await mfaState(user.id);
     const account = await storage.getUserPrivate(user.id);
     res.status(status).json({

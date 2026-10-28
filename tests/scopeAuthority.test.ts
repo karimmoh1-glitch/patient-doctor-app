@@ -21,13 +21,14 @@ describe("authority behind the staff, review and mfa scopes", () => {
   it("has exactly the reviewed call sites", () => {
     const found: Record<string, number> = {};
     for (const file of walk("server")) {
-      for (const m of read(file).matchAll(/withScope\("(staff|review|mfa)"/g)) found[`${file}:${m[1]}`] = (found[`${file}:${m[1]}`] ?? 0) + 1;
+      for (const m of read(file).matchAll(/withScope\("(staff|orgmember|review|mfa)"/g)) found[`${file}:${m[1]}`] = (found[`${file}:${m[1]}`] ?? 0) + 1;
     }
     // Each entry is authorised by: staff = OrgAccess (see below); review = an administrator route or a clinician's own application; mfa = the account holder who
     // just proved their password (a signed challenge), or an administrator resetting someone's sign-in through the audited operator path.
     expect(found).toEqual({
       "server/services/credentialService.ts:review": 4,
-      "server/services/orgs.ts:staff": 26,
+      "server/services/orgs.ts:staff": 10,
+      "server/services/orgs.ts:orgmember": 16,
       "server/services/orgs.ts:review": 2,
       "server/storage.ts:review": 4,
       "server/storage.ts:mfa": 10,
@@ -38,20 +39,27 @@ describe("authority behind the staff, review and mfa scopes", () => {
     const src = read("server/services/orgs.ts");
     const parts = src.split(/\n(?=(?:export )?(?:async )?function )/);
     const withoutCapability: string[] = [];
+    const orgmemberWithoutCapability: string[] = [];
     for (const p of parts) {
       const m = p.match(/^(?:export )?(?:async )?function (\w+)\(([^)]*)/);
-      if (!m || !p.includes('withScope("staff"')) continue;
-      if (!m[2].split(",")[0].trim().startsWith("a: OrgAccess")) withoutCapability.push(m[1]);
+      if (!m) continue;
+      const hasCapability = m[2].split(",")[0].trim().startsWith("a: OrgAccess");
+      if (p.includes('withScope("staff"') && !hasCapability) withoutCapability.push(m[1]);
+      // The actor-bound scope is for capability holders (and for access(), which mints the capability for the verified actor).
+      if (p.includes('withScope("orgmember"') && !hasCapability && m[1] !== "access") orgmemberWithoutCapability.push(m[1]);
+      // A capability holder must NOT run on the unbound scope any more.
+      if (p.includes('withScope("staff"') && hasCapability) throw new Error(`${m[1]} holds an OrgAccess but runs on the unbound staff scope`);
     }
+    expect(orgmemberWithoutCapability).toEqual([]);
     // What each does without a capability, and why that is acceptable:
-    //  access                      mints the capability itself (membership + permission matrix)
+    //  (access mints the capability and now runs on the actor-bound orgmember scope)
     //  createOrg, myOrganizations  act for the signed-in person only (their own id is the only key)
     //  previewInvitation, claimInvitationForNewAccount, acceptWithAccount   a single-use token is the authority (hash compared, atomic claim)
     //  organizationsSeeingPatient, setStaffVisibility   called from patient routes with the patient's own id
     //  organizationsOfClinician, tellPatientAboutOrganizationStaff, tellPatientsOfClinicianAbout   notices about a clinician's own organizations
     expect(withoutCapability.sort()).toEqual(
       [
-        "access", "acceptWithAccount", "claimInvitationForNewAccount", "createOrg", "myOrganizations", "organizationsOfClinician",
+        "acceptWithAccount", "claimInvitationForNewAccount", "createOrg", "myOrganizations", "organizationsOfClinician",
         "organizationsSeeingPatient", "previewInvitation", "setStaffVisibility", "tellPatientAboutOrganizationStaff", "tellPatientsOfClinicianAbout",
       ].sort(),
     );

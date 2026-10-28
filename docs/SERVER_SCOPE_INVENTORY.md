@@ -158,3 +158,10 @@ One more least-privilege change rode along: organization staff used to receive a
   **Found by reading, fixed:** organization staff received a password hash from every account lookup (now an id only).
 * Lesson recorded: a grant that looked unused to the leave-one-out run (`doctor_profiles`/`pairing`) was needed by a test the run did not include (`reviewFindings`), and several read-only grants (the operations counts, the
   readiness check) look unused because missing rows read as zero, not as an error. The full suite is run after every trim, and `tests/scopeEffects.test.ts` now fails if those grants are removed (checked by removing each one).
+
+
+## Mission 7: the acting person (migration 0030)
+
+The `staff` scope's 26 sites split. The 16 inside functions that hold an `OrgAccess` (and `access()`, which mints it) moved to the new **`orgmember`** scope, whose assertion carries the acting person and whose policies require that person to be an active
+member of the organization a row belongs to. The other 10 stay on `staff` (no actor: a single-use token or the person's own id is the authority). `mfa` (10 sites) and `review` (10 sites) keep their call sites; their policies now require the verified
+actor to be the account holder, or an active administrator. `auth` lost its direct access to the second-factor tables. Totals now: 10 `staff`, 16 `orgmember`, 10 `review`, 10 `mfa`. Details and residual: `docs/LAUNCH_GATES.md` (D-03c).

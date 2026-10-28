@@ -124,3 +124,10 @@ migration 0029, table and operation lists in `docs/SERVER_SCOPE_INVENTORY.md`), 
    signature, decide what that is.
 4. **Not yet measured through the real pooler** (PgBouncer transaction mode in front of PostgreSQL 18). Local tests use PostgreSQL 16 and the application's own small shared pool. The provider rehearsal
    (`docs/RELEASE_PROCEDURE.md` §1.3, or `.github/workflows/neon-rehearsal.yml`) is BLOCKED on the owner: the Neon CLI is not signed in and plain TCP to Neon is blocked from the owner's laptop.
+
+
+## 6. The acting person (Mission 7, migration 0030)
+
+Format extension: for the scopes `orgmember`, `review` and `mfa` the system subject is `<scope>~<actorId>` and the MAC covers it like any subject, so the database (`avela_identity_check`, `app_actor()`) can trust it exactly as it trusts the scope. A user
+assertion with an actor, an actor on any other scope, or an actor with an empty id is **nobody**. The actor is set by the authentication step and carried by `withScope`; helpers cannot name one. Policies use `app_actor()` through definer functions
+(`app_actor_in_org`, `app_actor_sees_visit`, `app_actor_is_admin`...). Exactly what this adds and what stays in code: `docs/LAUNCH_GATES.md` (D-03c).

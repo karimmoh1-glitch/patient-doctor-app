@@ -140,8 +140,13 @@ router.delete("/:id", requireAuth, requireRole("patient"), async (req, res) => {
 
 // --- Invite acceptance (public until the token is redeemed) ---
 
-router.get("/invitations/validate/:token", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
-  const tokenHash = hashToken(req.params.token);
+// The single-use token travels in the request BODY, never in the path: a path is written to every request log on the way (the host's included).
+const tokenSchema = z.object({ token: z.string().min(20).max(200) });
+
+router.post("/invitations/validate", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
+  const presented = tokenSchema.safeParse(req.body);
+  if (!presented.success) return res.status(404).json({ message: "This invite link is invalid or has already been used" });
+  const tokenHash = hashToken(presented.data.token);
   const member = await storage.getCareCircleMemberByTokenHash(tokenHash);
   if (!member || !isInviteLive(member)) {
     return res.status(404).json({ message: "This invite link is invalid or has already been used" });
@@ -160,11 +165,13 @@ router.get("/invitations/validate/:token", systemAccess("invite"), inviteRedeemL
 
 const acceptSchema = z.object({ password: z.string().min(8).max(200) });
 
-router.post("/invitations/accept/:token", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
+router.post("/invitations/accept", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
+  const presented = tokenSchema.safeParse(req.body);
+  if (!presented.success) return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
   const parsed = acceptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "A password of at least 8 characters is required" });
 
-  const tokenHash = hashToken(req.params.token);
+  const tokenHash = hashToken(presented.data.token);
   const member = await storage.getCareCircleMemberByTokenHash(tokenHash);
   if (!member || !isInviteLive(member)) {
     return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });

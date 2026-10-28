@@ -82,7 +82,7 @@ describe("a caregiver reaches a patient only while their grant is live", () => {
     expect(invite.status, JSON.stringify(invite.body)).toBe(201);
     await vi.waitFor(() => expect(invites.some((i) => i.to === email.toLowerCase())).toBe(true));
     const token = new URL(invites.filter((i) => i.to === email.toLowerCase()).pop()!.link).searchParams.get("token")!;
-    const accepted = await request(app).post(`/api/care-circle/invitations/accept/${token}`).send({ password: PASSWORD });
+    const accepted = await request(app).post("/api/care-circle/invitations/accept").send({ token: token, password: PASSWORD });
     expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
     return { memberId: invite.body.id as string, token: accepted.body.token as string };
   }

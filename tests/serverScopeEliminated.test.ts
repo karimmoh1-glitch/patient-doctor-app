@@ -38,7 +38,7 @@ describe("the application never asks for the unrestricted scope", () => {
     const used = new Set<string>();
     for (const f of files("server")) for (const m of fs.readFileSync(f, "utf8").matchAll(/withScope\("([a-z]+)"/g)) used.add(m[1]);
     for (const s of used) expect(SYSTEM_SCOPES as readonly string[], s).toContain(s);
-    expect([...used].sort()).toEqual(["audit", "blocks", "contact", "mail", "mfa", "notify", "ops", "pairing", "review", "scheduler", "staff", "verify", "webhook"]);
+    expect([...used].sort()).toEqual(["audit", "blocks", "contact", "mail", "mfa", "notify", "ops", "orgmember", "pairing", "review", "scheduler", "staff", "verify", "webhook"]);
   });
 
   it("throws in production if code asks for a system identity without a narrow scope", () => {

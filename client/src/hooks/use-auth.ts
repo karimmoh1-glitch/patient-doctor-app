@@ -184,10 +184,10 @@ export function useAuth() {
   }, []);
 
   const acceptCareCircleInvite = useCallback(async (inviteToken: string, password: string) => {
-    const res = await fetch(`/api/care-circle/invitations/accept/${inviteToken}`, {
+    const res = await fetch("/api/care-circle/invitations/accept", {
       method: "POST",
       headers: JSON_HEADERS,
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ token: inviteToken, password }),
     });
     if (!res.ok) {
       throw new Error(await parseErrorMessage(res, "Couldn't accept invitation"));

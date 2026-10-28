@@ -190,7 +190,7 @@ describe("through the API: nobody who is not the person gets the private values"
     expect((await request(app).post("/api/care-circle").set(auth(A.token)).send({ name: "Sweep", inviteEmail: cgEmail, relationshipLabel: "friend" })).status).toBe(201);
     await vi.waitFor(() => expect(invites.some((i) => i.to === cgEmail.toLowerCase())).toBe(true));
     const inviteToken = new URL(invites.filter((i) => i.to === cgEmail.toLowerCase()).pop()!.link).searchParams.get("token")!;
-    const accepted = await request(app).post(`/api/care-circle/invitations/accept/${inviteToken}`).send({ password: "CorrectHorse-9" });
+    const accepted = await request(app).post("/api/care-circle/invitations/accept").send({ token: inviteToken, password: "CorrectHorse-9" });
     expect(accepted.status).toBe(200);
     const people: Record<string, string> = { "connected doctor": D1.token, "unconnected doctor": D2.token, administrator: admin.token, "other patient": B.token, "connected caregiver": accepted.body.token };
     const apptId = (await operatorPool().query(`INSERT INTO appointments (pairing_request_id, patient_user_id, doctor_profile_id, type, reason, scheduled_at, status)

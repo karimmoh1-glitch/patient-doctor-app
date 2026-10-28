@@ -1384,13 +1384,8 @@ export class DbStorage implements IStorage {
   }
 
   async resetMfa(userId: string) {
-    await withScope("mfa", () =>
-      db.transaction(async (tx) => {
-        await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
-        await tx.delete(userMfa).where(eq(userMfa.userId, userId));
-        await tx.update(userDevices).set({ revokedAt: new Date() }).where(and(eq(userDevices.userId, userId), isNull(userDevices.revokedAt)));
-      }),
-    );
+    // The administrator is the verified actor; the database function refuses anyone else and never lets them read a secret (migration 0030).
+    await withScope("mfa", () => db.execute(sqlOp`SELECT app_reset_mfa(${userId})`));
   }
 
   async getAllEnabledReminders() {

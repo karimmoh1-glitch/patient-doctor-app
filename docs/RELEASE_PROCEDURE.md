@@ -1,7 +1,7 @@
 # Release procedure: moving production from 704b7df to the Mission 5 candidate
 
 Status: **prepared, not executed.** Nothing below has been run against production. Every step marked **[owner]** needs the owner's authorization or credentials.
-This release changes the database in six ways at once (migrations 0024-0029) and the application with it; the live release (704b7df) is **not compatible**
+This release changes the database in six ways at once (migrations 0024-0030) and the application with it; the live release (704b7df) is **not compatible**
 with the migrated database, and the new release will not serve without its identity key. The procedure therefore uses a short **maintenance window**, justified only
 because production holds no real users (verified below, not assumed).
 
@@ -11,7 +11,7 @@ because production holds no real users (verified below, not assumed).
 | --- | --- |
 | Candidate | the tip of branch `mission2/close-security-gaps` (PR #1). Record the exact SHA: `git rev-parse HEAD` |
 | CI | must be green **on that SHA** (`gh run list --branch mission2/close-security-gaps`); an older green run does not count |
-| Migrations | 0024 close RLS gaps · 0025 verified identity · 0026 private account columns · 0027 connection-end semantics · 0028 scoped system identities · 0029 narrow server scope (eleven more scopes, the switch that makes the database refuse the unrestricted one) (each idempotent; each has `ops/rollback/*.down.sql`; as a chain they restore production's exact current structure: `tests/migrationChain.test.ts`; 0028 alone: `npm run migration:rehearse -- 0028_scoped_system_identity.sql`, exact rollback proven) |
+| Migrations | 0024 close RLS gaps · 0025 verified identity · 0026 private account columns · 0027 connection-end semantics · 0028 scoped system identities · 0029 narrow server scope (eleven more scopes, the switch that makes the database refuse the unrestricted one) · 0030 the acting person in the signed identity (D-03c) (each idempotent; each has `ops/rollback/*.down.sql`; as a chain they restore production's exact current structure: `tests/migrationChain.test.ts`; 0028 alone: `npm run migration:rehearse -- 0028_scoped_system_identity.sql`, exact rollback proven) |
 | Environment variables, by name | **new, required**: `IDENTITY_KEY_ID`, `IDENTITY_KEY` · **new, optional**: `CRON_SECRET_CLOUDFLARE`, `MFA_ENCRYPTION_KEY_PREVIOUS` · **existing**: `DATABASE_URL` (owner), `APP_DATABASE_URL`, `DB_ENFORCE_RLS=on`, `JWT_SECRET`, `MFA_ENCRYPTION_KEY`, `APP_URL`, `CRON_SECRET`, `EMERGENCY_DATA_REVIEWED_*` (absent on purpose) · **absent**: `DEMO_MODE`, `DEMO_MODE_ACKNOWLEDGED`, `ALLOW_OWNER_DATABASE_ROLE` |
 | Why a window | 0026 withdraws columns the old code reads (it would fail on sign-in); 0024 empties the old code's directory; the new code refuses to start until the database recognises its key; 0028 makes `app_is_system()` mean only the unrestricted `server` scope, so an application release that signs unscoped system assertions (anything before the Mission 4 candidate) sees no clinical data after it. The Mission 3 candidate (e90ff77) is therefore **not** compatible with 0028 either: deploy the Mission 4 candidate. |
 
@@ -44,7 +44,7 @@ DATABASE_URL="$OWNER_DATABASE_URL" DB_ENFORCE_RLS=on npm run pooler:check   # (A
 npm run identity:enforce -- on && npm run identity:enforce -- server-scope off && npm run audit:db
 npm run migration:rehearse -- 0028_scoped_system_identity.sql       # (uses a local scratch database; repeat the chain test there with the provider's server version if a scratch Neon database is available)
 # rollback rehearsal, newest first, then compare:
-for f in 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f ops/rollback/$f.down.sql; done
+for f in 0030_bind_acting_person 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f ops/rollback/$f.down.sql; done
 npm run schema:fingerprint                                          # must be 5dc5a2698a1e again
 npx neonctl branches delete rehearse-$(date +%Y%m%d) --project-id <id>
 ```

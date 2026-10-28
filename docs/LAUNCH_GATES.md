@@ -75,26 +75,32 @@ Keeping these off does not weaken a safeguard, and none of them needs to hold up
 
 ---
 
-## D-03c: the `staff`, `review` and `mfa` scopes: what is guaranteed, what is not, and the smallest model
+## D-03c: binding the acting person: status after Mission 7
 
-**What the database enforces for these three scopes (tested, `tests/narrowScopes.test.ts`):** only the named tables and commands are open to them (for example `staff` cannot read
-`messages`, `prescriptions`, `symptom_reports`, password hashes or private account columns; `mfa` cannot touch anything but the second-factor tables; `review` cannot read the health-record tables such as `messages`, `prescriptions` or `symptom_reports`; it does read message reports, which administrators handle by design). A bug or injection in these paths therefore cannot reach clinical content.
+**What changed (migration 0030, `tests/actorBinding.test.ts`):** a system assertion can now carry the person it acts for: `v1.<kid>.system.<scope>~<actorId>.<exp>.<mac>`. The actor is inside the
+signed text, so it cannot be added, swapped, moved to another scope or stripped without the key (tested); a person's assertion never carries one; only three scopes accept one. The actor is set **once**,
+by the authentication step (`enterUser` for a session, `bindActor` after a password or a verified challenge in the sign-in steps) and carried into any scope a helper enters, so **a function cannot name its own
+actor** (a static test lists the callers of `bindActor`). With the actor in the assertion the database now checks it against the rows:
 
-**What it does not enforce:** *which* organization, applicant or account inside those tables. A code path that entered `staff` with the wrong organization id could read or change
-that other organization's staff list, tasks, notes and audit entries; one that entered `mfa` for the wrong user could touch that user's second factor. The database cannot tell, because
-the signed assertion names the scope but not the person acting.
+| Scope | What the database now enforces | Previously |
+| --- | --- | --- |
+| `orgmember` (new; the 16 organization functions that hold an `OrgAccess`, including `access()`) | the actor is an **active member** of the organization a row belongs to (invitations, memberships, tasks, notes, organization, audit entries of that organization); patient rows only for patients the actor may see by the same rule the code states (accepted connection, a clinician of the organization, staff-visible, or the actor's own if they hold the clinician role); audit entries only in the actor's own name | any row of any organization |
+| `mfa` | the actor is the **account holder** for every second-factor row; an administrator's reset is only the function `app_reset_mfa`, which requires an active administrator as the verified actor and gives no read access to a secret | any account's second factor |
+| `review` | the actor is an **active administrator** for every command on the review tables (a clinician's credential summary stays readable: patients see it) | any applicant, credential or organization |
+| `auth` (public sign-in) | **no longer touches the second-factor tables at all** | all four commands on them |
 
-**The smallest model that is honest about this (implemented and pinned by `tests/scopeAuthority.test.ts`):**
-1. The call sites of the three scopes are an exact reviewed set (26 `staff`, 10 `review`, 10 `mfa` across 3 files); a new one fails the test until reviewed.
-2. Every organization function that reads or writes organization data takes an `OrgAccess`, a capability minted in exactly one place (`access()`: active membership + the permission matrix, "not found" for
-   non-members). The 11 functions without one are an exact reviewed list, each justified in the test (own-id only, or a single-use token).
-3. Every `/:orgId` route obtains the capability before doing anything.
-4. `review` is reachable only from the administrator router (`adminOnly`); `mfa` only for the account holder who just proved their password (a signed challenge) or the audited operator scripts.
-5. The behavioural attacks (cross-organization, role confusion, concurrent revocation, forbidden tables) are in `orgs.test.ts` and `narrowScopes.test.ts` and pass.
+**Evidence that this is not vacuous:** the forged-capability test builds an `OrgAccess` for another organization (what a missing check or wrong id would produce) and calls every organization function: nothing is returned and
+nothing is written (before/after row comparison); mutation checks (drop one actor condition, make every actor an administrator) turn eight to ten of the 16 tests red; the 0030 rehearsal shows an exact rollback.
+Also tested: cross-organization reads and writes, a revoked member, a patient entering the scope, no actor, a concurrent revocation (60 reads racing it; every later statement sees nothing), 240 interleaved requests on a shared pool each
+reporting its own actor, tampered/moved/stripped/expired/validly-signed-but-misplaced actors.
 
-**What closing it would take (not done; a decision, not a defect):** put the acting user into the signed assertion for these three scopes (`system.staff~<userId>`), expose `app_verified_actor()`
-to the database, and add to the `staff` policies "the actor is an active member of the row's organization", to the `review` policies "the actor is an active administrator", and to the `mfa` policies
-"the row belongs to the actor". That is one migration (0030), its exact rollback, a signing change, and a second release; it turns a code-level guarantee into a database-level one.
+**What is still application-authorized, exactly:**
+1. The **permission matrix** (which role may invite, change roles, write notes) is code. The database checks membership and visibility, not role: a *member* of an organization with a low role could, through a code defect, perform an action
+   a higher role may. They still cannot cross organizations or reach a patient they may not see.
+2. **`staff`** (10 functions: token-based invitation steps, `createOrg`, `myOrganizations`, the patient-side visibility and notice functions) has no actor: the authority is a single-use token or the person's own id, in code.
+3. `review` checks administrator, not *which* application an administrator may decide (any administrator may decide any).
+4. An organization member in two organizations is bounded to the union of both (the code works one at a time).
+5. The actor is whoever the authentication step said: a flaw in authentication itself, or code that calls `bindActor` with the wrong value, is outside this boundary (the callers are listed and pinned).
 
-**Recommendation:** not needed for S0-S2 (synthetic data, a few invited clinicians, no patient records reachable through these scopes anyway). **Decide before S3**: either implement 0030, or have the
-penetration tester attack exactly this boundary and record the owner's written acceptance of the residual risk. Until then the risk is *reduced, listed, guarded and tested*, **not closed**.
+**Verdict: D-03c is narrowed again and the cross-tenant and account-ownership parts are now enforced by the database; it is not closed in the sense of "nothing is authorised in code".** Items 1-5 are the residual. For S3 the penetration tester should be pointed at exactly these
+five, and the owner should accept them in writing or ask for further work (a role check in SQL is feasible: the role is already in `org_memberships`).

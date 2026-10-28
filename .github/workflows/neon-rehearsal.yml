@@ -175,7 +175,7 @@ jobs:
 
       - name: Roll the branch back, newest first, and compare with the baseline
         run: |
-          for f in 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do
+          for f in 0030_bind_acting_person 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do
             timed "rollback $f" psql "$OWNER_DATABASE_URL" -q -v ON_ERROR_STOP=1 -f "ops/rollback/$f.down.sql" > /dev/null
           done
           DATABASE_URL="$OWNER_DATABASE_URL" npm run -s schema:fingerprint > fp-after.txt

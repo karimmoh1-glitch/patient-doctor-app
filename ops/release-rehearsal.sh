@@ -97,7 +97,7 @@ check "database audit" "1" "$(cd "$here" && DATABASE_URL="$OWNER" NODE_ENV=devel
 stop_port 5184
 
 step "R. Rollback, newest first, then the OLD code on the old structure"
-for f in 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do
+for f in 0030_bind_acting_person 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do
   s=$(ms); psql "$OWNER" -q -v ON_ERROR_STOP=1 -f "$here/ops/rollback/$f.down.sql" >/dev/null 2>&1; rc=$?; e=$(ms)
   printf 'TIME  rollback %s: %s ms (exit %s)\n' "$f" "$((e-s))" "$rc"; [ $rc -ne 0 ] && fail=1
 done

@@ -10,9 +10,9 @@ assistant does nothing in production without them, and approval of one line is n
 | --- | --- | --- |
 | Branch / PR | `mission2/close-security-gaps`, PR #1 | `gh pr view 1` |
 | Candidate SHA | **Fill from `git rev-parse HEAD` at release time.** Last SHA with a green CI run recorded in this checklist: `3520f84` (CI run 40639795784: test, restricted-role, release-rehearsal all green). The test site runs `e27f605` (CI run 40632930476); nothing under `server/`, `client/`, `shared/` or `migrations/` differs between the two (only tooling, tests, documents). The release SHA must have **its own** green run | `gh run list --branch mission2/close-security-gaps` |
-| Migrations, in order | 0024 → 0025 → 0026 → 0027 → 0028 → 0029 | `ls migrations` |
+| Migrations, in order | 0024 → 0025 → 0026 → 0027 → 0028 → 0029 → 0030 | `ls migrations` |
 | Structure fingerprint **before** | `5dc5a2698a1e` (24 migrations) | `npm run schema:fingerprint` on production (pre-release read) |
-| Structure fingerprint **after** | `ae523c8fa120`, 1,377 facts. Same value on a fresh local PostgreSQL 16.14 and on Neon PostgreSQL 18.6 (the test site) | `npm run schema:fingerprint` |
+| Structure fingerprint **after** | `8065a842b3d2`, 1396 facts (migrations 0000-0030, fresh PostgreSQL 16.14; confirm the same value on Neon PostgreSQL 18.6 after the test site is redeployed). Through 0029 it was `ae523c8fa120`, identical on PostgreSQL 16.14 and on Neon 18.6 | `npm run schema:fingerprint` |
 | Compatibility | old code (704b7df) on new schema: fails closed (no sign-in, empty directory, no leak); new code on old schema: refuses to serve; neither serves unsafely | `ops/release-rehearsal.sh`, CI job `release-rehearsal` |
 
 ## 1. Before the window (all must be ticked)
@@ -38,7 +38,7 @@ assistant does nothing in production without them, and approval of one line is n
 | ☐ | Step | Expect | Stop → |
 | --- | --- | --- | --- |
 | ☐ | **[approval: "authorized: production release at <time>"]** | | |
-| ☐ | Apply 0024-0029 (the Vercel build applies them: the test site's build applied all 30 files to an empty database in 2.4 s) | `Applied: …0029` | §6A |
+| ☐ | Apply 0024-0030 (the Vercel build applies them: the test site's build applied all 30 files to an empty database in 2.4 s) | `Applied: …0029` | §6A |
 | ☐ | Register the new key: `identity:key -- register --from=<file>` | `Registered key …` | §6A |
 | ☐ | `audit:db` | 0 findings | §6B |
 | ☐ | Deploy: `vercel deploy --prod --build-env BUILD_COMMIT=<SHA>` | ready; `/version.json` = SHA | §6B |
@@ -46,7 +46,7 @@ assistant does nothing in production without them, and approval of one line is n
 | ☐ | `identity:enforce -- on`; repeat `release:verify`, `test:live` | Enforcement ON | `enforce off`, then §6B |
 | ☐ | `pooler:check` from a trusted shell with `POOLER_CONTROL_REQUIRED=1 POOLER_CHECK_SERVER_SCOPE=allowed` (run **before** the next step) | PASS, control > 0 | roll back |
 | ☐ | `identity:enforce -- server-scope off`; repeat checks; `pooler:check` again with `POOLER_CHECK_SERVER_SCOPE=refused` | refused; PASS | `server-scope on`, then §6B |
-| ☐ | `schema:fingerprint` = `ae523c8fa120`; app connects as `avela_runtime` (`pg_stat_activity`) | recorded | investigate |
+| ☐ | `schema:fingerprint` = `8065a842b3d2`; app connects as `avela_runtime` (`pg_stat_activity`) | recorded | investigate |
 | ☐ | Synthetic checks on production **[approval to create each synthetic account]**: sign up, sign out; HTTP isolation (`ops/http-isolation.ts` refuses production because it carries no test notice: use the manual steps in §3.7 instead) | no 5xx | §6B |
 
 **Stop conditions:** a migration error; an `audit:db` finding; the new release refusing to start; a failed `release:verify` or `test:live` check that is not a documented client-network flake;
@@ -57,7 +57,7 @@ any 5xx on a route a synthetic user used; **any response seen to be about anothe
 | What | Proof it works |
 | --- | --- |
 | Identity gate only: `identity:enforce -- off` (instant); unrestricted scope back: `server-scope on` | `identityBoundary` tests, local rehearsal |
-| Application: `vercel rollback` to 704b7df, **then** database chain newest first: 0029 → 0028 → 0027 → 0026 → 0025 → 0024 | `tests/migrationChain.test.ts` (fingerprint returns to `5dc5a2698a1e`), `ops/release-rehearsal.sh` (old code signs in again on the restored structure), CI job `release-rehearsal`; local timings 43-80 ms per rollback file; **provider timing: pending the Neon rehearsal** |
+| Application: `vercel rollback` to 704b7df, **then** database chain newest first: 0030 → 0029 → 0028 → 0027 → 0026 → 0025 → 0024 | `tests/migrationChain.test.ts` (fingerprint returns to `5dc5a2698a1e`), `ops/release-rehearsal.sh` (old code signs in again on the restored structure), CI job `release-rehearsal`; local timings 43-80 ms per rollback file; **provider timing: pending the Neon rehearsal** |
 | Data concern: restore `pre-release-<date>` into a **new** branch, verify, repoint deliberately. Never restore over production | restore drill (box above) |
 | Limits | Rows written in the window stay; `audit_logs` stays. The application never runs as the owner role |
 
