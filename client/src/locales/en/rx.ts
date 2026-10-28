@@ -149,6 +149,7 @@ export default {
   "rx.form.savedDraft": "Draft saved",
   "rx.form.savedDraftBody": "The patient can't see it yet. Review it and authorize it when you're ready.",
   "notif.message.new": "New message from {name}",
+  "notif.pairing.ended": "A patient ended their connection with you. Visits cancelled: {cancelled}. Visits kept: {kept}.",
   "notif.appointment.soon": "Your visit with {doctorName} is coming up: {when}",
   "rem.delivery.failing": "The last automatic reminder run ran into a problem, so your reminders may be late or missing. Please check this list yourself.",
   "rem.zone": "Times are in your time zone: {zone}",

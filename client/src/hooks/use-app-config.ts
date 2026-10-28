@@ -9,7 +9,9 @@ export interface AppConfig {
       sources: { title: string; url: string; checkedOn: string; official: string }[]; caveats: string[]; reviewedBy: string | null; reviewedOn: string | null;
     }>;
   };
-  features: { email: boolean; videoVisits: boolean; documentUploads: boolean; smsReminders: boolean; liveSupportChat: boolean };
+  /** Set by the host on a test deployment; shown on every screen. */
+  environmentNotice: string | null;
+  features: { email: boolean; organizations: boolean; videoVisits: boolean; documentUploads: boolean; smsReminders: boolean; liveSupportChat: boolean };
   support: { phone: string | null; email: string | null; hours: string | null };
 }
 

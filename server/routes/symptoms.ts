@@ -19,7 +19,7 @@ router.post("/", requireAuth, requireRole("patient"), async (req, res) => {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid symptom report" });
   }
   const userId = (req as any).userId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user?.state) {
     return res.status(400).json({ message: "Set your state before submitting symptoms" });
   }

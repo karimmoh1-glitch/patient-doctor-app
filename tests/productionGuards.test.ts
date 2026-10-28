@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import type { Express } from "express";
-import { getApp, auth, uniqueEmail, signIn } from "./helpers";
+import { getApp, auth, uniqueEmail, signIn, operatorPool } from "./helpers";
 import { storage } from "../server/storage";
 import { assertProductionConfig, productionConfigProblems } from "../server/config";
 import { checkReadiness } from "../server/services/readiness";
@@ -23,11 +23,15 @@ const inProduction = () => ((process.env as any).NODE_ENV = "production");
 
 const KNOWN_PASSWORD = "DemoPass123!"; // published in the repository for the development fixtures
 
+// Fixtures are made by the operator, on the owner connection: the application's own role may neither create an administrator
+// nor mark an account as a fixture (migration 0024), and that is exactly what a test must not paper over.
 async function fixtureAccount(role: "admin" | "patient" | "doctor") {
-  return storage.createUser({
-    name: `Fixture ${role}`, email: uniqueEmail(`fixture-${role}`), passwordHash: await bcrypt.hash(KNOWN_PASSWORD, 4), role,
-    state: role === "admin" ? null : "CA", phone: null, deactivatedAt: null, emailVerifiedAt: null, isDemo: true,
-  });
+  const email = uniqueEmail(`fixture-${role}`);
+  const { rows } = await operatorPool().query(
+    "INSERT INTO users (name, email, password_hash, role, state, is_demo) VALUES ($1, $2, $3, $4, $5, true) RETURNING id, email",
+    [`Fixture ${role}`, email, await bcrypt.hash(KNOWN_PASSWORD, 4), role, role === "admin" ? null : "CA"],
+  );
+  return { id: rows[0].id as string, email };
 }
 
 describe("fixture accounts in production", () => {
@@ -78,6 +82,7 @@ describe("what a production server refuses to start with", () => {
     NODE_ENV: "production", DATABASE_URL: "postgresql://owner@db/x", APP_DATABASE_URL: "postgresql://runtime@db/x", DB_ENFORCE_RLS: "on",
     JWT_SECRET: "j".repeat(40), APP_URL: "https://avela.example.org",
     MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    IDENTITY_KEY_ID: "k20261027", IDENTITY_KEY: Buffer.alloc(32, 9).toString("base64"),
   } as NodeJS.ProcessEnv;
   const ids = (env: NodeJS.ProcessEnv) => productionConfigProblems(env).map((p) => p.id);
 
@@ -109,6 +114,15 @@ describe("what a production server refuses to start with", () => {
     expect(ids({ ...good, MFA_ALLOW_CODE_REUSE: "1" })).toEqual(["mfa-reuse"]);
   });
 
+  it("refuses the restricted role without a signing key for the identity the database verifies, or with the development key", () => {
+    expect(ids({ ...good, IDENTITY_KEY: undefined })).toEqual(["identity-key"]);
+    expect(ids({ ...good, IDENTITY_KEY_ID: undefined })).toEqual(["identity-key"]);
+    expect(ids({ ...good, IDENTITY_KEY: Buffer.alloc(16, 1).toString("base64") })).toEqual(["identity-key"]);
+    expect(ids({ ...good, IDENTITY_KEY_ID: "dev" })).toEqual(["identity-key-dev"]);
+    // The owner-role exception needs no signing key: nothing is being verified.
+    expect(ids({ ...good, APP_DATABASE_URL: undefined, DB_ENFORCE_RLS: undefined, IDENTITY_KEY: undefined, ALLOW_OWNER_DATABASE_ROLE: "true" })).toEqual([]);
+  });
+
   it("refuses to connect as the table owner, unless that is a named, visible exception", () => {
     const owner = { ...good, APP_DATABASE_URL: undefined, DB_ENFORCE_RLS: undefined } as NodeJS.ProcessEnv;
     expect(ids(owner)).toEqual(["owner-role"]);
@@ -135,7 +149,7 @@ describe("what a production server refuses to start with", () => {
 describe("the readiness check before real patients", () => {
   const realEnv = {
     NODE_ENV: "production", JWT_SECRET: "x".repeat(40), APP_URL: "https://avela.example.org", CRON_SECRET: "y".repeat(30),
-    RESEND_API_KEY: "re_x", SUPPORT_EMAIL: "help@example.org", EMERGENCY_DATA_REVIEWED_BY: "Test Reviewer", EMERGENCY_DATA_REVIEWED_VERSION: "2026-10-26", EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG",
+    RESEND_API_KEY: "re_x", EMAIL_FROM: "Avela <care@example.org>", SUPPORT_EMAIL: "help@example.org", EMERGENCY_DATA_REVIEWED_BY: "Test Reviewer", EMERGENCY_DATA_REVIEWED_VERSION: "2026-10-26", EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG",
   } as NodeJS.ProcessEnv;
 
   it("blocks a deployment that still has fixture accounts, a demo setting, an owner connection, or no scheduler", async () => {
@@ -145,7 +159,7 @@ describe("the readiness check before real patients", () => {
     expect(failing).toEqual(expect.arrayContaining(["demo-absent", "demo-accounts", "cron-secret", "rls-enforced", "app-role", "scheduler-history"]));
   });
 
-  it("does not mistake a manual check, a daily cron or GitHub's schedule for a scheduler", async () => {
+  it("does not mistake a manual check, a daily cron, GitHub's schedule or a look-alike label for a scheduler", async () => {
     const insert = async (source: string, n: number) => {
       for (let i = 0; i < n; i += 24) {
         await pool.query(
@@ -160,14 +174,41 @@ describe("the readiness check before real patients", () => {
     await insert("github-actions", 40);
     let checks = await checkReadiness(realEnv, pool);
     expect(checks.find((c) => c.id === "scheduler-history")!.level).toBe("fail");
-    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("warn");
+    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("fail");
 
+    // A look-alike label from a holder of the general secret is recorded as a claim and counts for nothing, however often it is made.
+    await pool.query("DELETE FROM job_run_history");
+    await insert("claimed:cloudflare-worker", 290);
+    checks = await checkReadiness(realEnv, pool);
+    expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("fail");
     await pool.query("DELETE FROM job_run_history");
     await insert("cloudflare-worker", 280);
     checks = await checkReadiness(realEnv, pool);
     expect(checks.find((c) => c.id === "scheduler-history")!.level).toBe("ok");
     expect(checks.find((c) => c.id === "scheduler-caller")!.level).toBe("ok");
     await pool.query("DELETE FROM job_run_history");
+  });
+
+  it("treats no e-mail provider, or the built-in sender address, as a blocker (a locked-out person must have a way back)", async () => {
+    const level = async (env: NodeJS.ProcessEnv, id: string) => (await checkReadiness(env, pool)).find((c) => c.id === id)!.level;
+    expect(await level({ ...realEnv, RESEND_API_KEY: undefined }, "email")).toBe("fail");
+    expect(await level({ ...realEnv, EMAIL_FROM: undefined }, "email-from")).toBe("fail");
+    expect(await level(realEnv, "email")).toBe("ok");
+    expect(await level(realEnv, "email-from")).toBe("ok");
+  });
+
+  it("is not ready until the database enforces signed identities with a registered key", async () => {
+    const { setIdentityEnforcement } = await import("../script/lib/identityKeys");
+    // The owner connection, as `npm run verify:production` uses: the identity tables are not readable by the application role.
+    const level = async () => (await checkReadiness(realEnv, operatorPool())).find((c) => c.id === "identity-enforced")!.level;
+    expect(await level()).toBe("ok"); // the test databases are set up as production should be
+    await setIdentityEnforcement(operatorPool(), false);
+    try {
+      expect(await level()).toBe("fail");
+    } finally {
+      await setIdentityEnforcement(operatorPool(), true);
+    }
+    expect(await level()).toBe("ok");
   });
 
   it("reports each blocker without printing any secret", async () => {
@@ -182,7 +223,7 @@ describe("providers in a production directory", () => {
     const { createDoctor, signupPatient } = await import("./helpers");
     const real = await createDoctor({ name: "Dr. Listed Realperson" });
     const fixtureDoc = await createDoctor({ name: "Dr. Fixture Unlisted" });
-    await pool.query("UPDATE users SET is_demo = true WHERE id = $1", [fixtureDoc.id]);
+    await operatorPool().query("UPDATE users SET is_demo = true WHERE id = $1", [fixtureDoc.id]);
     const patient = await signupPatient();
 
     // Development and test: fixtures are listed, so the suites can use them.

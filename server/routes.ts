@@ -67,6 +67,15 @@ export const ROUTER_MOUNTS: [prefix: string, router: Router][] = [
 /** Mounted BEFORE the JSON body parser: a provider's signature covers the exact bytes it sent. */
 export const RAW_BODY_MOUNTS: [string, Router][] = [["/api/webhooks", webhookRoutes]];
 
+/** A pilot can run without the organization-staff module (ORGANIZATIONS_DISABLED=true): its endpoints answer "not available", nothing else changes. */
+export const organizationsEnabled = (): boolean => process.env.ORGANIZATIONS_DISABLED !== "true";
+
 export async function registerRoutes(_httpServer: Server, app: Express): Promise<void> {
-  for (const [prefix, router] of ROUTER_MOUNTS) app.use(prefix, router);
+  for (const [prefix, router] of ROUTER_MOUNTS) {
+    if (prefix === "/api/orgs" && !organizationsEnabled()) {
+      app.use(prefix, (_req, res) => res.status(404).json({ message: "Organizations aren't available on this service yet." }));
+      continue;
+    }
+    app.use(prefix, router);
+  }
 }

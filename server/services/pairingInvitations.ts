@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { doctorProfiles, pairingInvitations, pairingRequests, users } from "@shared/schema";
 import { storage } from "../storage";
 import { logAudit } from "./auditService";
@@ -71,7 +71,7 @@ function lookupHash(input: Presented): { column: "tokenHash" | "codeHash"; value
 async function approvedProfile(userId: string) {
   const [profile] = await db.select().from(doctorProfiles).where(and(eq(doctorProfiles.userId, userId), eq(doctorProfiles.active, true)));
   if (!profile) throw new InvitationError(403, "forbidden", "Not allowed");
-  const listable = await runAsSystem(() => storage.getListableDoctorProfile(profile.id));
+  const listable = await withScope("pairing", () => storage.getListableDoctorProfile(profile.id));
   // Same standard as being listed to patients: approved, active, and a licence check that has not expired.
   if (!listable) throw new InvitationError(403, "not_listed", "You can connect patients once your licence check is valid.");
   return profile;
@@ -140,7 +140,7 @@ async function findUsable(input: Presented, forUpdate = false, tx?: Pick<typeof 
 
 /** Who the code is from, as far as Avela can honestly say. Nothing is created. */
 export async function preview(patientUserId: string, input: Presented) {
-  return runAsSystem(async () => {
+  return withScope("pairing", async () => {
     const inv = await findUsable(input);
     if (!inv) throw INVALID();
     const doctor = await storage.getListableDoctorProfile(inv.doctorProfileId);
@@ -165,7 +165,7 @@ export async function preview(patientUserId: string, input: Presented) {
 }
 
 export async function acceptInvitation(patientUserId: string, input: Presented) {
-  const result = await runAsSystem(async () => {
+  const result = await withScope("pairing", async () => {
     const first = await findUsable(input);
     if (!first) {
       // A patient who retries after a slow network may find their own earlier acceptance: answer that honestly instead of "invalid".
@@ -203,9 +203,9 @@ export async function acceptInvitation(patientUserId: string, input: Presented) 
   if (!result.repeat) {
     await logAudit({ actorUserId: patientUserId, action: "pairing_invitation.accepted", targetType: "pairing_request", targetId: result.pairingId, subjectUserId: patientUserId, metadata: { invitationId: (result as any).invitationId } });
     if ((result as any).doctorUserId) {
-      await tellPatientAboutOrganizationStaff(patientUserId, (result as any).doctorUserId, (await runAsSystem(() => storage.getDoctorProfile((result as any).doctorProfileId)))?.name ?? "").catch(() => {});
-      const patient = await runAsSystem(() => storage.getUser(patientUserId));
-      await runAsSystem(() => storage.createNotification({ userId: (result as any).doctorUserId, kind: "pairing.connected", params: { name: patient?.name ?? "" }, link: "/doctor/patients" })).catch(() => {});
+      await tellPatientAboutOrganizationStaff(patientUserId, (result as any).doctorUserId, (await withScope("pairing", () => storage.getDoctorProfile((result as any).doctorProfileId)))?.name ?? "").catch(() => {});
+      const patient = await withScope("pairing", () => storage.getUser(patientUserId));
+      await withScope("pairing", () => storage.createNotification({ userId: (result as any).doctorUserId, kind: "pairing.connected", params: { name: patient?.name ?? "" }, link: "/doctor/patients" })).catch(() => {});
     }
   }
   return { pairingId: result.pairingId, repeat: result.repeat };

@@ -55,8 +55,17 @@ async function check(client: pg.PoolClient): Promise<boolean> {
     if (!p.can_read) problems.push("cannot read application tables (grants not applied)");
     if (p.owns) problems.push("owns the tables");
   }
-  const rls = await client.query(`SELECT count(*)::int AS n FROM pg_class WHERE relkind = 'r' AND relrowsecurity AND relnamespace = 'public'::regnamespace`);
-  if (rls.rows[0].n < 15) problems.push(`row-level security is on for only ${rls.rows[0].n} tables (migration 0014 not applied?)`);
+  // Every table must be behind row-level security (the migration record is protected by withholding the privilege instead),
+  // and the role must be able to run the policy helpers and nothing else (migration 0024).
+  const rls = await client.query(`SELECT count(*) FILTER (WHERE relrowsecurity)::int AS n, array_agg(relname ORDER BY relname) FILTER (WHERE NOT relrowsecurity) AS bare
+                                    FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace`);
+  if (rls.rows[0].bare?.length) problems.push(`these tables are outside row-level security: ${rls.rows[0].bare.join(", ")} (migration 0024 not applied?)`);
+  const fns = await client.query(
+    `SELECT array_agg(p.proname ORDER BY p.proname) FILTER (WHERE has_function_privilege($1, p.oid, 'EXECUTE') AND p.proname NOT LIKE 'app\_%') AS too_many
+       FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f'`,
+    [LOGIN_ROLE],
+  ).catch(() => null);
+  if (fns?.rows[0].too_many?.length) problems.push(`can execute functions it should not: ${fns.rows[0].too_many.join(", ")}`);
 
   if (problems.length) {
     for (const p of problems) console.error(`FAIL  ${LOGIN_ROLE}: ${p}`);

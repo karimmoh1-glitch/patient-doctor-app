@@ -47,12 +47,12 @@ const need = (req: Request, p: Permission) => orgs.access(uid(req), req.params.o
 
 // ---------------------------------------------------------------------------------------------- invitations (before sign-in)
 
-router.post("/invitations/preview", systemAccess, publicLimiter, handle(async (req, res) => {
+router.post("/invitations/preview", systemAccess("invite"), publicLimiter, handle(async (req, res) => {
   res.json(await orgs.previewInvitation(String(req.body?.token ?? "")));
 }));
 
 // A brand-new staff account, created by the person the invitation was sent to. A clinician joins with their clinician account instead.
-router.post("/invitations/accept-new", systemAccess, publicLimiter, handle(async (req, res) => {
+router.post("/invitations/accept-new", systemAccess("invite"), publicLimiter, handle(async (req, res) => {
   const parsed = z.object({ token: z.string().max(100), name: z.string().trim().min(1).max(100), password: z.string().min(8).max(200), language: z.enum(["en", "ar"]).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "Your name and a password of at least 8 characters are needed" });
   const inv = await orgs.claimInvitationForNewAccount(parsed.data.token);

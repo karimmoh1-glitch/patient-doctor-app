@@ -8,6 +8,8 @@ import { appRoleUrl } from "./tests/fastCommit";
 export const PROD_PORT = 3102;
 // Key for the stored authenticator secrets in the smoke run (32 bytes, base64): the seed and the server must agree on it.
 export const PROD_SMOKE_MFA_KEY = Buffer.alloc(32, 9).toString("base64");
+// The signing key a production-mode server needs with the restricted role. Not the development key: a production server refuses that one.
+export const PROD_SMOKE_IDENTITY = { kid: "prodsmoke", key: Buffer.alloc(32, 11) };
 export const PROD_DB = process.env.PROD_SMOKE_DATABASE_URL || "postgresql://karimmohamed@localhost:5432/patient_doctor_app_prodsmoke_test";
 
 export default defineConfig({
@@ -41,6 +43,8 @@ export default defineConfig({
       APP_URL: "https://smoke.avela.invalid",
       EMERGENCY_DATA_REVIEWED_BY: "Production smoke reviewer", EMERGENCY_DATA_REVIEWED_VERSION: "2026-10-26", EMERGENCY_DATA_REVIEWED_COUNTRIES: "US,EG",
       MFA_ENCRYPTION_KEY: PROD_SMOKE_MFA_KEY,
+      IDENTITY_KEY_ID: PROD_SMOKE_IDENTITY.kid,
+      IDENTITY_KEY: PROD_SMOKE_IDENTITY.key.toString("base64"),
     },
   },
 });

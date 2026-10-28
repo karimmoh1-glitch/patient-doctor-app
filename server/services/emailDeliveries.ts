@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { emailDeliveries, emailWebhookEvents } from "@shared/schema";
 
 /**
@@ -31,7 +31,7 @@ export function hashRecipient(address: string): string {
 /** Called when the provider accepted a message. Never throws: bookkeeping must not turn a sent email into an error. */
 export async function recordAccepted(input: { providerMessageId: string; purpose: string; to: string }): Promise<void> {
   try {
-    await runAsSystem(() =>
+    await withScope("mail", () =>
       db
         .insert(emailDeliveries)
         .values({ providerMessageId: input.providerMessageId, purpose: input.purpose, recipientHash: hashRecipient(input.to) })
@@ -39,6 +39,32 @@ export async function recordAccepted(input: { providerMessageId: string; purpose
     );
   } catch (err: any) {
     console.error("[email] could not record delivery evidence:", err?.name || "Error");
+  }
+}
+
+/** Messages a person asked for themself. They are still attempted after a bounce or complaint (the provider keeps its own list). */
+const ESSENTIAL_PURPOSES = new Set(["password_reset", "email_verification"]);
+
+/**
+ * Should we stop writing to this address? After a permanent bounce (it does not exist) or a spam complaint (they do not want
+ * it), further reminders and invitations only harm our sender reputation and, for a complaint, the person. Transient bounces
+ * do not count: a full mailbox recovers. Judged from our own delivery records, which hold a one-way hash of the address.
+ */
+export async function isSuppressed(to: string, purpose: string | undefined): Promise<boolean> {
+  if (purpose && ESSENTIAL_PURPOSES.has(purpose)) return false;
+  try {
+    const rows = await withScope("mail", () =>
+      db
+        .select({ id: emailDeliveries.id })
+        .from(emailDeliveries)
+        .where(and(eq(emailDeliveries.recipientHash, hashRecipient(to)), sql`(${emailDeliveries.status} = 'complained' OR (${emailDeliveries.status} = 'bounced' AND lower(coalesce(${emailDeliveries.statusDetail}, '')) LIKE 'permanent%'))`))
+        .limit(1),
+    );
+    return rows.length > 0;
+  } catch (err: any) {
+    // Failing to look must not stop a message that was requested; it is logged by kind only.
+    console.error("[email] could not check suppression:", err?.name || "Error");
+    return false;
   }
 }
 
@@ -82,7 +108,7 @@ export async function applyWebhookEvent(eventId: string, payload: any): Promise<
   const status = EVENT_STATUS[String(payload?.type ?? "")];
   const messageId = typeof payload?.data?.email_id === "string" ? payload.data.email_id : null;
   if (!status || !messageId) return "ignored";
-  return runAsSystem(() =>
+  return withScope("webhook", () =>
     db.transaction(async (tx) => {
       // The message first: an event for a message we have not recorded (yet) must stay retryable, so it is not remembered.
       const [row] = await tx.select().from(emailDeliveries).where(and(eq(emailDeliveries.provider, "resend"), eq(emailDeliveries.providerMessageId, messageId)));
@@ -100,7 +126,7 @@ export async function applyWebhookEvent(eventId: string, payload: any): Promise<
 
 /** Counts by status, for the operations screen. */
 export async function emailDeliverySummary(days = 7): Promise<Record<EmailStatus, number>> {
-  const rows = await runAsSystem(() =>
+  const rows = await withScope("ops", () =>
     db
       .select({ status: emailDeliveries.status, n: sql<number>`count(*)::int` })
       .from(emailDeliveries)

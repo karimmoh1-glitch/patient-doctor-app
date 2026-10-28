@@ -13,12 +13,18 @@ process.env.DATABASE_URL =
 // indexer, a backup) made single COMMITs take seconds and whole runs 10-15x slower; measured and
 // reproduced under deliberate disk load, see docs/TESTING.md. This is applied only here, never to the app.
 import { appRoleUrl, fastCommitUrl } from "./fastCommit";
+import { devIdentityKey } from "../server/identity";
 process.env.DATABASE_URL = fastCommitUrl(process.env.DATABASE_URL);
 // `npm run test:rls`: the whole suite again, but the application connects as the restricted role with
 // row-level security enforced, exactly as it would in production once APP_DATABASE_URL is set.
 if (process.env.TEST_AS_APP_ROLE === "1") {
   process.env.APP_DATABASE_URL = appRoleUrl(process.env.DATABASE_URL);
   process.env.DB_ENFORCE_RLS = "on";
+  // Some tests flip NODE_ENV to "production" to see how the server behaves there; production never falls back to the development
+  // key, so the (publicly known) test key is configured explicitly, as a real deployment would configure its own.
+  const dev = devIdentityKey();
+  process.env.IDENTITY_KEY_ID = dev.kid;
+  process.env.IDENTITY_KEY = dev.key.toString("base64");
 }
 
 const dbName = new URL(process.env.DATABASE_URL).pathname.replace(/^\//, "");
@@ -33,6 +39,23 @@ if (!dbName.endsWith("_test")) {
 delete process.env.RESEND_API_KEY;
 delete process.env.OPENAI_API_KEY;
 delete process.env.STT_PROVIDER;
+
+// Used only by the scope-matrix review (docs/IDENTITY_BOUNDARY.md §5): best-effort writes (audit entries, the e-mail ledger, notices) swallow their own
+// failure and log it, so a grant that was removed would not fail a test by itself. With this switch on, such a log line fails the test that caused it.
+if (process.env.AVELA_FAIL_ON_SWALLOWED === "1") {
+  const { afterEach } = await import("vitest");
+  const seen: string[] = [];
+  const original = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    const line = args.map((a) => (typeof a === "string" ? a : "")).join(" ");
+    if (/Failed to write audit log|could not record delivery evidence|could not check suppression|could not process one reminder|could not record the outcome|shared store unavailable|Internal Server Error/.test(line)) seen.push(line);
+    original(...args);
+  };
+  afterEach(() => {
+    const got = seen.splice(0);
+    if (got.length) throw new Error(`a best-effort write failed silently: ${got[0]}`);
+  });
+}
 
 // Optional diagnostics (see tests/stallProbe.ts).
 if (process.env.STALL_PROBE) await import("./stallProbe");

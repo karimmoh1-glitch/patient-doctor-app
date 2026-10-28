@@ -44,8 +44,18 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
   if (!env.MFA_ENCRYPTION_KEY || Buffer.from(env.MFA_ENCRYPTION_KEY, "base64").length !== 32) {
     add("mfa-key", "MFA_ENCRYPTION_KEY must be set to 32 random bytes, base64 encoded (openssl rand -base64 32).");
   }
+  if (env.MFA_ENCRYPTION_KEY_PREVIOUS && Buffer.from(env.MFA_ENCRYPTION_KEY_PREVIOUS, "base64").length !== 32) {
+    add("mfa-key-previous", "MFA_ENCRYPTION_KEY_PREVIOUS must be 32 random bytes, base64 encoded, or unset.");
+  }
   if (env.MFA_ALLOW_CODE_REUSE !== undefined && env.MFA_ALLOW_CODE_REUSE !== "") {
     add("mfa-reuse", "MFA_ALLOW_CODE_REUSE is a test-only setting and must not exist in production.");
+  }
+
+  // A scheduler with its own secret is how the server knows who is calling (an attested caller). Sharing the general secret would
+  // make that meaningless, and a short one is guessable.
+  if (env.CRON_SECRET_CLOUDFLARE) {
+    if (env.CRON_SECRET_CLOUDFLARE.length < 32) add("cron-secret-cloudflare", "CRON_SECRET_CLOUDFLARE is shorter than 32 characters.");
+    else if (env.CRON_SECRET_CLOUDFLARE === env.CRON_SECRET) add("cron-secret-shared", "CRON_SECRET_CLOUDFLARE is the same as CRON_SECRET. Each scheduler needs its own secret, or the server cannot tell them apart.");
   }
 
   const restricted = !!env.APP_DATABASE_URL && env.DB_ENFORCE_RLS === "on";
@@ -57,6 +67,13 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
       "owner-role",
       "The application would connect to the database as the table owner. Set APP_DATABASE_URL and DB_ENFORCE_RLS=on (docs/OPERATIONS_RUNBOOK.md), or, as a visible temporary exception, ALLOW_OWNER_DATABASE_ROLE=true.",
     );
+  }
+  // With the restricted role, the database verifies who each transaction is for with a signed assertion; without the key the server
+  // would sign nothing and every request would be anonymous (or, worse, run in the unverified roll-out mode forever).
+  if (restricted) {
+    const keyOk = !!env.IDENTITY_KEY && Buffer.from(env.IDENTITY_KEY, "base64").length === 32 && /^[a-z0-9_-]{1,32}$/.test(env.IDENTITY_KEY_ID ?? "");
+    if (!keyOk) add("identity-key", "IDENTITY_KEY_ID and IDENTITY_KEY (32 random bytes, base64) must be set with the restricted database role: `npm run identity:key -- generate` (docs/IDENTITY_BOUNDARY.md).");
+    if (env.IDENTITY_KEY_ID === "dev") add("identity-key-dev", "IDENTITY_KEY_ID is the development key's id. Generate a real key.");
   }
   if (env.ALLOW_OWNER_DATABASE_ROLE === "true" && restricted) {
     add("owner-role-contradiction", "ALLOW_OWNER_DATABASE_ROLE=true is set although the restricted role is configured. Remove it.");

@@ -2,7 +2,8 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { users, ENTRY_KINDS, PROFILE_SECTIONS, type EntryKind, type ProfileSection } from "@shared/schema";
+import { storage } from "../storage";
+import { usersFull, ENTRY_KINDS, PROFILE_SECTIONS, type EntryKind, type ProfileSection } from "@shared/schema";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { makeLimiter, userKey } from "../middleware/rateLimit";
 import { logAudit } from "../services/auditService";
@@ -56,7 +57,7 @@ const basicSchema = z.object({
 }).strict();
 
 router.get("/basic", ...patientOnly, handle(async (req, res) => {
-  const [u] = await db.select().from(users).where(eq(users.id, me(req).userId));
+  const u = (await storage.getUserPrivate(me(req).userId))!;
   res.json({
     name: u.name, preferredName: u.preferredName, dateOfBirth: u.dateOfBirth, country: u.country, timezone: u.timezone, language: u.language,
     contactMethod: u.contactMethod, phone: u.phone, accessibilityNotes: u.accessibilityNotes,
@@ -68,7 +69,7 @@ router.put("/basic", ...patientOnly, writeLimiter, handle(async (req, res) => {
   if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Those details aren't valid" });
   const set: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(parsed.data)) if (v !== undefined) set[k] = v === "" ? null : v;
-  if (Object.keys(set).length) await db.update(users).set(set).where(eq(users.id, me(req).userId));
+  if (Object.keys(set).length) await db.update(usersFull).set(set).where(eq(usersFull.id, me(req).userId));
   await profile.setSectionStatus(me(req).userId, "basic", "in_progress");
   await logAudit({ actorUserId: me(req).userId, action: "health_profile.basic_updated", targetType: "patient", targetId: me(req).userId, subjectUserId: me(req).userId, metadata: { fields: Object.keys(set) } });
   res.json({ ok: true });
@@ -84,7 +85,7 @@ const preferencesSchema = z.object({
 }).strict();
 
 router.get("/preferences", ...patientOnly, handle(async (req, res) => {
-  const [u] = await db.select().from(users).where(eq(users.id, me(req).userId));
+  const u = (await storage.getUserPrivate(me(req).userId))!;
   res.json({
     emergencyContactName: u.emergencyContactName, emergencyContactPhone: u.emergencyContactPhone, emergencyContactRelationship: u.emergencyContactRelationship,
     preferredClinic: u.carePreferences?.preferredClinic ?? "", appointmentFormat: u.carePreferences?.appointmentFormat ?? "any", caregiverNote: u.carePreferences?.caregiverNote ?? "",
@@ -95,14 +96,14 @@ router.put("/preferences", ...patientOnly, writeLimiter, handle(async (req, res)
   const parsed = preferencesSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Those details aren't valid" });
   const { preferredClinic, appointmentFormat, caregiverNote, ...contact } = parsed.data;
-  const [u] = await db.select().from(users).where(eq(users.id, me(req).userId));
+  const u = (await storage.getUserPrivate(me(req).userId))!;
   const care = { ...(u.carePreferences ?? {}) } as Record<string, string>;
   if (preferredClinic !== undefined) care.preferredClinic = preferredClinic;
   if (appointmentFormat !== undefined) care.appointmentFormat = appointmentFormat;
   if (caregiverNote !== undefined) care.caregiverNote = caregiverNote;
   const set: Record<string, unknown> = { carePreferences: care };
   for (const [k, v] of Object.entries(contact)) if (v !== undefined) set[k] = v === "" ? null : v;
-  await db.update(users).set(set).where(eq(users.id, me(req).userId));
+  await db.update(usersFull).set(set).where(eq(usersFull.id, me(req).userId));
   await profile.setSectionStatus(me(req).userId, "preferences", "in_progress");
   await logAudit({ actorUserId: me(req).userId, action: "health_profile.preferences_updated", targetType: "patient", targetId: me(req).userId, subjectUserId: me(req).userId });
   res.json({ ok: true });

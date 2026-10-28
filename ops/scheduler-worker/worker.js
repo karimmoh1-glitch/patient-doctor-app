@@ -7,7 +7,7 @@
 // failure is visible in Cloudflare and (optionally) in a webhook, never silent.
 //
 // Secrets (set with `wrangler secret put`, never committed):
-//   CRON_SECRET   the same value as Avela's CRON_SECRET environment variable
+//   CRON_SECRET   the value of the host's CRON_SECRET_CLOUDFLARE (not CRON_SECRET: only that secret is recorded as the dependable scheduler)
 // Variables (wrangler.toml [vars], not secret):
 //   AVELA_URL     e.g. https://avela-taupe.vercel.app
 // Optional secret:
@@ -23,6 +23,8 @@ export async function callAvela(env, { fetchImpl = fetch, sleep = (ms) => new Pr
   if (!env.AVELA_URL || !env.CRON_SECRET) {
     throw new Error("AVELA_URL and CRON_SECRET must both be configured");
   }
+  // The secret travels in a header: never to anything but https.
+  if (!/^https:\/\//i.test(String(env.AVELA_URL))) throw new Error("AVELA_URL must be an https address");
   const url = `${String(env.AVELA_URL).replace(/\/+$/, "")}/api/cron/reminders`;
   let lastStatus = 0;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {

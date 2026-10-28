@@ -148,7 +148,7 @@ const registerSchema = z.object({
   language: z.enum(["en", "ar"]).optional(),
 });
 
-router.post("/register", systemAccess, applyLimiter, async (req, res) => {
+router.post("/register", systemAccess("auth"), applyLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid registration" });
   const { name, email, password, language } = parsed.data;
@@ -306,6 +306,7 @@ router.get("/me/profile", requireAuth, requireApprovedDoctor, async (req, res) =
 router.patch("/me/profile", requireAuth, requireApprovedDoctor, async (req, res) => {
   const parsed = profileEditSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid profile" });
+  if (Object.keys(parsed.data).length === 0) return res.status(400).json({ message: "Nothing to change" });
   const p = (req as any).doctorProfile;
   const updated = await storage.updateDoctorProfileSelf(p.id, parsed.data as any);
   await logAudit({ actorUserId: (req as any).userId, action: "doctor.profile_updated", targetType: "doctor_profile", targetId: p.id });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import type { Express } from "express";
 import { eq } from "drizzle-orm";
-import { getApp, signupPatient, createAdmin, createDoctor, connect, auth, uniqueEmail, PASSWORD, completeSecondFactor, signIn, APPROVAL } from "./helpers";
+import { getApp, signupPatient, createAdmin, createDoctor, connect, auth, uniqueEmail, PASSWORD, completeSecondFactor, signIn, APPROVAL, operatorPool } from "./helpers";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { users } from "@shared/schema";
@@ -57,7 +57,7 @@ describe("registering as a doctor", () => {
     const session = await completeSecondFactor(res.body, email);
     expect(session.user.role).toBe("doctor");
     expect(session.user.doctorStatus).toBe("incomplete");
-    const [row] = await db.select().from(users).where(eq(users.email, email));
+    const [row] = (await operatorPool().query("SELECT id, role FROM users WHERE email = $1", [email])).rows;
     expect(row.role).toBe("doctor");
     expect(await storage.getDoctorProfileByUserId(row.id)).toBeUndefined();
   });

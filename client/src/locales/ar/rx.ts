@@ -151,6 +151,7 @@ const t: Partial<Record<Key, string>> = {
   "rx.form.savedDraft": "تم حفظ المسودة",
   "rx.form.savedDraftBody": "لا يستطيع المريض رؤيتها بعد. راجعها واعتمدها عندما تكون جاهزًا.",
   "notif.message.new": "رسالة جديدة من {name}",
+  "notif.pairing.ended": "أنهى أحد المرضى ارتباطه بك. الزيارات الملغاة: {cancelled}. الزيارات المُبقاة: {kept}.",
   "notif.appointment.soon": "زيارتك مع {doctorName} قريبة: {when}",
   "rem.delivery.failing": "واجهت آخر عملية إرسال تلقائي للتذكيرات مشكلة، لذا قد تتأخر تذكيراتك أو لا تصل. يُرجى مراجعة هذه القائمة بنفسك.",
   "rem.zone": "الأوقات بتوقيت منطقتك: {zone}",

@@ -371,3 +371,59 @@ describe("evidence that it is really being called", () => {
     await resetReminderJob();
   });
 });
+
+describe("who called: attested by secret, not by label", () => {
+  const CF_SECRET = "cloudflare-only-secret-0123456789abcdef";
+  const sourceOfLast = async () => (await storage.getJobRunHistory("reminders", new Date(0))).map((h) => h.source).sort();
+  const bearer = (secret: string) => ({ Authorization: `Bearer ${secret}` });
+
+  it("records a caller as cloudflare-worker only when it presents that caller's own secret, whatever it says in a header", async () => {
+    process.env.CRON_SECRET = SECRET;
+    process.env.CRON_SECRET_CLOUDFLARE = CF_SECRET;
+    try {
+      await resetReminderJob();
+      // The real thing, with no label at all, and with a wrong one.
+      expect((await request(app).get("/api/cron/reminders").set(bearer(CF_SECRET))).status).toBe(200);
+      expect((await request(app).get("/api/cron/reminders").set({ ...bearer(CF_SECRET), "X-Avela-Scheduler": "github-actions" })).status).toBe(200);
+      // A holder of only the general secret claiming to be the Worker.
+      expect((await request(app).get("/api/cron/reminders").set({ ...header, "X-Avela-Scheduler": "cloudflare-worker" })).status).toBe(200);
+      expect(await sourceOfLast()).toEqual(["claimed:cloudflare-worker", "cloudflare-worker", "cloudflare-worker"]);
+    } finally {
+      delete process.env.CRON_SECRET_CLOUDFLARE;
+      await resetReminderJob();
+    }
+  });
+
+  it("leaves no trace when the secret is wrong, however the caller labels itself", async () => {
+    process.env.CRON_SECRET = SECRET;
+    process.env.CRON_SECRET_CLOUDFLARE = CF_SECRET;
+    try {
+      await resetReminderJob();
+      const spoof = await request(app).get("/api/cron/reminders").set({ ...bearer("not-a-secret-of-any-kind"), "X-Avela-Scheduler": "cloudflare-worker" });
+      expect(spoof.status).toBe(401);
+      expect(await sourceOfLast()).toEqual([]);
+    } finally {
+      delete process.env.CRON_SECRET_CLOUDFLARE;
+    }
+  });
+
+  it("still works with only the general secret configured, and with only the Worker's", async () => {
+    delete process.env.CRON_SECRET_CLOUDFLARE;
+    process.env.CRON_SECRET = SECRET;
+    await resetReminderJob();
+    expect((await request(app).get("/api/cron/reminders").set(header)).status).toBe(200);
+    expect(await sourceOfLast()).toEqual(["unknown"]);
+    await resetReminderJob();
+    const saved = process.env.CRON_SECRET;
+    delete process.env.CRON_SECRET;
+    process.env.CRON_SECRET_CLOUDFLARE = CF_SECRET;
+    try {
+      expect((await request(app).get("/api/cron/reminders").set(bearer(CF_SECRET))).status).toBe(200);
+      expect((await request(app).get("/api/cron/reminders").set(header)).status).toBe(401);
+    } finally {
+      delete process.env.CRON_SECRET_CLOUDFLARE;
+      process.env.CRON_SECRET = saved;
+      await resetReminderJob();
+    }
+  });
+});

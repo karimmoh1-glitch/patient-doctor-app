@@ -1,6 +1,7 @@
 import request from "supertest";
 import type { Express } from "express";
 import crypto from "crypto";
+import pg from "pg";
 import { createApiApp } from "../server/app";
 
 let cached: Express | null = null;
@@ -110,19 +111,20 @@ export async function createDoctor(opts: { state?: string; specialty?: string; n
   return { id: user.id, email, token: await login(email), profileId: profile.id };
 }
 
+/**
+ * An administrator is created the way production creates one: by the operator, on the owner connection (npm run admin:create).
+ * The application's own database role is refused the administrator role by a trigger, so a test must not use it either.
+ */
+let operator: pg.Pool | null = null;
+/** The owner connection, for what only an operator does (and for fixtures the application role is not allowed to make). */
+export const operatorPool = (): pg.Pool => (operator ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 }));
 export async function createAdmin(): Promise<TestUser> {
   const email = uniqueEmail("admin");
-  const user = await storage.createUser({
-    name: "Test Admin",
-    email,
-    passwordHash: TEST_HASH,
-    role: "admin",
-    state: null,
-    phone: null,
-    deactivatedAt: null,
-    emailVerifiedAt: null,
-  });
-  return { id: user.id, email, token: await login(email) };
+  const { rows } = await operatorPool().query(
+    "INSERT INTO users (name, email, password_hash, role) VALUES ('Test Admin', $1, $2, 'admin') RETURNING id",
+    [email, TEST_HASH],
+  );
+  return { id: rows[0].id as string, email, token: await login(email) };
 }
 
 export async function createCaregiverAccount(): Promise<TestUser> {

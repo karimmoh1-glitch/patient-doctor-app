@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -55,6 +55,7 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # (PostgreSQL 18 here because production is 18.x: a migration or policy must behave the same on the version that runs it.)
   # The same tests again, but the application connects as the restricted database role (no ownership,
   # no DDL, row-level security enforced), exactly as it should in production. A policy that disagrees
   # with how the application really works fails here.
@@ -62,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -86,10 +87,20 @@ jobs:
       - run: npm ci
       - name: Unit and integration tests as the restricted role
         run: npm run test:rls
+      - name: Database access audit (every table behind row-level security, least privilege; zero findings)
+        run: npm run audit:db
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/patient_doctor_app_test
+      - name: Rehearse the newest migration on a scratch database (applies, idempotent, touches no row, rolls back exactly)
+        run: npm run migration:rehearse
+        env:
+          REHEARSAL_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
       - name: Install browser
         run: npx playwright install --with-deps chromium
       - name: End-to-end tests as the restricted role
         run: npm run test:e2e:rls
+      - name: End-to-end tests with the database REFUSING the unrestricted server scope (every flow runs on the narrow scopes alone)
+        run: npm run test:e2e:noserver
       - name: Keep failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
@@ -97,3 +108,35 @@ jobs:
           name: playwright-results-restricted-role
           path: test-results/
           retention-days: 7
+
+  # The release's intermediate states with the real servers: new code on the old schema (refuses), old code (704b7df) on the new schema
+  # (fails closed), the new code with the key registered and the unrestricted scope refused (serves), and the rollback chain. Synthetic data only.
+  release-rehearsal:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq lsof postgresql-client
+      - name: Rehearse the release and its rollback
+        run: bash ops/release-rehearsal.sh postgres://postgres:postgres@localhost:5432/postgres
+        env:
+          PGPASSWORD: postgres

@@ -3,6 +3,7 @@ import { makeLimiter, userKey } from "../middleware/rateLimit";
 import { z } from "zod";
 import { tellPatientAboutOrganizationStaff } from "../services/orgs";
 import { storage } from "../storage";
+import { withScope } from "../dbContext";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit, logAuditStrict } from "../services/auditService";
@@ -65,8 +66,10 @@ router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req
   await logAudit({ actorUserId: patientUserId, action: "pairing.requested", targetType: "pairing_request", targetId: request.id });
 
   if (doctor.userId) {
-    const doctorUser = await storage.getUser(doctor.userId);
-    const patientUser = await storage.getUser(patientUserId);
+    // Writing to the clinician is the server's doing (their address is private to them and the server), not a read by the patient.
+    const contacts = await withScope("contact", () => storage.getUserContacts([doctor.userId!, patientUserId]));
+    const doctorUser = contacts.get(doctor.userId);
+    const patientUser = contacts.get(patientUserId);
     if (doctorUser && patientUser) {
       sendPairingRequestedEmail(doctorUser.email, doctor.name, patientUser.name, normalizeLang(doctorUser.language)).catch(() => {});
     }
@@ -234,7 +237,7 @@ async function respondToPairing(req: any, res: any, status: "accepted" | "declin
   await logAudit({ actorUserId: userId, action: `pairing.${status}`, targetType: "pairing_request", targetId: pairing.id });
 
   if (status === "accepted") {
-    const patient = await storage.getUser(pairing.patientUserId);
+    const patient = (await withScope("contact", () => storage.getUserContacts([pairing.patientUserId]))).get(pairing.patientUserId);
     if (patient) {
       sendPairingAcceptedEmail(patient.email, patient.name, doctorProfile.name, normalizeLang(patient.language)).catch(() => {});
     }
@@ -260,25 +263,50 @@ router.patch("/:id/cancel", requireAuth, requireRole("patient"), async (req, res
   res.json({ id: updated?.id, status: updated?.status });
 });
 
-// The patient can always withdraw a doctor's access. Ending the connection
-// stops messaging and symptom-report access straight away; the history stays
-// in the patient's own records.
+// The patient can always withdraw a doctor's access. Ending the connection stops, at once and in the database as well as here, everything
+// that depended on it: the conversation, the symptom report, shared records, follow-up tasks. What the clinician authored or provided stays
+// theirs (prescriptions they wrote; visits they provide or provided: docs/CONNECTION_END.md), and the patient keeps their whole history.
+//
+// Visits that have not happened yet are never dealt with silently: if there are any, the patient is told which and must say whether to
+// cancel them or keep them (a kept visit stays workable by the clinician until it is over). Nothing else about the request decides it.
+const endSchema = z.object({ upcomingVisits: z.enum(["cancel", "keep"]).optional() }).strict();
+
 router.patch("/:id/end", requireAuth, requireRole("patient"), async (req, res) => {
   const userId = (req as any).userId as string;
+  const parsed = endSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ message: "Say whether to cancel or keep the upcoming visits." });
   const pairing = await storage.getPairingRequest(req.params.id);
   if (!pairing || pairing.patientUserId !== userId) {
     return res.status(404).json({ message: "Connection not found" });
   }
-  const updated = await storage.transitionPairingStatus(pairing.id, ["accepted"], "ended");
-  if (!updated) {
-    return res.status(409).json({ message: "This connection is not active" });
+  if (pairing.status !== "accepted") return res.status(409).json({ message: "This connection is not active" });
+
+  const decision = parsed.data.upcomingVisits;
+  const result = await storage.endPairing(pairing.id, userId, pairing.doctorProfileId, decision, new Date());
+  if (result.kind === "inactive") return res.status(409).json({ message: "This connection is not active" });
+  if (result.kind === "decide") {
+    return res.status(409).json({
+      code: "decide_upcoming_visits",
+      message: "You have visits booked with this clinician. Choose whether to cancel them or keep them before ending the connection.",
+      upcoming: result.upcoming.map((a) => ({ id: a.id, type: a.type, scheduledAt: a.scheduledAt, status: a.status })),
+    });
   }
-  // Stopping sharing means all of it: any extra categories the patient had
-  // granted this doctor end with the connection, not just messaging.
-  const grant = await storage.getActiveSharingGrantFor(userId, pairing.doctorProfileId);
-  if (grant) await storage.revokeSharingGrant(grant.id);
-  await logAudit({ actorUserId: userId, action: "pairing.ended", targetType: "pairing_request", targetId: pairing.id });
-  res.json({ id: updated.id, status: updated.status });
+  const updated = result.pairing;
+  const visits = result.visits;
+  const cancelled = result.cancelled.length;
+  for (const a of result.cancelled) {
+    await logAudit({ actorUserId: userId, action: "appointment.cancelled", targetType: "appointment", targetId: a.id, metadata: { because: "connection_ended" } });
+  }
+  await logAudit({
+    actorUserId: userId, action: "pairing.ended", targetType: "pairing_request", targetId: pairing.id,
+    metadata: { upcomingVisits: visits.length === 0 ? "none" : decision, cancelled, kept: visits.length - cancelled },
+  });
+  // The clinician is told, plainly and without the patient's name or any reason.
+  const doctor = await storage.getDoctorProfile(pairing.doctorProfileId);
+  if (doctor?.userId) {
+    await storage.createNotification({ userId: doctor.userId, kind: "pairing.ended", params: { cancelled, kept: visits.length - cancelled }, link: "/doctor/patients" }).catch(() => {});
+  }
+  res.json({ id: updated.id, status: updated.status, visitsCancelled: cancelled, visitsKept: visits.length - cancelled });
 });
 
 const relationshipLabelSchema = z.object({ relationshipLabel: z.string().trim().max(60).nullable() });

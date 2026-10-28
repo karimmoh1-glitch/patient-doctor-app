@@ -7,6 +7,7 @@ import { weakPasswordReason } from "../lib/password";
 import { logAudit } from "../services/auditService";
 import { normalizeLang } from "../services/serverText";
 import { signToken, issueSession, completeSession, clearSessionCookie, requireAuth } from "../middleware/auth";
+import { bindActor } from "../dbContext";
 import { beginEnrollment, checkSecondFactor, completeEnrollment, lockMessageMinutes, mfaState, readChallenge, regenerateRecoveryCodes, roleRequiresMfa } from "../services/mfaService";
 import { isWebClient, setSessionCookie } from "../middleware/session";
 import { insertUserSchema } from "@shared/schema";
@@ -16,7 +17,7 @@ import { sendPasswordResetEmail, sendEmailVerificationEmail } from "../services/
 import { z } from "zod";
 import { fixtureAccountsAllowed } from "../config";
 import { systemAccess } from "../middleware/systemAccess";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 
 const router = Router();
 
@@ -72,25 +73,25 @@ async function sessionUser(user: { emailVerifiedAt?: Date | null; id: string; na
 const verifyRequestLimiter = makeLimiter({ windowMs: 60 * 60 * 1000, limit: 5, keyGenerator: userKey, message: "You've asked for several links. Please wait a while." });
 
 router.post("/email/verify/request", requireAuth, verifyRequestLimiter, async (req, res) => {
-  const user = await storage.getUser((req as any).userId);
+  const user = await storage.getUserPrivate((req as any).userId);
   if (!user) return res.status(404).json({ message: "Account not found" });
   if (user.emailVerifiedAt) return res.json({ verified: true, sent: false });
   const { token, tokenHash } = generateSecureToken();
   // The token table is system-only: the person never reads or writes it themselves.
-  await runAsSystem(() => storage.createEmailVerificationToken(user.id, tokenHash, new Date(Date.now() + 60 * 60 * 1000)));
+  await withScope("verify", () => storage.createEmailVerificationToken(user.id, tokenHash, new Date(Date.now() + 60 * 60 * 1000)));
   const appUrl = (process.env.APP_URL || "http://localhost:3001").replace(/\/$/, "");
   // The token travels in the fragment, so opening the link sends it to no server.
   const sent = await sendEmailVerificationEmail(user.email, user.name, `${appUrl}/verify-email#${token}`, normalizeLang(user.language)).catch(() => false);
   res.json({ verified: false, sent });
 });
 
-router.post("/email/verify", systemAccess, authLimiter, async (req, res) => {
+router.post("/email/verify", systemAccess("auth"), authLimiter, async (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token : "";
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return res.status(404).json({ message: "That link isn't valid or has expired." });
   const tokenHash = hashToken(token);
   const row = await storage.getEmailVerificationTokenByHash(tokenHash);
   if (!row || row.used || row.expiresAt.getTime() < Date.now()) return res.status(404).json({ message: "That link isn't valid or has expired." });
-  await storage.markEmailVerificationTokenUsed(row.id);
+  if (!(await storage.claimEmailVerificationToken(row.id))) return res.status(404).json({ message: "That link isn't valid or has expired." });
   await storage.confirmUserEmail(row.userId);
   await logAudit({ actorUserId: row.userId, action: "account.email_confirmed", targetType: "user", targetId: row.userId, subjectUserId: row.userId });
   res.json({ verified: true });
@@ -105,7 +106,7 @@ const signupBodySchema = z.object({
   language: z.enum(["en", "ar"]).optional(),
 });
 
-router.post("/signup", systemAccess, authLimiter, async (req, res) => {
+router.post("/signup", systemAccess("auth"), authLimiter, async (req, res) => {
   const parsed = signupBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid signup details" });
@@ -151,7 +152,7 @@ const loginBodySchema = z.object({
   password: z.string().min(1),
 });
 
-router.post("/login", systemAccess, loginIpLimiter, loginAccountLimiter, async (req, res) => {
+router.post("/login", systemAccess("auth"), loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const parsed = loginBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "Email and password are required" });
@@ -192,22 +193,24 @@ async function mfaFailureResponse(res: any, result: { reason: "invalid" | "locke
   return res.status(401).json({ message: "That code isn't right. Check your authenticator app and try again." });
 }
 
-router.post("/mfa/setup", systemAccess, mfaIpLimiter, async (req, res) => {
+router.post("/mfa/setup", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
+  if (userId) bindActor(userId); // a verified challenge names the person this step acts for
   if (!userId) return res.status(401).json({ message: EXPIRED });
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
   const started = await beginEnrollment(user);
   if (!started) return res.status(409).json({ message: "Sign-in codes are already set up for this account." });
   res.json({ secret: started.secret, otpauthUri: started.otpauthUri, account: user.email });
 });
 
-router.post("/mfa/enable", systemAccess, mfaIpLimiter, async (req, res) => {
+router.post("/mfa/enable", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "setup") : null;
+  if (userId) bindActor(userId); // a verified challenge names the person this step acts for
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt) return res.status(401).json({ message: EXPIRED });
   const done = await completeEnrollment(userId, parsed.data.code);
   if (!done.ok) {
@@ -218,11 +221,12 @@ router.post("/mfa/enable", systemAccess, mfaIpLimiter, async (req, res) => {
   await completeSession(req, res, user, { user: await sessionUser(user), recoveryCodes: done.recoveryCodes }, 200, true);
 });
 
-router.post("/mfa/verify", systemAccess, mfaIpLimiter, async (req, res) => {
+router.post("/mfa/verify", systemAccess("auth"), mfaIpLimiter, async (req, res) => {
   const parsed = challengeBody.safeParse(req.body);
   const userId = parsed.success ? readChallenge(parsed.data.challenge, "verify") : null;
+  if (userId) bindActor(userId); // a verified challenge names the person this step acts for
   if (!userId || !parsed.success || !parsed.data.code) return res.status(401).json({ message: EXPIRED });
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user || user.deactivatedAt || (user.isDemo && !fixtureAccountsAllowed())) return res.status(401).json({ message: EXPIRED });
   const check = await checkSecondFactor(userId, parsed.data.code);
   if (!check.ok) {
@@ -235,7 +239,7 @@ router.post("/mfa/verify", systemAccess, mfaIpLimiter, async (req, res) => {
 
 router.get("/mfa/status", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   const state = await mfaState(userId);
   res.json({ required: !!user && roleRequiresMfa(user.role), enabled: state === "enabled", recoveryCodesLeft: state === "enabled" ? await storage.countRecoveryCodes(userId) : 0 });
 });
@@ -253,7 +257,7 @@ router.post("/mfa/recovery-codes", requireAuth, mfaIpLimiter, async (req, res) =
 
 const forgotPasswordSchema = z.object({ email: z.string().trim().toLowerCase().email() });
 
-router.post("/forgot-password", systemAccess, authLimiter, async (req, res) => {
+router.post("/forgot-password", systemAccess("auth"), authLimiter, async (req, res) => {
   const parsed = forgotPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: "A valid email is required" });
@@ -283,7 +287,7 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8).max(200),
 });
 
-router.post("/reset-password", systemAccess, authLimiter, async (req, res) => {
+router.post("/reset-password", systemAccess("auth"), authLimiter, async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ message: parsed.error.issues[0]?.message || "Invalid request" });
@@ -304,6 +308,10 @@ router.post("/reset-password", systemAccess, authLimiter, async (req, res) => {
   const weak = weakPasswordReason(password, { email: user.email, name: user.name });
   if (weak) return res.status(400).json({ message: weak });
   const passwordHash = await bcrypt.hash(password, 10);
+  // Spend the link before using it, in one step: two simultaneous requests with the same link cannot both pass.
+  if (!(await storage.claimPasswordResetToken(resetToken.id))) {
+    return res.status(400).json({ message: "This reset link is invalid or has expired" });
+  }
   await storage.updateUserPassword(user.id, passwordHash);
   // One link, one use: this and every other link sent for this address stop working.
   await storage.invalidatePasswordResetTokens(resetToken.email);
@@ -344,7 +352,7 @@ router.post("/session", requireAuth, async (req, res) => {
   if (!req.headers.authorization) return res.status(400).json({ message: "Not available" }); // already on a cookie
   const userId = (req as any).userId as string;
   const deviceId = (req as any).deviceId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(401).json({ message: "Your session has ended. Please sign in again." });
   setSessionCookie(req, res, signToken(user.id, user.role, deviceId, (req as any).sessionMfa === true));
   res.json({ user: await sessionUser(user) });
@@ -352,7 +360,7 @@ router.post("/session", requireAuth, async (req, res) => {
 
 router.get("/me", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
   res.json(await sessionUser(user));
 });
@@ -365,7 +373,7 @@ router.patch("/me/preferences", requireAuth, async (req, res) => {
   const userId = (req as any).userId as string;
   if (parsed.data.readReceipts !== undefined) await storage.setReadReceipts(userId, parsed.data.readReceipts);
   if (parsed.data.language !== undefined) await storage.updateUserLanguage(userId, parsed.data.language);
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserPrivate(userId);
   if (!user) return res.status(404).json({ message: "User not found" });
   res.json(await sessionUser(user));
 });

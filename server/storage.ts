@@ -1,18 +1,18 @@
-import { eq, and, desc, isNull, inArray, sql as sqlOp } from "drizzle-orm";
+import { eq, and, desc, isNull, inArray, getTableColumns, sql as sqlOp, type SQL } from "drizzle-orm";
 
 /** How the reviewer checked the licence: recorded with the approval, never implied by it. */
 export interface ApprovalCredential { source: "document_review" | "registry_lookup" | "issuer_confirmation"; evidenceNote: string; expiresAt: Date }
 
 export type PairingStatus = "requested" | "accepted" | "declined" | "cancelled" | "ended";
 import { db } from "./db";
-import { runAsSystem } from "./dbContext";
+import { withScope, enforcementEnabled } from "./dbContext";
 import { fixtureAccountsAllowed } from "./config";
 import {
-  users, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
-  doctorApplications, doctorProfiles, symptomReports, pairingRequests, messages,
+  users, usersFull, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
+  doctorApplications, doctorProfiles, doctorDirectory, type ListedDoctor, symptomReports, pairingRequests, messages,
   appointments, prescriptions, prescriptionEvents, notifications, medicationReminders, reminderDeliveries, jobRuns, jobRunHistory, dataRequests, userMfa, mfaRecoveryCodes, messageReports, userBlocks, doctorCredentials, credentialEvents, medications, medicationLogs, pharmacies, pharmacyOrders,
   documents, followUpTasks, sharingGrants, aiMessages, careCircleMembers,
-  type User, type InsertUser,
+  type User, type InsertUser, type UserPrivate, type UserWithCredentials, USERS_PUBLIC_COLUMNS,
   type UserDevice, type InsertUserDevice,
   type PasswordResetToken,
   type EmailVerificationToken,
@@ -37,10 +37,23 @@ import {
   type CareCircleMember, type InsertCareCircleMember,
 } from "@shared/schema";
 
+export type EndPairingResult =
+  | { kind: "inactive" }
+  | { kind: "decide"; upcoming: Appointment[] }
+  | { kind: "ended"; pairing: PairingRequest; visits: Appointment[]; cancelled: Appointment[] };
+
 export interface IStorage {
+  /** Who a person is: the columns anybody allowed to see the account may read. For anything private use getUserPrivate / getUserWithCredentials. */
   getUser(id: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(data: InsertUser): Promise<User>;
+  /** The person's own account, without the password hash (themself, the server, or a clinician they authorised: the database decides; a clinician gets no e-mail or phone). */
+  getUserPrivate(id: string): Promise<UserPrivate | undefined>;
+  /** The whole row including the password hash, found by e-mail address: the server's sign-in and recovery steps only (the database refuses anyone else). */
+  findAccountIdByEmail(email: string): Promise<string | undefined>;
+  getUserByEmail(email: string): Promise<UserWithCredentials | undefined>;
+  getUserWithCredentials(id: string): Promise<UserWithCredentials | undefined>;
+  /** Name, language and e-mail address of people the server must write to. Server only. */
+  getUserContacts(ids: string[]): Promise<Map<string, { name: string; email: string; language: string; emailVerifiedAt: Date | null }>>;
+  createUser(data: InsertUser): Promise<UserPrivate>;
   setUserDeactivated(id: string, deactivated: boolean): Promise<User | undefined>;
   setUserTimezone(id: string, timezone: string): Promise<void>;
   updateUserPassword(id: string, passwordHash: string): Promise<void>;
@@ -54,6 +67,8 @@ export interface IStorage {
   createPasswordResetToken(email: string, tokenHash: string, expiresAt: Date): Promise<PasswordResetToken>;
   getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined>;
   markPasswordResetTokenUsed(id: string): Promise<void>;
+  claimPasswordResetToken(id: string): Promise<boolean>;
+  claimEmailVerificationToken(id: string): Promise<boolean>;
 
   createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<EmailVerificationToken>;
   getEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationToken | undefined>;
@@ -76,7 +91,7 @@ export interface IStorage {
   countDoctorApplicationsByStatus(): Promise<Record<string, number>>;
 
   /** Creates the doctor's account and an "incomplete" application together, or neither. */
-  registerDoctor(user: InsertUser, language: string): Promise<{ user: User; application: DoctorApplication }>;
+  registerDoctor(user: InsertUser, language: string): Promise<{ user: { id: string; name: string; email: string; language: string }; application: DoctorApplication }>;
   /** Saves profile fields while the application is still editable (incomplete / needs_info). */
   saveDoctorApplicationDraft(id: string, fields: Partial<InsertDoctorApplication>): Promise<DoctorApplication | undefined>;
   /** incomplete|needs_info -> pending, atomically. Undefined if it was not in a submittable state. */
@@ -102,8 +117,8 @@ export interface IStorage {
   createDoctorProfile(data: InsertDoctorProfile): Promise<DoctorProfile>;
   getDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
   getDoctorProfileByUserId(userId: string): Promise<DoctorProfile | undefined>;
-  getActiveDoctorProfiles(): Promise<DoctorProfile[]>;
-  getListableDoctorProfile(id: string): Promise<DoctorProfile | undefined>;
+  getActiveDoctorProfiles(): Promise<ListedDoctor[]>;
+  getListableDoctorProfile(id: string): Promise<ListedDoctor | undefined>;
 
   createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport>;
   getSymptomReport(id: string): Promise<SymptomReport | undefined>;
@@ -117,6 +132,9 @@ export interface IStorage {
   updatePairingRequestStatus(id: string, status: "accepted" | "declined" | "cancelled"): Promise<PairingRequest | undefined>;
   /** Moves a connection to `to` only if it is currently in one of `from`. Returns undefined if the guard failed. */
   transitionPairingStatus(id: string, from: PairingStatus[], to: PairingStatus): Promise<PairingRequest | undefined>;
+  endPairing(pairingId: string, patientUserId: string, doctorProfileId: string, decision: "cancel" | "keep" | undefined, now: Date): Promise<EndPairingResult>;
+  /** Visits under this connection that have not happened yet and have not been cancelled. */
+  getUpcomingAppointmentsByPairing(pairingId: string, now: Date): Promise<Appointment[]>;
 
   createMessage(data: InsertMessage): Promise<Message>;
   getMessagesByPairing(pairingRequestId: string): Promise<Message[]>;
@@ -204,7 +222,7 @@ export interface IStorage {
   recordMfaFailure(userId: string, now: Date, maxAttempts: number, lockMinutes: number): Promise<{ failedAttempts: number; lockedUntil: Date | null }>;
   clearMfaFailures(userId: string): Promise<void>;
   replaceRecoveryCodes(userId: string, hashes: string[]): Promise<void>;
-  consumeRecoveryCode(userId: string, hash: string): Promise<boolean>;
+  consumeRecoveryCode(userId: string, hash: string | string[]): Promise<boolean>;
   countRecoveryCodes(userId: string): Promise<number>;
   resetMfa(userId: string): Promise<void>;
   createDataRequest(userId: string, kind: "export" | "deletion"): Promise<{ id: string }>;
@@ -259,7 +277,7 @@ export interface IStorage {
   createAiMessage(data: InsertAiMessage): Promise<AiMessage>;
   getAiMessagesByUser(userId: string, limit?: number): Promise<AiMessage[]>;
 
-  updateEmergencyProfile(userId: string, data: { emergencyContactName: string | null; emergencyContactPhone: string | null; allergiesText: string | null; emergencyNotes: string | null }): Promise<User | undefined>;
+  updateEmergencyProfile(userId: string, data: { emergencyContactName: string | null; emergencyContactPhone: string | null; allergiesText: string | null; emergencyNotes: string | null }): Promise<UserPrivate | undefined>;
 
   createCareCircleInvite(data: InsertCareCircleMember & { tokenHash: string }): Promise<CareCircleMember>;
   getCareCircleMember(id: string): Promise<CareCircleMember | undefined>;
@@ -271,20 +289,77 @@ export interface IStorage {
   revokeCareCircleMember(id: string): Promise<CareCircleMember | undefined>;
 }
 
+
+/** Maps a row returned by one of the app_user_* functions (snake_case, text dates) onto the account shape the application uses. */
+function rowToUser(row: Record<string, unknown>): UserWithCredentials {
+  const out: Record<string, unknown> = {};
+  for (const [key, col] of Object.entries(getTableColumns(usersFull))) {
+    if (!(col.name in row)) {
+      // A column the function does not return (the password hash from app_user_private, the e-mail from a clinician's view).
+      out[key] = key === "passwordHash" ? undefined : null;
+      continue;
+    }
+    const v = row[col.name];
+    const type = (col as { columnType?: string }).columnType;
+    out[key] = v === null || v === undefined ? null : type === "PgTimestamp" ? new Date(v as string) : v;
+  }
+  return out as UserWithCredentials;
+}
+
 export class DbStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(sqlOp`lower(${users.email}) = ${email.trim().toLowerCase()}`);
-    return user;
+  // The account's private columns are released by the database's own functions when this server runs as the restricted role. Run as the
+  // table owner (local development, tests without enforcement, operator scripts, a deployment under the named owner-role exception) there is
+  // nothing to hold back from an owner, so the same rows are read directly.
+  async getUserPrivate(id: string): Promise<UserPrivate | undefined> {
+    const row = enforcementEnabled() ? await this.userFn(sqlOp`SELECT * FROM app_user_private(${id})`) : await this.userDirect(eq(usersFull.id, id));
+    if (row) delete (row as { passwordHash?: unknown }).passwordHash;
+    return row as UserPrivate | undefined;
   }
 
-  async createUser(data: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(data).returning();
-    return user;
+  async getUserByEmail(email: string): Promise<UserWithCredentials | undefined> {
+    return enforcementEnabled() ? this.userFn(sqlOp`SELECT * FROM app_user_credentials(${email})`) : this.userDirect(sqlOp`lower(${usersFull.email}) = ${email.trim().toLowerCase()}`);
+  }
+
+  /** Whether an account with this address exists, and its id: no hash, no other column (organization invitations need nothing more). */
+  async findAccountIdByEmail(email: string): Promise<string | undefined> {
+    if (enforcementEnabled()) return ((await db.execute(sqlOp`SELECT app_account_id_by_email(${email}) AS id`)).rows[0] as { id: string | null } | undefined)?.id ?? undefined;
+    const [row] = await db.select({ id: usersFull.id }).from(usersFull).where(sqlOp`lower(${usersFull.email}) = ${email.trim().toLowerCase()}`);
+    return row?.id;
+  }
+
+  async getUserWithCredentials(id: string): Promise<UserWithCredentials | undefined> {
+    return enforcementEnabled() ? this.userFn(sqlOp`SELECT * FROM app_user_credentials_by_id(${id})`) : this.userDirect(eq(usersFull.id, id));
+  }
+
+  private async userFn(query: ReturnType<typeof sqlOp>): Promise<UserWithCredentials | undefined> {
+    const rows = (await db.execute(query)).rows as Record<string, unknown>[];
+    return rows[0] ? rowToUser(rows[0]) : undefined;
+  }
+
+  private async userDirect(where: SQL): Promise<UserWithCredentials | undefined> {
+    const [row] = await db.select().from(usersFull).where(where);
+    return row;
+  }
+
+  async getUserContacts(ids: string[]) {
+    const out = new Map<string, { name: string; email: string; language: string; emailVerifiedAt: Date | null }>();
+    if (ids.length === 0) return out;
+    const rows = enforcementEnabled()
+      ? ((await db.execute(sqlOp`SELECT * FROM app_user_contacts(ARRAY[${sqlOp.join(ids.map((i) => sqlOp`${i}`), sqlOp`, `)}]::text[])`)).rows as Record<string, any>[])
+      : ((await db.select({ id: usersFull.id, name: usersFull.name, email: usersFull.email, language: usersFull.language, email_verified_at: usersFull.emailVerifiedAt }).from(usersFull).where(inArray(usersFull.id, ids))) as Record<string, any>[]);
+    for (const r of rows) out.set(r.id, { name: r.name, email: r.email, language: r.language, emailVerifiedAt: r.email_verified_at ? new Date(r.email_verified_at) : null });
+    return out;
+  }
+
+  async createUser(data: InsertUser): Promise<UserPrivate> {
+    const [created] = await db.insert(usersFull).values(data).returning({ id: usersFull.id });
+    // Read it back the way the person's own account is read: the insert itself may not return the private columns.
+    return (await this.getUserPrivate(created.id))!;
   }
 
   async setUserTimezone(id: string, timezone: string): Promise<void> {
@@ -301,7 +376,7 @@ export class DbStorage implements IStorage {
   }
 
   async updateUserPassword(id: string, passwordHash: string): Promise<void> {
-    await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+    await db.update(usersFull).set({ passwordHash }).where(eq(usersFull.id, id));
   }
 
   async createUserDevice(data: InsertUserDevice): Promise<UserDevice> {
@@ -346,6 +421,12 @@ export class DbStorage implements IStorage {
     await db.update(passwordResetTokens).set({ used: true }).where(eq(passwordResetTokens.id, id));
   }
 
+  /** Spends a reset link, atomically: of any number of simultaneous requests carrying the same link, exactly one gets true. */
+  async claimPasswordResetToken(id: string): Promise<boolean> {
+    const rows = await db.update(passwordResetTokens).set({ used: true }).where(and(eq(passwordResetTokens.id, id), eq(passwordResetTokens.used, false))).returning({ id: passwordResetTokens.id });
+    return rows.length === 1;
+  }
+
   async createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<EmailVerificationToken> {
     const [token] = await db.insert(emailVerificationTokens).values({ userId, tokenHash, expiresAt, used: false }).returning();
     return token;
@@ -358,6 +439,11 @@ export class DbStorage implements IStorage {
 
   async confirmUserEmail(userId: string): Promise<void> {
     await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
+  }
+
+  async claimEmailVerificationToken(id: string): Promise<boolean> {
+    const rows = await db.update(emailVerificationTokens).set({ used: true }).where(and(eq(emailVerificationTokens.id, id), eq(emailVerificationTokens.used, false))).returning({ id: emailVerificationTokens.id });
+    return rows.length === 1;
   }
 
   async markEmailVerificationTokenUsed(id: string): Promise<void> {
@@ -430,12 +516,13 @@ export class DbStorage implements IStorage {
   async registerDoctor(user: InsertUser, language: string) {
     return db.transaction(async (tx) => {
       // Role is fixed here, never taken from request input.
-      const [created] = await tx.insert(users).values({ ...user, role: "doctor", language }).returning();
+      const [created] = await tx.insert(usersFull).values({ ...user, role: "doctor", language }).returning({ id: usersFull.id, name: usersFull.name, language: usersFull.language });
+      // The e-mail address is not readable back (it is private); the caller supplied it.
       const [application] = await tx
         .insert(doctorApplications)
-        .values({ userId: created.id, name: created.name, email: created.email, status: "incomplete" })
+        .values({ userId: created.id, name: created.name, email: user.email, status: "incomplete" })
         .returning();
-      return { user: created, application };
+      return { user: { ...created, email: user.email }, application };
     });
   }
 
@@ -477,7 +564,7 @@ export class DbStorage implements IStorage {
 
   async approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential) {
     // The administrator acts on someone else's account, and the credential tables are written only with system access.
-    return runAsSystem(() => this.approveDoctorApplicationUnscoped(applicationId, reviewerUserId, timezone, credential));
+    return withScope("review", () => this.approveDoctorApplicationUnscoped(applicationId, reviewerUserId, timezone, credential));
   }
 
   private async approveDoctorApplicationUnscoped(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential) {
@@ -520,7 +607,7 @@ export class DbStorage implements IStorage {
           verifiedByUserId: reviewerUserId,
         })
         .returning();
-      await tx.update(users).set({ state, phone: application.phone }).where(eq(users.id, application.userId));
+      await tx.update(usersFull).set({ state, phone: application.phone }).where(eq(usersFull.id, application.userId));
 
       // The licence is verified by this approval, with the evidence the reviewer gave; the NPI (if any) stays pending.
       const now = new Date();
@@ -541,7 +628,7 @@ export class DbStorage implements IStorage {
 
   // An administrator acting on someone else's account: it ends that doctor's sessions, which are theirs.
   async suspendDoctor(applicationId: string, reviewerUserId: string, reason?: string) {
-    return runAsSystem(() => this.suspendDoctorUnscoped(applicationId, reviewerUserId, reason));
+    return withScope("review", () => this.suspendDoctorUnscoped(applicationId, reviewerUserId, reason));
   }
 
   private async suspendDoctorUnscoped(applicationId: string, reviewerUserId: string, reason?: string) {
@@ -595,22 +682,19 @@ export class DbStorage implements IStorage {
    * Providers a patient may see and ask: active, able to answer (they have a login), and never a fixture:
    * a production server hides any provider whose account is marked as a fixture, whatever else is in the database.
    */
-  async getActiveDoctorProfiles(): Promise<DoctorProfile[]> {
-    return db.select().from(doctorProfiles).where(this.listable());
+  async getActiveDoctorProfiles(): Promise<ListedDoctor[]> {
+    return db.select().from(doctorDirectory).where(this.notFixture());
   }
 
-  async getListableDoctorProfile(id: string): Promise<DoctorProfile | undefined> {
-    const [row] = await db.select().from(doctorProfiles).where(and(eq(doctorProfiles.id, id), this.listable()));
+  async getListableDoctorProfile(id: string): Promise<ListedDoctor | undefined> {
+    const [row] = await db.select().from(doctorDirectory).where(and(eq(doctorDirectory.id, id), this.notFixture()));
     return row;
   }
 
-  private listable() {
-    // Active, able to answer, and not past the expiry of the licence a reviewer verified. A profile made through the application
-    // flow with no recorded check is not listed; only profiles that never went through it (fixtures) have nothing to enforce.
-    const base = and(eq(doctorProfiles.active, true), sqlOp`${doctorProfiles.userId} IS NOT NULL`, sqlOp`(${doctorProfiles.credentialExpiresAt} > now() OR (${doctorProfiles.credentialExpiresAt} IS NULL AND ${doctorProfiles.source} <> 'application'))`);
-    return fixtureAccountsAllowed()
-      ? base
-      : and(base, sqlOp`NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ${doctorProfiles.userId} AND u.is_demo)`);
+  // "Listed" itself (active, able to answer, licence not lapsed) is the directory view's definition, in the database, so no
+  // caller can widen it. A production server additionally hides any provider whose account is marked as a fixture.
+  private notFixture() {
+    return fixtureAccountsAllowed() ? undefined : eq(doctorDirectory.isFixture, false);
   }
 
   async createSymptomReport(data: InsertSymptomReport): Promise<SymptomReport> {
@@ -664,6 +748,45 @@ export class DbStorage implements IStorage {
       .where(eq(pairingRequests.id, id))
       .returning();
     return request;
+  }
+
+  async getUpcomingAppointmentsByPairing(pairingId: string, now: Date): Promise<Appointment[]> {
+    return db
+      .select()
+      .from(appointments)
+      .where(and(eq(appointments.pairingRequestId, pairingId), inArray(appointments.status, ["requested", "confirmed"]), sqlOp`${appointments.scheduledAt} > ${now}`))
+      .orderBy(appointments.scheduledAt);
+  }
+
+  /**
+   * Ends a live connection and applies the patient's decision about booked visits, as one step. The connection's row is locked first, so a
+   * booking in flight finishes (and is seen here) before the question is asked, and a booking that starts later is refused: the patient is never
+   * ended past a visit they were not asked about. Without a decision and with visits booked, nothing changes and the visits are returned.
+   */
+  async endPairing(pairingId: string, patientUserId: string, doctorProfileId: string, decision: "cancel" | "keep" | undefined, now: Date): Promise<EndPairingResult> {
+    return db.transaction(async (tx) => {
+      const locked = await tx.execute(sqlOp`SELECT status FROM pairing_requests WHERE id = ${pairingId} FOR UPDATE`);
+      if ((locked.rows[0] as { status?: string } | undefined)?.status !== "accepted") return { kind: "inactive" } as const;
+      const upcoming = await tx
+        .select()
+        .from(appointments)
+        .where(and(eq(appointments.pairingRequestId, pairingId), inArray(appointments.status, ["requested", "confirmed"]), sqlOp`${appointments.scheduledAt} > ${now}`))
+        .orderBy(appointments.scheduledAt);
+      if (upcoming.length > 0 && !decision) return { kind: "decide", upcoming } as const;
+
+      const [ended] = await tx.update(pairingRequests).set({ status: "ended", respondedAt: now }).where(and(eq(pairingRequests.id, pairingId), eq(pairingRequests.status, "accepted"))).returning();
+      if (!ended) return { kind: "inactive" } as const;
+      // Stopping sharing means all of it: any extra categories the patient had granted this doctor end with the connection.
+      await tx.update(sharingGrants).set({ revokedAt: now }).where(and(eq(sharingGrants.patientUserId, patientUserId), eq(sharingGrants.sharedWithDoctorProfileId, doctorProfileId), isNull(sharingGrants.revokedAt)));
+      const cancelled: Appointment[] = [];
+      if (decision === "cancel") {
+        for (const a of upcoming) {
+          const [c] = await tx.update(appointments).set({ status: "cancelled" }).where(and(eq(appointments.id, a.id), inArray(appointments.status, ["requested", "confirmed"]))).returning();
+          if (c) cancelled.push(c);
+        }
+      }
+      return { kind: "ended", pairing: ended, visits: upcoming, cancelled } as const;
+    });
   }
 
   async transitionPairingStatus(id: string, from: PairingStatus[], to: PairingStatus): Promise<PairingRequest | undefined> {
@@ -767,7 +890,7 @@ export class DbStorage implements IStorage {
 
   // Reviewing reports is an administrator's job and sees only what the reporter chose to attach.
   async listMessageReports(status: "open" | "resolved") {
-    return runAsSystem(async () => {
+    return withScope("review", async () => {
       const rows = await db
         .select({ report: messageReports, reporterName: users.name })
         .from(messageReports)
@@ -780,7 +903,7 @@ export class DbStorage implements IStorage {
   }
 
   async resolveMessageReport(id: string, adminUserId: string, note: string | null) {
-    return runAsSystem(async () => {
+    return withScope("review", async () => {
       const [row] = await db
         .update(messageReports)
         .set({ status: "resolved", resolvedByUserId: adminUserId, resolvedAt: new Date(), resolutionNote: note })
@@ -796,7 +919,7 @@ export class DbStorage implements IStorage {
 
   // Whether either person has blocked the other. Asked about someone else's block list, so it is a server check.
   async isBlockedEitherWay(a: string, b: string) {
-    return runAsSystem(async () => {
+    return withScope("blocks", async () => {
       const rows = await db
         .select({ x: userBlocks.blockerUserId })
         .from(userBlocks)
@@ -1020,7 +1143,7 @@ export class DbStorage implements IStorage {
       .select({
         reminder: medicationReminders,
         medicationName: medications.name,
-        email: users.email,
+        patientUserId: medicationReminders.patientUserId,
         emailVerifiedAt: users.emailVerifiedAt,
         language: users.language,
       })
@@ -1036,7 +1159,9 @@ export class DbStorage implements IStorage {
           isNull(users.deactivatedAt),
         ),
       );
-    return rows.map(({ emailVerifiedAt, ...r }) => ({ ...r, emailVerified: !!emailVerifiedAt }));
+    // The e-mail address is private: the server (this runs as the scheduler) fetches it for exactly the people it is about to write to.
+    const contacts = await this.getUserContacts(Array.from(new Set(rows.map((r) => r.patientUserId))));
+    return rows.map(({ emailVerifiedAt, patientUserId, ...r }) => ({ ...r, email: contacts.get(patientUserId)?.email ?? "", emailVerified: !!emailVerifiedAt }));
   }
 
   async deliverInApp(reminderId: string, dueAt: Date, notification: InsertNotification) {
@@ -1174,7 +1299,7 @@ export class DbStorage implements IStorage {
 
   // --- Multi-factor sign-in (always system access) ---
   async getMfa(userId: string) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const [row] = await db.select().from(userMfa).where(eq(userMfa.userId, userId));
       return row
         ? { secretCiphertext: row.secretCiphertext, pending: row.pending, enabledAt: row.enabledAt, lastUsedStep: row.lastUsedStep, failedAttempts: row.failedAttempts, lockedUntil: row.lockedUntil }
@@ -1183,7 +1308,7 @@ export class DbStorage implements IStorage {
   }
 
   async beginMfaEnrollment(userId: string, secretCiphertext: string) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       // Only an enrolment that is not finished may be (re)started; a working second factor is never replaced this way.
       const res = await db.execute(sqlOp`
         INSERT INTO user_mfa (user_id, secret_ciphertext) VALUES (${userId}, ${secretCiphertext})
@@ -1195,7 +1320,7 @@ export class DbStorage implements IStorage {
   }
 
   async enableMfa(userId: string, step: number) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const rows = await db.update(userMfa)
         .set({ pending: false, enabledAt: new Date(), lastUsedStep: step, failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
         .where(and(eq(userMfa.userId, userId), eq(userMfa.pending, true)))
@@ -1205,7 +1330,7 @@ export class DbStorage implements IStorage {
   }
 
   async recordMfaSuccess(userId: string, step: number, allowReuse: boolean) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const res = await db.execute(allowReuse
         ? sqlOp`UPDATE user_mfa SET last_used_step = GREATEST(last_used_step, ${step}), failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE user_id = ${userId} RETURNING user_id`
         : sqlOp`UPDATE user_mfa SET last_used_step = ${step}, failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE user_id = ${userId} AND last_used_step < ${step} RETURNING user_id`);
@@ -1214,7 +1339,7 @@ export class DbStorage implements IStorage {
   }
 
   async recordMfaFailure(userId: string, now: Date, maxAttempts: number, lockMinutes: number) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const res = await db.execute(sqlOp`
         UPDATE user_mfa SET
           failed_attempts = failed_attempts + 1,
@@ -1228,11 +1353,11 @@ export class DbStorage implements IStorage {
   }
 
   async clearMfaFailures(userId: string) {
-    await runAsSystem(() => db.update(userMfa).set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() }).where(eq(userMfa.userId, userId)));
+    await withScope("mfa", () => db.update(userMfa).set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() }).where(eq(userMfa.userId, userId)));
   }
 
   async replaceRecoveryCodes(userId: string, hashes: string[]) {
-    await runAsSystem(() =>
+    await withScope("mfa", () =>
       db.transaction(async (tx) => {
         await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
         if (hashes.length) await tx.insert(mfaRecoveryCodes).values(hashes.map((codeHash) => ({ userId, codeHash })));
@@ -1240,31 +1365,27 @@ export class DbStorage implements IStorage {
     );
   }
 
-  async consumeRecoveryCode(userId: string, hash: string) {
-    return runAsSystem(async () => {
+  async consumeRecoveryCode(userId: string, hash: string | string[]) {
+    return withScope("mfa", async () => {
+      const hashes = Array.isArray(hash) ? hash : [hash];
       const rows = await db.update(mfaRecoveryCodes)
         .set({ usedAt: new Date() })
-        .where(and(eq(mfaRecoveryCodes.userId, userId), eq(mfaRecoveryCodes.codeHash, hash), isNull(mfaRecoveryCodes.usedAt)))
+        .where(and(eq(mfaRecoveryCodes.userId, userId), inArray(mfaRecoveryCodes.codeHash, hashes), isNull(mfaRecoveryCodes.usedAt)))
         .returning({ id: mfaRecoveryCodes.id });
       return rows.length === 1;
     });
   }
 
   async countRecoveryCodes(userId: string) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const [row] = await db.select({ n: sqlOp<number>`count(*)::int` }).from(mfaRecoveryCodes).where(and(eq(mfaRecoveryCodes.userId, userId), isNull(mfaRecoveryCodes.usedAt)));
       return row?.n ?? 0;
     });
   }
 
   async resetMfa(userId: string) {
-    await runAsSystem(() =>
-      db.transaction(async (tx) => {
-        await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
-        await tx.delete(userMfa).where(eq(userMfa.userId, userId));
-        await tx.update(userDevices).set({ revokedAt: new Date() }).where(and(eq(userDevices.userId, userId), isNull(userDevices.revokedAt)));
-      }),
-    );
+    // The administrator is the verified actor; the database function refuses anyone else and never lets them read a secret (migration 0030).
+    await withScope("mfa", () => db.execute(sqlOp`SELECT app_reset_mfa(${userId})`));
   }
 
   async getAllEnabledReminders() {
@@ -1298,7 +1419,7 @@ export class DbStorage implements IStorage {
   // Asked about another person's notices (to avoid sending a second "new message" nudge), so it is a
   // server check, not something the asking person may read for themselves.
   async hasUnreadNotification(userId: string, kind: string, link: string) {
-    return runAsSystem(() => this.hasUnreadNotificationUnscoped(userId, kind, link));
+    return withScope("notify", () => this.hasUnreadNotificationUnscoped(userId, kind, link));
   }
 
   private async hasUnreadNotificationUnscoped(userId: string, kind: string, link: string) {
@@ -1314,7 +1435,7 @@ export class DbStorage implements IStorage {
   // about a request, the patient about a prescription), so writing it is the server's job, not the
   // acting person's: it runs with system access and returns the row it wrote.
   async createNotification(data: InsertNotification) {
-    return runAsSystem(async () => {
+    return withScope("notify", async () => {
       const [row] = await db.insert(notifications).values(data).returning();
       return row;
     });
@@ -1596,9 +1717,9 @@ export class DbStorage implements IStorage {
   async updateEmergencyProfile(
     userId: string,
     data: { emergencyContactName: string | null; emergencyContactPhone: string | null; allergiesText: string | null; emergencyNotes: string | null },
-  ): Promise<User | undefined> {
-    const [user] = await db.update(users).set(data).where(eq(users.id, userId)).returning();
-    return user;
+  ): Promise<UserPrivate | undefined> {
+    await db.update(usersFull).set(data).where(eq(usersFull.id, userId));
+    return this.getUserPrivate(userId);
   }
 
   // ---- Care Circle ----
@@ -1637,7 +1758,8 @@ export class DbStorage implements IStorage {
     const [member] = await db
       .update(careCircleMembers)
       .set({ caregiverUserId, status: "active", respondedAt: new Date(), tokenHash: null })
-      .where(eq(careCircleMembers.id, id))
+      // Only a still-open invitation can be accepted, in the same statement: of two simultaneous accepts of one link, exactly one wins.
+      .where(and(eq(careCircleMembers.id, id), eq(careCircleMembers.status, "invited")))
       .returning();
     return member;
   }

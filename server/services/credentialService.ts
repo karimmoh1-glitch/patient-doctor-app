@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { CREDENTIAL_SOURCES, credentialEvents, doctorCredentials, doctorProfiles, type CredentialStatus, type DoctorCredential } from "@shared/schema";
 
 /**
@@ -46,7 +46,7 @@ async function syncProfileExpiry(tx: Pick<typeof db, "select" | "update">, userI
 }
 
 async function transition(id: string, actorUserId: string, to: CredentialStatus, patch: Partial<typeof doctorCredentials.$inferInsert>, note: string | null, allowedFrom: string[]) {
-  return runAsSystem(() =>
+  return withScope("review", () =>
     db.transaction(async (tx) => {
       const [current] = await tx.select().from(doctorCredentials).where(eq(doctorCredentials.id, id)).for("update");
       if (!current || !allowedFrom.includes(current.status)) return undefined;
@@ -73,7 +73,7 @@ export const suspendCredential = (id: string, actorUserId: string, note: string)
   transition(id, actorUserId, "suspended", {}, note, ["verified"]);
 
 export async function listCredentials(filter: "all" | "expiring" | "expired" | "open", now = new Date()): Promise<CredentialView[]> {
-  const rows = await runAsSystem(() =>
+  const rows = await withScope("review", () =>
     db
       .select({ c: doctorCredentials, name: doctorProfiles.name })
       .from(doctorCredentials)
@@ -93,12 +93,12 @@ export async function listCredentials(filter: "all" | "expiring" | "expired" | "
 }
 
 export async function credentialHistory(id: string) {
-  return runAsSystem(() => db.select().from(credentialEvents).where(eq(credentialEvents.credentialId, id)).orderBy(credentialEvents.createdAt));
+  return withScope("review", () => db.select().from(credentialEvents).where(eq(credentialEvents.credentialId, id)).orderBy(credentialEvents.createdAt));
 }
 
 /** What a clinician may see about their own credentials, and what a patient may be told about a listed clinician. */
 export async function credentialSummaryForUser(userId: string, now = new Date()) {
-  const rows = await runAsSystem(() => db.select().from(doctorCredentials).where(and(eq(doctorCredentials.userId, userId), eq(doctorCredentials.kind, "license"))));
+  const rows = await withScope("review", () => db.select().from(doctorCredentials).where(and(eq(doctorCredentials.userId, userId), eq(doctorCredentials.kind, "license"))));
   const c = rows[0];
   if (!c) return null;
   return { status: effectiveStatus(c, now), source: c.status === "verified" ? c.source : null, checkedAt: c.status === "verified" ? c.reviewedAt : null, expiresAt: c.expiresAt };

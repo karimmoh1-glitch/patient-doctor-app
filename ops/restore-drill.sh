@@ -9,12 +9,12 @@
 # What it does NOT prove: that the hosting provider's own backups (point-in-time recovery, branches) restore, how long
 # THEIR restore takes, or that the provider's roles and settings come back. That drill is gate G07 and is run by the owner.
 #
-# It never touches any database other than the two scratch ones it creates and drops (avela_drill_src, avela_drill_restored).
+# It never touches any database other than the two scratch ones it creates and drops (avela_drill_src_test, avela_drill_restored_test).
 set -euo pipefail
 
 ADMIN_URL="${1:-postgres://localhost:5432/postgres}"
-SRC=avela_drill_src
-DST=avela_drill_restored
+SRC=avela_drill_src_test
+DST=avela_drill_restored_test
 base="${ADMIN_URL%/*}"
 src_url="$base/$SRC"
 dst_url="$base/$DST"
@@ -31,6 +31,8 @@ step "1. Create a synthetic source database (migrations + fixture people; nothin
 cleanup
 psql "$ADMIN_URL" -qAt -c "CREATE DATABASE $SRC" -c "CREATE DATABASE $DST" >/dev/null
 ( cd "$here" && DATABASE_URL="$src_url" NODE_ENV=development npm run -s db:migrate >/dev/null && DATABASE_URL="$src_url" NODE_ENV=development npm run -s db:seed >/dev/null )
+# Production's state after the identity roll-out: a registered key, signed identities enforced. (A throwaway key in a throwaway database.)
+( cd "$here" && DATABASE_URL="$src_url" NODE_ENV=development npx tsx script/dev-identity.ts >/dev/null )
 src_migrations=$(q "$src_url" "SELECT count(*) FROM schema_migrations")
 src_users=$(q "$src_url" "SELECT count(*) FROM users")
 src_appts=$(q "$src_url" "SELECT count(*) FROM appointments")
@@ -59,6 +61,8 @@ check "users"                    "$src_users"      "$(q "$dst_url" "SELECT count
 check "appointments"             "$src_appts"      "$(q "$dst_url" "SELECT count(*) FROM appointments")"
 check "tables with RLS enabled"  "$src_rls"        "$(q "$dst_url" "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity")"
 check "append-only triggers"     "$src_triggers"   "$(q "$dst_url" "SELECT count(*) FROM information_schema.triggers WHERE trigger_schema='public'")"
+check "identity keys (they travel with the backup)" "1" "$(q "$dst_url" "SELECT count(*) FROM app_identity_keys WHERE retired_at IS NULL")"
+check "identity enforcement still on"               "t" "$(q "$dst_url" "SELECT enforce FROM app_identity_config")"
 
 step "5. Migrations are a no-op on the restored copy"
 ( cd "$here" && DATABASE_URL="$dst_url" NODE_ENV=development npm run -s db:migrate 2>&1 | tail -2 )
@@ -68,8 +72,23 @@ step "6. The restricted role sees nothing without an identity, and the right row
 if q "$ADMIN_URL" "SELECT 1 FROM pg_roles WHERE rolname='avela_app'" | grep -q 1; then
   none=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SELECT count(*) FROM appointments" | tail -1)
   check "avela_app, nobody signed in: appointments visible" "0" "$none"
-  some=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.system = 'on'" -c "SELECT count(*) FROM appointments" | tail -1)
-  check "avela_app, system context: appointments visible" "$src_appts" "$some"
+  # Plain settings, the way the application used to say who was asking, must open nothing now.
+  plain=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.system = 'on'" -c "SELECT count(*) FROM appointments" | tail -1)
+  check "avela_app, plain 'system' setting: appointments visible" "0" "$plain"
+  # A signed assertion (what the application sends) opens the right rows. The restored database must recognise the key.
+  token=$(cd "$here" && npx tsx -e 'import { devIdentityKey, signAssertion } from "./server/identity"; console.log(signAssertion({ system: true }, devIdentityKey()))' 2>/dev/null)
+  some=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = '$token'" -c "SELECT count(*) FROM appointments" | tail -1)
+  check "avela_app, signed system identity: appointments visible" "$src_appts" "$some"
+  # The narrow scopes (migration 0028) must survive a restore too: the sign-in scope still sees accounts and still sees no visits.
+  auth_token=$(cd "$here" && npx tsx -e 'import { devIdentityKey, signAssertion } from "./server/identity"; console.log(signAssertion({ system: true, scope: "auth" }, devIdentityKey()))' 2>/dev/null)
+  auth_visits=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = '$auth_token'" -c "SELECT count(*) FROM appointments" | tail -1)
+  check "avela_app, signed sign-in scope: appointments visible" "0" "$auth_visits"
+  auth_users=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = '$auth_token'" -c "SELECT count(id) FROM users" | tail -1)
+  check "avela_app, signed sign-in scope: accounts visible" "$src_users" "$auth_users"
+  forged=$(psql "$dst_url" -qAt -c "SET ROLE avela_app" -c "SET app.assertion = 'v1.dev.system.-.9999999999.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'" -c "SELECT count(*) FROM appointments" | tail -1)
+  check "avela_app, forged identity: appointments visible" "0" "$forged"
+  audit=$(cd "$here" && DATABASE_URL="$dst_url" NODE_ENV=development npx tsx script/audit-database.ts 2>&1 | tail -1)
+  case "$audit" in *"0 finding"*) printf 'PASS  database access audit on the restored copy (%s)\n' "$audit";; *) printf 'FAIL  database access audit on the restored copy: %s\n' "$audit"; fail=1;; esac
 else
   echo "SKIP  role avela_app does not exist in this cluster. NOTE: roles are NOT part of a logical backup; after a restore on a new server the operator must recreate the role and its login (npm run db:create-app-role) before switching the application over."
   fail=1

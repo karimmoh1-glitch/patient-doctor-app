@@ -151,7 +151,7 @@ describe("password reset", () => {
 describe("storage sanity", () => {
   it("stores only a bcrypt hash, never the password", async () => {
     const user = await signupPatient();
-    const row = await storage.getUser(user.id);
+    const row = await storage.getUserWithCredentials(user.id);
     expect(row!.passwordHash).not.toContain(PASSWORD);
     expect(row!.passwordHash.startsWith("$2")).toBe(true);
   });

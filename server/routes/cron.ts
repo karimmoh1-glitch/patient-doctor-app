@@ -4,7 +4,7 @@ import { makeLimiter } from "../middleware/rateLimit";
 import { storage } from "../storage";
 import { dispatchAppointmentReminders, dispatchDueReminders, REMINDER_JOB } from "../services/reminderService";
 import { dispatchPersonalReminders } from "../services/personalReminders";
-import { runScheduledJob, schedulerSource } from "../services/schedulerRun";
+import { ATTESTED_SCHEDULER_SOURCES, runScheduledJob, schedulerSource } from "../services/schedulerRun";
 import { systemAccess } from "../middleware/systemAccess";
 
 const router = Router();
@@ -16,17 +16,26 @@ const guessLimiter = makeLimiter({ windowMs: 60_000, limit: 30, failuresOnly: tr
 // Actions schedule, or any pinger) that presents CRON_SECRET as a bearer
 // token. With no secret configured the endpoint does not exist, so it can
 // never be run by an unauthenticated caller.
-function authorized(header: string | undefined): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || !header?.startsWith("Bearer ")) return false;
-  const given = Buffer.from(header.slice("Bearer ".length));
+function same(given: Buffer, secret: string | undefined): boolean {
+  if (!secret) return false;
   const expected = Buffer.from(secret);
   return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
+/** Who presented a valid secret: an attested caller (its own secret), the general secret, or nobody. */
+function authenticate(header: string | undefined): { ok: false } | { ok: true; attested: string | null } {
+  if (!header?.startsWith("Bearer ")) return { ok: false };
+  const given = Buffer.from(header.slice("Bearer ".length));
+  let attested: string | null = null;
+  for (const [envName, source] of Object.entries(ATTESTED_SCHEDULER_SOURCES)) if (same(given, process.env[envName])) attested = source;
+  const general = same(given, process.env.CRON_SECRET);
+  return attested || general ? { ok: true, attested } : { ok: false };
+}
+
 async function runReminders(req: any, res: any) {
-  if (!process.env.CRON_SECRET) return res.status(503).json({ message: "Scheduled jobs are not configured" });
-  if (!authorized(req.headers.authorization)) return res.status(401).json({ message: "Unauthorized" });
+  if (!process.env.CRON_SECRET && !Object.keys(ATTESTED_SCHEDULER_SOURCES).some((name) => process.env[name])) return res.status(503).json({ message: "Scheduled jobs are not configured" });
+  const caller = authenticate(req.headers.authorization);
+  if (!caller.ok) return res.status(401).json({ message: "Unauthorized" });
   const now = new Date();
   const emailEnabled = !!process.env.RESEND_API_KEY;
 
@@ -35,7 +44,7 @@ async function runReminders(req: any, res: any) {
   // step is attempted; any failure still makes the whole run a failure.
   const summary = await runScheduledJob({
     job: REMINDER_JOB,
-    source: schedulerSource({ get: (name) => req.get(name) }),
+    source: schedulerSource({ get: (name) => req.get(name) }, caller.attested),
     now,
     steps: [
       {
@@ -63,7 +72,7 @@ async function runReminders(req: any, res: any) {
   res.json({ ok: true, runId: summary.runId, ...summary.result });
 }
 
-router.get("/reminders", systemAccess, guessLimiter, runReminders);
-router.post("/reminders", systemAccess, guessLimiter, runReminders);
+router.get("/reminders", systemAccess("scheduler"), guessLimiter, runReminders);
+router.post("/reminders", systemAccess("scheduler"), guessLimiter, runReminders);
 
 export default router;

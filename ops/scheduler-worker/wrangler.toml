@@ -10,5 +10,5 @@ crons = ["*/5 * * * *"]
 AVELA_URL = "https://avela-taupe.vercel.app"
 
 # Secrets are NOT stored here. Set them once:
-#   npx wrangler secret put CRON_SECRET
+#   npx wrangler secret put CRON_SECRET     (the value of the host's CRON_SECRET_CLOUDFLARE, not of CRON_SECRET)
 #   npx wrangler secret put FAILURE_WEBHOOK_URL   (optional)

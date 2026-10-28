@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import StatusBadge from "@/components/status-badge";
 import ConfirmAction from "@/components/confirm-action";
+import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import QueryState, { EmptyBlock } from "@/components/query-state";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -29,6 +32,26 @@ export default function CareTeam() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [labelDraft, setLabelDraft] = useState("");
   const query = useQuery<Pairing[]>({ queryKey: ["/api/pairings"] });
+  // Visits still booked when the patient asks to stop sharing: never settled silently, the patient chooses.
+  const [deciding, setDeciding] = useState<{ pairing: Pairing; visits: { id: string; type: string; scheduledAt: string }[] } | null>(null);
+  const [deciderBusy, setDeciderBusy] = useState(false);
+
+  async function endConnection(p: Pairing, upcomingVisits?: "cancel" | "keep") {
+    try {
+      await apiRequest("PATCH", `/api/pairings/${p.id}/end`, upcomingVisits ? { upcomingVisits } : {});
+      queryClient.invalidateQueries({ queryKey: ["/api/pairings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
+      setDeciding(null);
+      toast({ title: t("status.pairing.ended"), description: t("pt.team.stoppedBody", { name: p.doctor?.name ?? "" }) });
+    } catch (err: any) {
+      if (err?.data?.code === "decide_upcoming_visits") {
+        setDeciding({ pairing: p, visits: err.data.upcoming ?? [] });
+        return;
+      }
+      toast({ title: t("pt.team.stopFail"), description: err.message, variant: "destructive" });
+      throw err;
+    }
+  }
 
   async function act(path: string, success: { title: string; description?: string }, failure: string) {
     try {
@@ -138,7 +161,7 @@ export default function CareTeam() {
                             confirmLabel={t("pt.team.stopYes")}
                             cancelLabel={t("pt.team.stopNo")}
                             destructive
-                            onConfirm={() => act(`/api/pairings/${p.id}/end`, { title: t("status.pairing.ended"), description: t("pt.team.stoppedBody", { name: p.doctor?.name ?? "" }) }, t("pt.team.stopFail"))}
+                            onConfirm={() => endConnection(p)}
                           />
                         </CardContent>
                       </Card>
@@ -185,6 +208,38 @@ export default function CareTeam() {
       <p className="text-muted-foreground">
         {privacyBefore}<Link href="/profile" className="font-medium text-primary underline underline-offset-4">{t("pt.team.privacyLink")}</Link>{privacyAfter}
       </p>
+      <AlertDialog open={!!deciding} onOpenChange={(open) => !open && !deciderBusy && setDeciding(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-xl">{t("pt.team.visitsTitle", { name: deciding?.pairing.doctor?.name ?? "" })}</AlertDialogTitle>
+            <AlertDialogDescription className="text-base text-muted-foreground">{t("pt.team.visitsBody", { name: deciding?.pairing.doctor?.name ?? "" })}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="list-disc space-y-1 ps-6 text-base">
+            {(deciding?.visits ?? []).map((v) => (
+              <li key={v.id}>{v.type} · {new Date(v.scheduledAt).toLocaleString()}</li>
+            ))}
+          </ul>
+          <AlertDialogFooter className="gap-3 sm:gap-3">
+            <AlertDialogCancel className={cn(buttonVariants({ variant: "outline" }), "mt-0")} disabled={deciderBusy}>{t("pt.team.visitsBack")}</AlertDialogCancel>
+            <button
+              type="button"
+              className={buttonVariants({ variant: "outline" })}
+              disabled={deciderBusy}
+              onClick={async () => { setDeciderBusy(true); try { await endConnection(deciding!.pairing, "keep"); } finally { setDeciderBusy(false); } }}
+            >
+              {t("pt.team.visitsKeepYes")}
+            </button>
+            <button
+              type="button"
+              className={buttonVariants({ variant: "destructive" })}
+              disabled={deciderBusy}
+              onClick={async () => { setDeciderBusy(true); try { await endConnection(deciding!.pairing, "cancel"); } finally { setDeciderBusy(false); } }}
+            >
+              {t("pt.team.visitsCancelYes")}
+            </button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

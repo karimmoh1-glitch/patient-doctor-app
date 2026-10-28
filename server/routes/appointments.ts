@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { requireApprovedDoctor, requirePatientOrApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit } from "../services/auditService";
@@ -34,6 +34,10 @@ const BOOKING_FAILURE_MESSAGES = {
   slot_unavailable: {
     status: 409,
     message: "That time is no longer available. Please choose another time.",
+  },
+  not_connected: {
+    status: 409,
+    message: "You're no longer connected with this doctor.",
   },
 } as const;
 
@@ -194,7 +198,7 @@ router.get("/:id/history", requireAuth, requirePatientOrApprovedDoctor, async (r
     if (!doctorProfile || doctorProfile.id !== appointment.doctorProfileId) return res.status(404).json({ message: "Appointment not found" });
   }
   // Authorised above: the audit table itself is not readable by an ordinary person, so this one read is made as the system.
-  const rows = await runAsSystem(() => storage.getAuditLogsForTarget("appointment", appointment.id));
+  const rows = await withScope("audit", () => storage.getAuditLogsForTarget("appointment", appointment.id));
   const patientId = appointment.patientUserId;
   const events = rows
     .filter((r) => r.action.startsWith("appointment.") && r.action !== "appointment.video_joined")

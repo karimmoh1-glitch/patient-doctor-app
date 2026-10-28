@@ -4,6 +4,7 @@ import pg from "pg";
 import type { Express } from "express";
 import { getApp, signupPatient, createDoctor, createAdmin, createCaregiverAccount, connect, issuePrescription, prescriptionBody, auth, uniqueEmail, PASSWORD, type TestUser, type TestDoctor } from "./helpers";
 import { appRoleUrl } from "./fastCommit";
+import { assertionFor } from "./identityHelpers";
 import { storage } from "../server/storage";
 import { db } from "../server/db";
 import { medications, notifications } from "@shared/schema";
@@ -22,10 +23,10 @@ let app: Express;
 async function as<T>(who: Who, fn: (q: (text: string, params?: unknown[]) => Promise<pg.QueryResult>) => Promise<T>): Promise<T> {
   const c = await app_.connect();
   try {
-    await c.query("SELECT set_config('app.user_id', $1, false), set_config('app.system', $2, false)", [who.userId ?? "", who.system ? "on" : ""]);
+    await c.query("SELECT set_config('app.assertion', $1, false)", [assertionFor(who)]);
     return await fn((text, params) => c.query(text, params));
   } finally {
-    await c.query("SELECT set_config('app.user_id', '', false), set_config('app.system', '', false)").catch(() => {});
+    await c.query("SELECT set_config('app.assertion', '', false)").catch(() => {});
     c.release();
   }
 }
@@ -74,7 +75,7 @@ beforeAll(async () => {
   grantA = (await owner.query(`INSERT INTO sharing_grants (patient_user_id, shared_with_doctor_profile_id, share_medications) VALUES ($1, $2, true) RETURNING id`, [A.id, D1.profileId])).rows[0].id;
   memberA = (await owner.query(
     `INSERT INTO care_circle_members (patient_user_id, caregiver_user_id, name, invite_email, relationship_label, status)
-     VALUES ($1, $2, 'Caregiver', $3, 'friend', 'accepted') RETURNING id`,
+     VALUES ($1, $2, 'Caregiver', $3, 'friend', 'active') RETURNING id`,
     [A.id, C.id, uniqueEmail("cg")],
   )).rows[0].id;
   noteA = (await storage.createNotification({ userId: A.id, kind: "test.note", params: {}, link: "/x" })).id;
@@ -241,13 +242,16 @@ describe("who can change which record", () => {
     expect((await as(c, (q) => q(`DELETE FROM appointments WHERE id = $1`, [apptA]))).rowCount).toBe(0);
   });
 
-  it("lets a person write their own, and leave a notice for someone else without being able to read it", async () => {
+  it("lets a person write their own, and leave a notice for someone they are connected to without being able to read it", async () => {
     const r = await as({ userId: A.id }, (q) => q(`INSERT INTO symptom_reports (patient_user_id, state, symptom_text, input_method) VALUES ($1, 'CA', 'mine', 'typed') RETURNING id`, [A.id]));
     expect(r.rowCount).toBe(1);
-    // Leaving a notice for B without RETURNING it back: allowed. Reading B's notices: not.
-    await as({ userId: A.id }, (q) => q(`INSERT INTO notifications (user_id, kind, params, link) VALUES ($1, 'x', '{}', '/')`, [B.id]));
-    expect(await ids({ userId: A.id }, "notifications", `user_id = '${B.id}'`)).toEqual([]);
-    expect((await ids({ userId: B.id }, "notifications", `kind = 'x'`)).length).toBeGreaterThan(0);
+    // A leaves a notice for their doctor D1 (without RETURNING it back): allowed. Reading D1's notices: not.
+    await as({ userId: A.id }, (q) => q(`INSERT INTO notifications (user_id, kind, params, link) VALUES ($1, 'x', '{}', '/')`, [D1.id]));
+    expect(await ids({ userId: A.id }, "notifications", `user_id = '${D1.id}'`)).toEqual([]);
+    expect((await ids({ userId: D1.id }, "notifications", `kind = 'x'`)).length).toBeGreaterThan(0);
+    // …but not for a stranger: that is a way to put words in front of someone with no relationship to you (migration 0024).
+    await expect(as({ userId: A.id }, (q) => q(`INSERT INTO notifications (user_id, kind, params, link) VALUES ($1, 'x', '{}', '/')`, [B.id]))).rejects.toThrow(/row-level security/);
+    await expect(as({ userId: B.id }, (q) => q(`INSERT INTO notifications (user_id, kind, params, link) VALUES ($1, 'x', '{}', '/')`, [A.id]))).rejects.toThrow(/row-level security/);
   });
 
   it("blocks a patient from reading a draft prescription or editing someone else's", async () => {

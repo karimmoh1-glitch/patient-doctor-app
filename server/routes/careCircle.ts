@@ -3,6 +3,7 @@ import { makeLimiter } from "../middleware/rateLimit";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { storage } from "../storage";
+import type { UserPrivate, UserWithCredentials } from "@shared/schema";
 import { requireAuth, requireRole, issueSession } from "../middleware/auth";
 import { generateSecureToken, hashToken } from "../services/tokenService";
 import { weakPasswordReason } from "../lib/password";
@@ -139,8 +140,13 @@ router.delete("/:id", requireAuth, requireRole("patient"), async (req, res) => {
 
 // --- Invite acceptance (public until the token is redeemed) ---
 
-router.get("/invitations/validate/:token", systemAccess, inviteRedeemLimiter, async (req, res) => {
-  const tokenHash = hashToken(req.params.token);
+// The single-use token travels in the request BODY, never in the path: a path is written to every request log on the way (the host's included).
+const tokenSchema = z.object({ token: z.string().min(20).max(200) });
+
+router.post("/invitations/validate", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
+  const presented = tokenSchema.safeParse(req.body);
+  if (!presented.success) return res.status(404).json({ message: "This invite link is invalid or has already been used" });
+  const tokenHash = hashToken(presented.data.token);
   const member = await storage.getCareCircleMemberByTokenHash(tokenHash);
   if (!member || !isInviteLive(member)) {
     return res.status(404).json({ message: "This invite link is invalid or has already been used" });
@@ -159,17 +165,19 @@ router.get("/invitations/validate/:token", systemAccess, inviteRedeemLimiter, as
 
 const acceptSchema = z.object({ password: z.string().min(8).max(200) });
 
-router.post("/invitations/accept/:token", systemAccess, inviteRedeemLimiter, async (req, res) => {
+router.post("/invitations/accept", systemAccess("invite"), inviteRedeemLimiter, async (req, res) => {
+  const presented = tokenSchema.safeParse(req.body);
+  if (!presented.success) return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
   const parsed = acceptSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: "A password of at least 8 characters is required" });
 
-  const tokenHash = hashToken(req.params.token);
+  const tokenHash = hashToken(presented.data.token);
   const member = await storage.getCareCircleMemberByTokenHash(tokenHash);
   if (!member || !isInviteLive(member)) {
     return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
   }
 
-  let user = await storage.getUserByEmail(member.inviteEmail);
+  let user: UserPrivate | UserWithCredentials | undefined = await storage.getUserByEmail(member.inviteEmail);
   if (!user) {
     // A brand-new account gets the same password rules as everyone else.
     const weak = weakPasswordReason(parsed.data.password, { email: member.inviteEmail, name: member.name });
@@ -182,7 +190,7 @@ router.post("/invitations/accept/:token", systemAccess, inviteRedeemLimiter, asy
     // a caregiver account can be attached (a doctor, admin or patient
     // account must never be turned into, or logged in as, a caregiver).
     const owns =
-      user.role === "caregiver" && !user.deactivatedAt && (await bcrypt.compare(parsed.data.password, user.passwordHash));
+      user.role === "caregiver" && !user.deactivatedAt && "passwordHash" in user && (await bcrypt.compare(parsed.data.password, user.passwordHash));
     if (!owns) {
       return res.status(401).json({
         message:
@@ -191,19 +199,26 @@ router.post("/invitations/accept/:token", systemAccess, inviteRedeemLimiter, asy
     }
   } else {
     const passwordHash = await bcrypt.hash(parsed.data.password, 10);
-    user = await storage.createUser({
-      name: member.name,
-      email: member.inviteEmail,
-      passwordHash,
-      role: "caregiver",
-      state: null,
-      phone: null,
-      deactivatedAt: null,
-      emailVerifiedAt: null,
-    });
+    try {
+      user = await storage.createUser({
+        name: member.name,
+        email: member.inviteEmail,
+        passwordHash,
+        role: "caregiver",
+        state: null,
+        phone: null,
+        deactivatedAt: null,
+        emailVerifiedAt: null,
+      });
+    } catch (err: any) {
+      // Someone redeemed the same link a moment ago and the account now exists.
+      if (err?.code === "23505" || err?.cause?.code === "23505") return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
+      throw err;
+    }
   }
 
-  await storage.acceptCareCircleInvite(member.id, user.id);
+  const accepted = await storage.acceptCareCircleInvite(member.id, user.id);
+  if (!accepted) return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
   await logAudit({ actorUserId: user.id, action: "care_circle.accepted", targetType: "care_circle_member", targetId: member.id });
 
   await issueSession(req, res, user, { user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state } });

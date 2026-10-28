@@ -128,4 +128,38 @@ test.describe("an older patient's first week", () => {
     expect(msgs.status()).toBe(403);
     await doctor.context.close();
   });
+
+  for (const choice of ["Keep these visits and stop sharing", "Cancel these visits and stop sharing"] as const) {
+    test(`with a visit still booked, stopping sharing asks what to do with it first (${choice.split(" ")[0].toLowerCase()})`, async ({ page, browser }) => {
+      test.setTimeout(90_000);
+      const name = choice.startsWith("Keep") ? "Nadia Haddad" : "Omar Aziz";
+      await signUpPatient(page, name, uniqueEmail("visit"));
+      const emily = (await (await page.request.get("/api/doctors")).json()).find((d: any) => d.name === "Dr. Emily Chen");
+      const pairing = await (await page.request.post("/api/pairings", { headers: WEB, data: { doctorProfileId: emily.id } })).json();
+      const doctor = await newSession(browser, "doctor@avela.dev");
+      const accepted = await doctor.page.request.patch(`/api/pairings/${pairing.id}/accept`, { headers: { Authorization: `Bearer ${doctor.session.token}` } });
+      expect(accepted.ok()).toBeTruthy();
+      const slots = await (await page.request.get(`/api/appointments/slots?pairingRequestId=${pairing.id}&days=10`)).json();
+      const booked = await page.request.post("/api/appointments", { headers: WEB, data: { pairingRequestId: pairing.id, type: "Phone Call", reason: "A visit I booked", scheduledAt: slots.slots[slots.slots.length - 1] } });
+      expect(booked.status()).toBe(201);
+      const visit = await booked.json();
+
+      await page.goto("/care-team");
+      await page.getByRole("button", { name: /Stop sharing with this doctor/ }).first().click();
+      await page.getByRole("alertdialog").getByRole("button", { name: "Yes, stop sharing" }).click();
+
+      // Nothing was ended: the patient is asked, and shown the visit.
+      const decision = page.getByRole("alertdialog");
+      await expect(decision.getByRole("heading", { name: /You have visits booked with/ })).toBeVisible();
+      await expect(decision.getByText("Phone Call")).toBeVisible();
+      expect((await (await page.request.get("/api/pairings")).json())[0].status).toBe("accepted");
+
+      await decision.getByRole("button", { name: choice }).click();
+      await expect(page.getByText("Sharing stopped").first()).toBeVisible();
+      const after = await (await page.request.get(`/api/appointments/${visit.id}`)).json();
+      expect(after.status).toBe(choice.startsWith("Keep") ? "requested" : "cancelled");
+      expect((await (await page.request.get("/api/pairings")).json())[0].status).toBe("ended");
+      await doctor.context.close();
+    });
+  }
 });

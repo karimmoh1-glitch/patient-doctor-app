@@ -1,8 +1,8 @@
 import { SYMPTOM_KEYWORDS, type Specialty } from "@shared/specialties";
-import type { DoctorProfile } from "@shared/schema";
+import type { ListedDoctor } from "@shared/schema";
 
 export interface DoctorMatch {
-  doctor: DoctorProfile;
+  doctor: ListedDoctor;
   score: number;
   matchedKeywords: string[];
 }
@@ -12,7 +12,7 @@ export interface DoctorMatch {
 // Deliberately not a black-box model — which doctors a sick patient sees
 // needs to be explainable and auditable after the fact.
 export function matchDoctors(
-  candidates: DoctorProfile[],
+  candidates: ListedDoctor[],
   patientState: string,
   symptomText: string,
 ): DoctorMatch[] {

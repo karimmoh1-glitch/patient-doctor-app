@@ -96,7 +96,6 @@ const MATRIX: Record<string, string[]> = {
   "/api/dashboard": [P],
   "/api/dashboard/doctor": [D],
   "/api/care-circle": [P],
-  "/api/care-circle/invitations/validate/x": EVERYONE,
   "/api/care-circle/caregiver/patients": [C],
   "/api/care-circle/caregiver/patients/x/overview": [C],
   "/api/emergency-profile": [P],

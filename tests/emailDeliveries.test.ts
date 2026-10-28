@@ -15,7 +15,7 @@ import { db } from "../server/db";
 import { runAsSystem } from "../server/dbContext";
 import { emailDeliveries } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { sendPasswordResetEmail } from "../server/services/emailService";
+import { sendPasswordResetEmail, sendCareCircleInviteEmail } from "../server/services/emailService";
 import { hashRecipient, verifyWebhookSignature } from "../server/services/emailDeliveries";
 
 const SECRET_BYTES = crypto.randomBytes(24);
@@ -134,5 +134,35 @@ describe("review findings: the webhook", () => {
       const res = await request(app).post("/api/webhooks/resend").set({ "svix-id": "evt_1", "svix-timestamp": ts, "svix-signature": `v1,${sig}`, "content-type": "application/json" }).send(body);
       expect([401, 503]).toContain(res.status);
     }
+  });
+});
+
+describe("suppression after a bounce or a complaint", () => {
+  const countFor = async (to: string) => (await runAsSystem(() => db.select().from(emailDeliveries).where(eq(emailDeliveries.recipientHash, hashRecipient(to))))).length;
+  const mark = async (to: string, event: object) => {
+    const row = (await runAsSystem(() => db.select().from(emailDeliveries).where(eq(emailDeliveries.recipientHash, hashRecipient(to)))))[0];
+    expect((await post(app, signed({ ...event, data: { ...(event as any).data, email_id: row.providerMessageId } }))).body.outcome).toBe("applied");
+  };
+
+  it("stops writing invitations and reminders to an address that bounced permanently, but still attempts what the person asked for", async () => {
+    const to = uniqueEmail("bounced");
+    expect(await sendCareCircleInviteEmail(to, "Sam", "Pat", "https://avela.example/i?token=t")).toBe(true);
+    await mark(to, { type: "email.bounced", data: { bounce: { type: "Permanent" } } });
+    expect(await sendCareCircleInviteEmail(to, "Sam", "Pat", "https://avela.example/i?token=t2")).toBe(false);
+    expect(await countFor(to)).toBe(1); // nothing was sent, so nothing was recorded
+    await sendPasswordResetEmail(to, "Sam", "https://avela.example/reset?token=t3", "en"); // asked for by the person
+    expect(await countFor(to)).toBe(2);
+  });
+
+  it("stops after a spam complaint, and does not stop for a transient bounce or a delivery", async () => {
+    const complained = uniqueEmail("complained");
+    await sendCareCircleInviteEmail(complained, "A", "B", "https://avela.example/i?token=1");
+    await mark(complained, { type: "email.complained", data: {} });
+    expect(await sendCareCircleInviteEmail(complained, "A", "B", "https://avela.example/i?token=2")).toBe(false);
+
+    const transient = uniqueEmail("transient");
+    await sendCareCircleInviteEmail(transient, "A", "B", "https://avela.example/i?token=1");
+    await mark(transient, { type: "email.bounced", data: { bounce: { type: "Transient" } } });
+    expect(await sendCareCircleInviteEmail(transient, "A", "B", "https://avela.example/i?token=2")).toBe(true);
   });
 });

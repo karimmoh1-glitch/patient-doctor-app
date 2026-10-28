@@ -135,3 +135,20 @@ describe("booking a video visit", () => {
     expect(res.body.message).toMatch(/aren't available/);
   });
 });
+
+describe("/api/config environment notice", () => {
+  it("is null unless the host sets one, and is plain text capped in length", async () => {
+    const before = process.env.ENVIRONMENT_NOTICE;
+    try {
+      delete process.env.ENVIRONMENT_NOTICE;
+      expect((await request(app).get("/api/config")).body.environmentNotice).toBeNull();
+      process.env.ENVIRONMENT_NOTICE = "  Test site: synthetic data only  ";
+      expect((await request(app).get("/api/config")).body.environmentNotice).toBe("Test site: synthetic data only");
+      process.env.ENVIRONMENT_NOTICE = "x".repeat(1000);
+      expect((await request(app).get("/api/config")).body.environmentNotice).toHaveLength(300);
+    } finally {
+      if (before === undefined) delete process.env.ENVIRONMENT_NOTICE;
+      else process.env.ENVIRONMENT_NOTICE = before;
+    }
+  });
+});

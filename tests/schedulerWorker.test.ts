@@ -51,6 +51,14 @@ describe("the external scheduler", () => {
     }
   });
 
+  it("never sends the secret over anything but https", async () => {
+    const fetchImpl = vi.fn(async () => respond(200));
+    for (const url of ["http://avela.example.test", "ftp://avela.example.test", "//avela.example.test", "avela.example.test"]) {
+      await expect(callAvela({ AVELA_URL: url, CRON_SECRET: env.CRON_SECRET }, { fetchImpl: fetchImpl as any, sleep: noSleep }), url).rejects.toThrow(/https/);
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("refuses to run unconfigured instead of calling a wrong address", async () => {
     const fetchImpl = vi.fn();
     await expect(callAvela({ AVELA_URL: env.AVELA_URL }, { fetchImpl: fetchImpl as any })).rejects.toThrow(/must both be configured/);

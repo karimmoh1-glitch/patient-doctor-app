@@ -31,36 +31,84 @@ const CHALLENGE_TTL = "5m";
 
 // ---------------------------------------------------------------------------------------------- keys
 
-function encryptionKey(): Buffer {
+function parseKey(name: string, configured: string): Buffer {
+  const key = Buffer.from(configured, "base64");
+  if (key.length !== 32) throw new Error(`${name} must be 32 random bytes, base64 encoded.`);
+  return key;
+}
+
+const keyId = (key: Buffer) => crypto.createHash("sha256").update("avela-mfa-key-id").update(key).digest("hex").slice(0, 8);
+
+/**
+ * The key everything is written with, and the one before it, which is only ever READ with. Rotating the key without locking anyone
+ * out is: set MFA_ENCRYPTION_KEY_PREVIOUS to the old value and MFA_ENCRYPTION_KEY to the new, deploy, run `npm run mfa:rekey`
+ * (re-encrypts every stored secret under the new key), have everyone regenerate or use up their recovery codes, then remove the
+ * previous key. Nothing is lost at any step; removing it too early is what locks people out.
+ */
+function keyRing(): { current: Buffer; previous: Buffer | null } {
   const configured = process.env.MFA_ENCRYPTION_KEY;
   if (configured) {
-    const key = Buffer.from(configured, "base64");
-    if (key.length !== 32) throw new Error("MFA_ENCRYPTION_KEY must be 32 random bytes, base64 encoded.");
-    return key;
+    const current = parseKey("MFA_ENCRYPTION_KEY", configured);
+    const prev = process.env.MFA_ENCRYPTION_KEY_PREVIOUS;
+    const previous = prev ? parseKey("MFA_ENCRYPTION_KEY_PREVIOUS", prev) : null;
+    return { current, previous: previous && !previous.equals(current) ? previous : null };
   }
   if (process.env.NODE_ENV === "production") throw new Error("MFA_ENCRYPTION_KEY is not set.");
   // Development and tests only: derived from the signing secret so nothing extra has to be configured.
-  return crypto.createHash("sha256").update(`avela-dev-mfa-key:${process.env.JWT_SECRET || "dev-secret-change-me"}`).digest();
+  return { current: crypto.createHash("sha256").update(`avela-dev-mfa-key:${process.env.JWT_SECRET || "dev-secret-change-me"}`).digest(), previous: null };
 }
+const encryptionKey = () => keyRing().current;
 
 export function encryptSecret(userId: string, secret: string): string {
+  const key = encryptionKey();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   cipher.setAAD(Buffer.from(userId));
   const body = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
-  return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), body.toString("base64url")].join(".");
+  return ["v2", keyId(key), iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), body.toString("base64url")].join(".");
+}
+
+/** Which key a stored secret was written with: "current", "previous", or null if neither (or not recognisably ours). */
+export function secretKeyAge(ciphertext: string): "current" | "previous" | null {
+  const ring = keyRing();
+  const parts = ciphertext.split(".");
+  if (parts[0] === "v2") return parts[1] === keyId(ring.current) ? "current" : ring.previous && parts[1] === keyId(ring.previous) ? "previous" : null;
+  return parts[0] === "v1" ? "current" : null; // legacy format carries no key id: tried against both on decryption
 }
 
 export function decryptSecret(userId: string, ciphertext: string): string {
-  const [version, iv, tag, body] = ciphertext.split(".");
-  if (version !== "v1" || !iv || !tag || !body) throw new Error("unreadable secret");
-  const decipher = crypto.createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(iv, "base64url"));
-  decipher.setAAD(Buffer.from(userId));
-  decipher.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([decipher.update(Buffer.from(body, "base64url")), decipher.final()]).toString("utf8");
+  const parts = ciphertext.split(".");
+  const ring = keyRing();
+  let candidates: Buffer[];
+  let iv: string | undefined, tag: string | undefined, body: string | undefined;
+  if (parts[0] === "v2" && parts.length === 5) {
+    [, , iv, tag, body] = parts;
+    candidates = [ring.current, ring.previous].filter((k): k is Buffer => !!k && keyId(k) === parts[1]);
+  } else if (parts[0] === "v1" && parts.length === 4) {
+    [, iv, tag, body] = parts;
+    candidates = [ring.current, ring.previous].filter((k): k is Buffer => !!k);
+  } else throw new Error("unreadable secret");
+  if (!iv || !tag || !body || candidates.length === 0) throw new Error("unreadable secret");
+  for (const key of candidates) {
+    try {
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
+      decipher.setAAD(Buffer.from(userId));
+      decipher.setAuthTag(Buffer.from(tag, "base64url"));
+      return Buffer.concat([decipher.update(Buffer.from(body, "base64url")), decipher.final()]).toString("utf8");
+    } catch {
+      // wrong key for a v1 secret: try the next
+    }
+  }
+  throw new Error("unreadable secret");
 }
 
-const recoveryHash = (normalized: string) => crypto.createHmac("sha256", encryptionKey()).update(`recovery:${normalized}`).digest("hex");
+const hmacRecovery = (key: Buffer, normalized: string) => crypto.createHmac("sha256", key).update(`recovery:${normalized}`).digest("hex");
+const recoveryHash = (normalized: string) => hmacRecovery(encryptionKey(), normalized);
+/** Under every key still accepted, so a recovery code written before a rotation keeps working until the previous key is removed. */
+const recoveryHashes = (normalized: string) => {
+  const ring = keyRing();
+  return [ring.current, ring.previous].filter((k): k is Buffer => !!k).map((k) => hmacRecovery(k, normalized));
+};
 
 // ---------------------------------------------------------------------------------------------- challenges
 
@@ -149,7 +197,7 @@ export async function checkSecondFactor(userId: string, input: string, opts: { t
   } else if (!opts.totpOnly) {
     const normalized = value.replace(/[\s-]/g, "").toUpperCase();
     if (/^[A-Z2-7]{16}$/.test(normalized)) {
-      accepted = await storage.consumeRecoveryCode(userId, recoveryHash(normalized));
+      accepted = await storage.consumeRecoveryCode(userId, recoveryHashes(normalized));
       usedRecoveryCode = accepted;
       if (accepted) await storage.clearMfaFailures(userId);
     }
