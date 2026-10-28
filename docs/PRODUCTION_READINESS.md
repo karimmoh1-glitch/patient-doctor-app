@@ -33,7 +33,7 @@ compliance claim (no HIPAA, GDPR or Egyptian-law statement). Human reviews are l
 
 ## Mission 6 (2026-10-27/28): a working test site, and the first real-pooler evidence
 
-**Decision unchanged: NO-GO for real patient data.** What changed: there is now a hosted, isolated test site on the real hosting stack, the identity design has been exercised against a **real Neon pooler**
+**Decision unchanged: NO-GO for real patient data.** Branch tip `3520f84`, CI run 40639795784 green (test, restricted-role, release-rehearsal). What changed: there is now a hosted, isolated test site on the real hosting stack, the identity design has been exercised against a **real Neon pooler**
 for the first time, and the launch gates are sorted by stage in `docs/LAUNCH_GATES.md`. Production is still `704b7df`; nothing was deployed, migrated, rotated or created there.
 
 | Fact | Evidence |

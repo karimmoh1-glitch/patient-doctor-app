@@ -9,7 +9,7 @@ assistant does nothing in production without them, and approval of one line is n
 | | Value | Evidence |
 | --- | --- | --- |
 | Branch / PR | `mission2/close-security-gaps`, PR #1 | `gh pr view 1` |
-| Candidate SHA | **Fill from `git rev-parse HEAD` at release time.** Last SHA with a green CI run recorded in this checklist: `e27f605fd742e4240b4c4686f3e64bad4be8359a` (CI run 40632930476; it is also what the test site runs). Later commits on the branch add tooling, tests and documents; the release SHA must have **its own** green run | `gh run list --branch mission2/close-security-gaps` |
+| Candidate SHA | **Fill from `git rev-parse HEAD` at release time.** Last SHA with a green CI run recorded in this checklist: `3520f84` (CI run 40639795784: test, restricted-role, release-rehearsal all green). The test site runs `e27f605` (CI run 40632930476); nothing under `server/`, `client/`, `shared/` or `migrations/` differs between the two (only tooling, tests, documents). The release SHA must have **its own** green run | `gh run list --branch mission2/close-security-gaps` |
 | Migrations, in order | 0024 → 0025 → 0026 → 0027 → 0028 → 0029 | `ls migrations` |
 | Structure fingerprint **before** | `5dc5a2698a1e` (24 migrations) | `npm run schema:fingerprint` on production (pre-release read) |
 | Structure fingerprint **after** | `ae523c8fa120`, 1,377 facts. Same value on a fresh local PostgreSQL 16.14 and on Neon PostgreSQL 18.6 (the test site) | `npm run schema:fingerprint` |
