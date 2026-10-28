@@ -162,6 +162,24 @@ async function main() {
   const visit = await api("GET", `/api/appointments/${book.body?.id}`, t);
   step("the booked visit was cancelled by that choice", visit.status === 200 && /cancel/i.test(JSON.stringify(visit.body.status ?? visit.body)));
 
+  // --- 7b. the organization module, through the database's actor binding (skipped when the site has switched it off)
+  if (cfg.body?.features?.organizations !== false) {
+    const made = await api("POST", "/api/orgs", doctorToken, { name: `Journey Clinic ${run} (synthetic)`, kind: "clinic", country: "US", contactEmail: `front-${run}@staging.invalid`, contactPhone: "+1 555 010 2000" });
+    step("a clinician can create an organization", made.status === 201 && !!made.body?.id, `(${made.status})`);
+    const orgId = made.body?.id as string;
+    if (orgId) {
+      const staff = await api("GET", `/api/orgs/${orgId}/staff`, doctorToken);
+      step("its owner lists the members (the database checks the actor is a member)", staff.status === 200 && Array.isArray(staff.body?.members) && staff.body.members.length >= 1 && !!staff.body.members[0].email, `(${staff.status})`);
+      step("its owner opens the dashboard and the audit trail", (await api("GET", `/api/orgs/${orgId}/dashboard`, doctorToken)).status === 200 && (await api("GET", `/api/orgs/${orgId}/audit`, doctorToken)).status === 200);
+      for (const [label, who] of [["a patient", bob.token], ["another patient", outsider.token]] as const) {
+        const r = await api("GET", `/api/orgs/${orgId}/staff`, who);
+        step(`${label} who is not a member cannot list it`, r.status === 404 || r.status === 403, `(${r.status})`);
+        const t = await api("POST", `/api/orgs/${orgId}/tasks`, who, { patientUserId: bob.id, title: "forged" });
+        step(`${label} cannot create a task in it`, t.status === 404 || t.status === 403, `(${t.status})`);
+      }
+    }
+  }
+
   // --- 8. password recovery, as far as a test site without e-mail can go
   const known = await api("POST", "/api/auth/forgot-password", undefined, { email: alice.email });
   const unknown = await api("POST", "/api/auth/forgot-password", undefined, { email: `nobody-${run}@staging.invalid` });

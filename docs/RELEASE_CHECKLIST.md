@@ -9,7 +9,7 @@ assistant does nothing in production without them, and approval of one line is n
 | | Value | Evidence |
 | --- | --- | --- |
 | Branch / PR | `mission2/close-security-gaps`, PR #1 | `gh pr view 1` |
-| Candidate SHA | **Fill from `git rev-parse HEAD` at release time.** Last SHA with a green CI run recorded in this checklist: `3520f84` (CI run 40639795784: test, restricted-role, release-rehearsal all green). The test site runs `e27f605` (CI run 40632930476); nothing under `server/`, `client/`, `shared/` or `migrations/` differs between the two (only tooling, tests, documents). The release SHA must have **its own** green run | `gh run list --branch mission2/close-security-gaps` |
+| Candidate SHA | **Fill from `git rev-parse HEAD` at release time.** Last SHA with a green CI run recorded in this checklist: `b224027` (CI run 40648430310: test, restricted-role incl. the no-server-scope browser run, release-rehearsal all green; it includes migration 0030). The test site runs exactly `b224027`. The release SHA must have **its own** green run | `gh run list --branch mission2/close-security-gaps` |
 | Migrations, in order | 0024 → 0025 → 0026 → 0027 → 0028 → 0029 → 0030 | `ls migrations` |
 | Structure fingerprint **before** | `5dc5a2698a1e` (24 migrations) | `npm run schema:fingerprint` on production (pre-release read) |
 | Structure fingerprint **after** | `8065a842b3d2`, 1396 facts (migrations 0000-0030, fresh PostgreSQL 16.14; confirm the same value on Neon PostgreSQL 18.6 after the test site is redeployed). Through 0029 it was `ae523c8fa120`, identical on PostgreSQL 16.14 and on Neon 18.6 | `npm run schema:fingerprint` |

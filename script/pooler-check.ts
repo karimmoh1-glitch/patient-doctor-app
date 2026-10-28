@@ -13,22 +13,27 @@ import "dotenv/config";
 import pg from "pg";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../server/db";
-import { runAsNobody, runAsSystem, runAsUser } from "../server/dbContext";
+import { runAsNobody, runAsSystem, runAsUser, withScope } from "../server/dbContext";
 import { SYSTEM_SCOPES } from "../server/identity";
 
-type Who = { label: string; run: <T>(fn: () => Promise<T>) => Promise<T>; want: { u: string | null; s: string | null } };
+type Got = { u: string | null; s: string | null; a: string | null };
+type Who = { label: string; run: <T>(fn: () => Promise<T>) => Promise<T>; want: { u: string | null; s: string | null; a?: string | null } };
 const scopes = SYSTEM_SCOPES.filter((s) => s !== "server");
 // After `identity:enforce -- server-scope off` the database refuses the unrestricted scope, so a request that asks for it is nobody. That is the
 // correct answer in that configuration (and still must never be anybody else); say which configuration this database is in.
 const SERVER_REFUSED = process.env.POOLER_CHECK_SERVER_SCOPE === "refused";
 const person = (i: number): Who => ({ label: `user-${i}`, run: (fn) => runAsUser(`pooler-check-${i}`, fn), want: { u: `pooler-check-${i}`, s: null } });
-const roster = (n: number): Who[] =>
+// A person acting through an actor-bound scope (migration 0030): the database must see exactly that scope and exactly that person as the actor.
+const ACTING = ["orgmember", "review", "mfa"] as const;
+const acting = (i: number): Who => ({ label: `actor:${ACTING[i % 3]}`, run: (fn) => runAsUser(`pooler-check-${i}`, () => withScope(ACTING[i % 3], fn)), want: { u: null, s: ACTING[i % 3], a: `pooler-check-${i}` } });
+const roster = (n: number, withActors = false): Who[] =>
   Array.from({ length: n }, (_, i): Who =>
     i % 7 === 0 ? { label: "nobody", run: runAsNobody, want: { u: null, s: null } }
     : i % 7 === 1 ? { label: "server", run: (fn) => runAsSystem(fn), want: { u: null, s: SERVER_REFUSED ? null : "server" } }
     : i % 7 === 2 ? { label: `scope:${scopes[i % scopes.length]}`, run: (fn) => runAsSystem(fn, scopes[i % scopes.length] as any), want: { u: null, s: scopes[i % scopes.length] } }
+    : withActors && i % 7 === 3 ? acting(i)
     : person(i));
-const ask = () => pool.query("SELECT app_user_id() AS u, app_verified_scope() AS s").then((r) => ({ u: (r.rows[0].u as string | null) ?? null, s: (r.rows[0].s as string | null) ?? null }));
+const ask = (): Promise<Got> => pool.query("SELECT app_user_id() AS u, app_verified_scope() AS s, app_actor() AS a").then((r) => ({ u: (r.rows[0].u as string | null) ?? null, s: (r.rows[0].s as string | null) ?? null, a: (r.rows[0].a as string | null) ?? null }));
 const pct = (xs: number[], p: number) => xs.slice().sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))];
 
 /**
@@ -62,19 +67,22 @@ async function positiveControl(): Promise<{ clients: number; own: number; foreig
   return { clients, own, foreign, none };
 }
 
+const VERBOSE = process.env.POOLER_CHECK_VERBOSE === "1";
+const mark = (m: string) => { if (VERBOSE) console.log(`  [${new Date().toISOString().slice(11, 19)}] ${m}`); };
+
 async function main() {
   let wrong = 0;
   let served = 0;
   const byPhase = new Map<string, { served: number; wrong: number; sample: string }>();
   const phaseOf = (label: string) => (label.startsWith("sweep") ? label : label.replace(/-\d+$/, "").replace(/^scope:.*/, "scope"));
-  const check = (who: Who, got: { u: string | null; s: string | null }) => {
+  const check = (who: Who, got: Got) => {
     served++;
     const entry = byPhase.get(phaseOf(who.label)) ?? { served: 0, wrong: 0, sample: "" };
     entry.served++;
-    if (got.u !== who.want.u || got.s !== who.want.s) {
+    if (got.u !== who.want.u || got.s !== who.want.s || got.a !== (who.want.a ?? null)) {
       wrong++;
       entry.wrong++;
-      entry.sample ||= `wanted ${who.want.u ? "a person" : who.want.s ?? "nobody"}, got ${got.u ? "a person" : got.s ?? "nobody"}`;
+      entry.sample ||= `wanted ${who.want.u ? "a person" : who.want.s ?? "nobody"}${who.want.a ? " acting for a person" : ""}, got ${got.u ? "a person" : got.s ?? "nobody"}${got.a ? " acting for " + (got.a === who.want.a ? "the right person" : "ANOTHER person") : ""}`;
     }
     byPhase.set(phaseOf(who.label), entry);
   };
@@ -82,7 +90,8 @@ async function main() {
   const width = Number(process.env.POOLER_CHECK_WIDTH ?? 80);
   console.log(`Probing ${rounds} rounds of ${width} interleaved identities (people, narrow scopes, the server, nobody)…`);
   for (let r = 0; r < rounds; r++) {
-    const who = roster(width);
+    mark(`round ${r + 1}: interleaved identities`);
+    const who = roster(width, true);
     const got = await Promise.all(who.map((w) => w.run(ask)));
     got.forEach((g, i) => check(who[i], g));
     // Statements that end badly, then a sweep of the pool: no connection may keep an identity.
@@ -100,6 +109,7 @@ async function main() {
     ["constraint", (w) => w.run(() => pool.query("INSERT INTO users (id) VALUES (NULL)")).catch(() => {})],
   ];
   for (const [name, end] of endings) {
+    mark(`ending: ${name}`);
     for (let r = 0; r < Math.max(2, Math.floor(rounds / 4)); r++) {
       await Promise.all(roster(30).map(end));
       const sweep = await Promise.all(Array.from({ length: 24 }, () => runAsNobody(ask)));
@@ -107,6 +117,7 @@ async function main() {
     }
   }
   {
+    mark("retry phase");
     const who = roster(60);
     const seen = await Promise.all(
       who.map((w) => {
