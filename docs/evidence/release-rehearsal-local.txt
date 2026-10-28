@@ -1,0 +1,46 @@
+NOTICE:  database "avela_rehearsal_test" does not exist, skipping
+
+== 0. Production's state: migrations 0000-0023 on a scratch database, one synthetic patient and one synthetic clinician
+PASS  migrations applied (24)
+
+== A. NEW code on the OLD schema (what happens if the application is deployed before the migrations)
+PASS  sign-in is refused (not served) by the new code on the old schema (500)
+PASS  no session token in the answer (0)
+PASS  the server says why (log) (1)
+
+== B. OLD code (704b7df) on the NEW schema (what happens to the live release between the migration and the new deploy)
+TIME  0024_close_rls_gaps.sql applied in 329 ms
+TIME  0025_verified_identity.sql applied in 339 ms
+TIME  0026_private_account_columns.sql applied in 343 ms
+TIME  0027_connection_end_semantics.sql applied in 348 ms
+TIME  0028_scoped_system_identity.sql applied in 313 ms
+TIME  0029_narrow_server_scope.sql applied in 316 ms
+PASS  migrations recorded (30)
+PASS  old code, new schema, enforcement on, no key: sign-in does not succeed (1)
+PASS  no token or private value in the answer (0)
+PASS  old code's public directory shows no clinician (fails closed) (0)
+PASS  old code, new schema, enforcement OFF (roll-out state): still no sign-in (1)
+PASS  no token or private value in the answer (0)
+
+== C. NEW code on the NEW schema: key registered, enforcement on, the unrestricted server scope refused
+PASS  server scope switched off (f)
+PASS  enforcement on (t)
+PASS  sign-in works (200)
+PASS  the public directory answers (a clinician without a recorded licence check is not listed, by design) (200)
+PASS  an authenticated read of the person's own account works (200)
+PASS  and the response holds no password hash (0)
+PASS  readiness (200)
+PASS  database audit (1)
+
+== R. Rollback, newest first, then the OLD code on the old structure
+TIME  rollback 0029_narrow_server_scope: 54 ms (exit 0)
+TIME  rollback 0028_scoped_system_identity: 71 ms (exit 0)
+TIME  rollback 0027_connection_end_semantics: 58 ms (exit 0)
+TIME  rollback 0026_private_account_columns: 60 ms (exit 0)
+TIME  rollback 0025_verified_identity: 80 ms (exit 0)
+TIME  rollback 0024_close_rls_gaps: 43 ms (exit 0)
+PASS  migration records back to production's (24)
+PASS  old code signs in on the restored structure (200)
+
+== Result
+PASS: every intermediate state fails closed or serves correctly; the rollback restores the old behaviour.

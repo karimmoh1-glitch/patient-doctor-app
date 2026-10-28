@@ -78,6 +78,7 @@ function database() {
   report(audit.ok && /0 finding/.test(audit.out), "database access audit: no findings", (audit.out.match(/\d+ tables.*finding/) ?? [""])[0]);
   const keys = run("script/identity-keys.ts", ["status"]);
   report(/Enforcement: ON/.test(keys.out) && /active/.test(keys.out), "signed identities are enforced and a key is active");
+  report(/Unrestricted server scope: REFUSED/.test(keys.out), "the database refuses the unrestricted server scope (nothing in the application uses it)");
   const ready = run("script/verify-production.ts");
   const fails = (ready.out.match(/^FAIL .*/gm) ?? []).map((l) => l.slice(0, 120));
   console.log(`INFO  verify:production blockers (${fails.length}): ${fails.join(" | ") || "none"}`);

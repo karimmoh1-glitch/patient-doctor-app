@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { videoAvailable } from "./videoService";
 import { attestedSourceNames } from "./schedulerRun";
 
@@ -32,7 +32,7 @@ const num = async (query: ReturnType<typeof sql>): Promise<number> => {
 const DEPENDABLE_DAYS = 7;
 
 export async function integrationRegistry(env: NodeJS.ProcessEnv = process.env): Promise<Integration[]> {
-  return runAsSystem(async () => {
+  return withScope("ops", async () => {
     const out: Integration[] = [];
 
     // ---- E-mail

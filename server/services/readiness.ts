@@ -1,5 +1,5 @@
 import { emergencyDataReviewed } from "./emergencyInfo";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { attestedSourceNames } from "./schedulerRun";
 export interface Check {
   id: string;
@@ -20,7 +20,7 @@ interface Queryable {
 export function checkReadiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]> {
   // These are counts over every account and every scheduler call. Through the restricted role with nobody established they
   // would all read zero (row-level security), and "no demo account is active" would pass for the wrong reason.
-  return runAsSystem(() => readiness(env, db));
+  return withScope("ops", () => readiness(env, db));
 }
 
 async function readiness(env: NodeJS.ProcessEnv, db: Queryable): Promise<Check[]> {

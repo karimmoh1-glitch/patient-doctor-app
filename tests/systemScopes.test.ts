@@ -109,8 +109,8 @@ describe("what each scope is allowed, as the database stands", () => {
     const matrix: [string, string, unknown[], SystemScope[]][] = [
       ["credentials by e-mail", "SELECT * FROM app_user_credentials($1)", [person.email], ["auth", "invite", "server"]],
       ["credentials by id", "SELECT * FROM app_user_credentials_by_id($1)", [person.id], ["auth", "server"]],
-      ["private profile", "SELECT * FROM app_user_private($1)", [person.id], ["auth", "invite", "scheduler", "server"]],
-      ["contacts", "SELECT * FROM app_user_contacts($1::text[])", [[person.id]], ["scheduler", "invite", "server"]],
+      ["private profile", "SELECT * FROM app_user_private($1)", [person.id], ["auth", "invite", "scheduler", "contact", "server"]],
+      ["contacts", "SELECT * FROM app_user_contacts($1::text[])", [[person.id]], ["scheduler", "invite", "contact", "staff", "server"]],
     ];
     for (const [what, sql, params, allowed] of matrix) {
       for (const scope of SYSTEM_SCOPES) expect(await callable(scope, sql, params), `${what} as ${scope}`).toBe(allowed.includes(scope));

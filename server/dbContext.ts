@@ -63,7 +63,36 @@ export const runAsSystem = <T>(fn: () => T, scope?: SystemScope): T => {
   const inherited = current?.system ? current.scope : undefined;
   // Code running in a narrow scope can name another narrow scope, never the unrestricted one.
   if (inherited && inherited !== "server" && scope === "server") throw new Error(`The ${inherited} scope cannot widen itself to the server scope`);
+  // The unrestricted scope exists for the test suite and nothing else: the application never asks for it (docs/SERVER_SCOPE_INVENTORY.md).
+  if (!(scope ?? inherited ?? "").replace("server", "") && process.env.NODE_ENV === "production") throw new Error("A system identity must name a narrow scope");
   return scoped({ system: true, scope: scope ?? inherited }, fn);
+};
+
+/**
+ * The scopes a request that entered on one of the public or background entry scopes may switch to for a small job. Each is a subset of what
+ * the entry scope can already do, so switching only narrows (tests/narrowScopes.test.ts checks that against the database). Anything else
+ * the entry scope's code asks for stays in the entry scope: an unauthenticated route can never be moved onto a wider scope by a helper.
+ */
+export const ENTRY_MAY_USE: Readonly<Record<string, readonly SystemScope[]>> = {
+  auth: ["mfa", "mail", "verify"],
+  invite: ["contact"],
+  session: [],
+  scheduler: ["mail", "notify", "contact"],
+  webhook: [],
+  ratelimit: [],
+};
+
+/**
+ * For a helper that needs system access for one small job after its caller has done the permission check. The helper names the narrow scope
+ * that job needs and gets exactly that, whatever scope a signed-in caller was in (a block-list lookup inside an invitation redeem must be able to
+ * see the block list: staying in the caller's narrower scope would show it nothing, and "no rows" reads as "not blocked"). Inside an entry
+ * scope (sign-in, invitations, the scheduler) it can only narrow, see ENTRY_MAY_USE. There is no form that asks for the unrestricted "server" scope.
+ */
+export const withScope = <T>(scope: Exclude<SystemScope, "server">, fn: () => T): T => {
+  const current = store.getStore();
+  const entry = current?.system && current.scope && current.scope in ENTRY_MAY_USE ? current.scope : undefined;
+  const use = entry && entry !== scope && !ENTRY_MAY_USE[entry].includes(scope) ? entry : scope;
+  return scoped({ system: true, scope: use }, fn);
 };
 
 /** Makes the rest of the current request this person. Called once, by the authentication step. */

@@ -16,7 +16,7 @@ import { sendPasswordResetEmail, sendEmailVerificationEmail } from "../services/
 import { z } from "zod";
 import { fixtureAccountsAllowed } from "../config";
 import { systemAccess } from "../middleware/systemAccess";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 
 const router = Router();
 
@@ -77,7 +77,7 @@ router.post("/email/verify/request", requireAuth, verifyRequestLimiter, async (r
   if (user.emailVerifiedAt) return res.json({ verified: true, sent: false });
   const { token, tokenHash } = generateSecureToken();
   // The token table is system-only: the person never reads or writes it themselves.
-  await runAsSystem(() => storage.createEmailVerificationToken(user.id, tokenHash, new Date(Date.now() + 60 * 60 * 1000)));
+  await withScope("verify", () => storage.createEmailVerificationToken(user.id, tokenHash, new Date(Date.now() + 60 * 60 * 1000)));
   const appUrl = (process.env.APP_URL || "http://localhost:3001").replace(/\/$/, "");
   // The token travels in the fragment, so opening the link sends it to no server.
   const sent = await sendEmailVerificationEmail(user.email, user.name, `${appUrl}/verify-email#${token}`, normalizeLang(user.language)).catch(() => false);
@@ -90,7 +90,7 @@ router.post("/email/verify", systemAccess("auth"), authLimiter, async (req, res)
   const tokenHash = hashToken(token);
   const row = await storage.getEmailVerificationTokenByHash(tokenHash);
   if (!row || row.used || row.expiresAt.getTime() < Date.now()) return res.status(404).json({ message: "That link isn't valid or has expired." });
-  await storage.markEmailVerificationTokenUsed(row.id);
+  if (!(await storage.claimEmailVerificationToken(row.id))) return res.status(404).json({ message: "That link isn't valid or has expired." });
   await storage.confirmUserEmail(row.userId);
   await logAudit({ actorUserId: row.userId, action: "account.email_confirmed", targetType: "user", targetId: row.userId, subjectUserId: row.userId });
   res.json({ verified: true });
@@ -304,6 +304,10 @@ router.post("/reset-password", systemAccess("auth"), authLimiter, async (req, re
   const weak = weakPasswordReason(password, { email: user.email, name: user.name });
   if (weak) return res.status(400).json({ message: weak });
   const passwordHash = await bcrypt.hash(password, 10);
+  // Spend the link before using it, in one step: two simultaneous requests with the same link cannot both pass.
+  if (!(await storage.claimPasswordResetToken(resetToken.id))) {
+    return res.status(400).json({ message: "This reset link is invalid or has expired" });
+  }
   await storage.updateUserPassword(user.id, passwordHash);
   // One link, one use: this and every other link sent for this address stop working.
   await storage.invalidatePasswordResetTokens(resetToken.email);

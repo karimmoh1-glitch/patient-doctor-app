@@ -10,6 +10,7 @@
  *   npm run identity:key -- status                               which keys exist, which are retired, and whether enforcement is on
  *   npm run identity:key -- retire --kid=k1                      stop accepting a key (do this only after the application uses a newer one)
  *   npm run identity:enforce -- on|off                           honour only signed assertions (on) or also the old plain settings (off)
+ *   npm run identity:enforce -- server-scope on|off              allow the unrestricted "server" scope (on) or refuse it for good (off): the application no longer uses it
  *
  * Rotation: generate a new key (the database now accepts both), set IDENTITY_KEY_ID/IDENTITY_KEY on the host to the new one and redeploy,
  * confirm requests work, then retire the old key.
@@ -69,6 +70,14 @@ async function main() {
     if (!r.rowCount) throw new Error("No active key with that id.");
     await pool.query("INSERT INTO audit_logs (action, target_type, metadata) VALUES ('identity.key_retired', 'system', $1)", [JSON.stringify({ kid, operator: process.env.USER ?? "unknown" })]);
     console.log(`Retired ${kid}.`);
+  } else if (command === "enforce" && process.argv.slice(2).filter((a) => !a.startsWith("--"))[1] === "server-scope") {
+    const mode = process.argv.slice(2).filter((a) => !a.startsWith("--"))[2];
+    if (mode !== "on" && mode !== "off") throw new Error("Say `on` or `off`.");
+    const cfg = (await pool.query("SELECT enforce FROM app_identity_config")).rows[0];
+    if (mode === "off" && !cfg?.enforce) throw new Error("Turn identity enforcement on first: while it is off the old plain settings are honoured too.");
+    await pool.query("UPDATE app_identity_config SET allow_server_scope = $1, updated_at = now()", [mode === "on"]);
+    await pool.query("INSERT INTO audit_logs (action, target_type, metadata) VALUES ('identity.server_scope', 'system', $1)", [JSON.stringify({ mode, operator: process.env.USER ?? "unknown" })]);
+    console.log(`The unrestricted server scope is now ${mode === "on" ? "allowed" : "refused by the database"}.`);
   } else if (command === "enforce") {
     const mode = process.argv.slice(2).filter((a) => !a.startsWith("--"))[1];
     if (mode !== "on" && mode !== "off") throw new Error("Say `on` or `off`.");
@@ -79,8 +88,9 @@ async function main() {
     console.log(`Identity enforcement is now ${mode}.`);
   } else {
     const { rows } = await pool.query("SELECT kid, created_at, retired_at FROM app_identity_keys ORDER BY created_at");
-    const cfg = (await pool.query("SELECT enforce, max_ttl_seconds FROM app_identity_config")).rows[0];
+    const cfg = (await pool.query("SELECT enforce, max_ttl_seconds, allow_server_scope FROM app_identity_config")).rows[0];
     console.log(`Enforcement: ${cfg?.enforce ? "ON (only signed assertions are honoured)" : "OFF (plain settings are still honoured: roll-out/rollback state)"}; accepted lifetime ${cfg?.max_ttl_seconds}s`);
+    console.log(`Unrestricted server scope: ${cfg?.allow_server_scope === false ? "REFUSED by the database" : "allowed"}`);
     for (const r of rows) console.log(`  ${r.kid}  created ${new Date(r.created_at).toISOString()}  ${r.retired_at ? `retired ${new Date(r.retired_at).toISOString()}` : "active"}`);
     if (!rows.length) console.log("  (no keys registered)");
   }

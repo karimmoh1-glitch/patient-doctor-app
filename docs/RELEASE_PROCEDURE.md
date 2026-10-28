@@ -1,7 +1,7 @@
-# Release procedure: moving production from 704b7df to the Mission 4 candidate
+# Release procedure: moving production from 704b7df to the Mission 5 candidate
 
 Status: **prepared, not executed.** Nothing below has been run against production. Every step marked **[owner]** needs the owner's authorization or credentials.
-This release changes the database in five ways at once (migrations 0024-0028) and the application with it; the live release (704b7df) is **not compatible**
+This release changes the database in six ways at once (migrations 0024-0029) and the application with it; the live release (704b7df) is **not compatible**
 with the migrated database, and the new release will not serve without its identity key. The procedure therefore uses a short **maintenance window**, justified only
 because production holds no real users (verified below, not assumed).
 
@@ -11,7 +11,7 @@ because production holds no real users (verified below, not assumed).
 | --- | --- |
 | Candidate | the tip of branch `mission2/close-security-gaps` (PR #1). Record the exact SHA: `git rev-parse HEAD` |
 | CI | must be green **on that SHA** (`gh run list --branch mission2/close-security-gaps`); an older green run does not count |
-| Migrations | 0024 close RLS gaps · 0025 verified identity · 0026 private account columns · 0027 connection-end semantics · 0028 scoped system identities (each idempotent; each has `ops/rollback/*.down.sql`; as a chain they restore production's exact current structure: `tests/migrationChain.test.ts`; 0028 alone: `npm run migration:rehearse -- 0028_scoped_system_identity.sql`, exact rollback proven) |
+| Migrations | 0024 close RLS gaps · 0025 verified identity · 0026 private account columns · 0027 connection-end semantics · 0028 scoped system identities · 0029 narrow server scope (eleven more scopes, the switch that makes the database refuse the unrestricted one) (each idempotent; each has `ops/rollback/*.down.sql`; as a chain they restore production's exact current structure: `tests/migrationChain.test.ts`; 0028 alone: `npm run migration:rehearse -- 0028_scoped_system_identity.sql`, exact rollback proven) |
 | Environment variables, by name | **new, required**: `IDENTITY_KEY_ID`, `IDENTITY_KEY` · **new, optional**: `CRON_SECRET_CLOUDFLARE`, `MFA_ENCRYPTION_KEY_PREVIOUS` · **existing**: `DATABASE_URL` (owner), `APP_DATABASE_URL`, `DB_ENFORCE_RLS=on`, `JWT_SECRET`, `MFA_ENCRYPTION_KEY`, `APP_URL`, `CRON_SECRET`, `EMERGENCY_DATA_REVIEWED_*` (absent on purpose) · **absent**: `DEMO_MODE`, `DEMO_MODE_ACKNOWLEDGED`, `ALLOW_OWNER_DATABASE_ROLE` |
 | Why a window | 0026 withdraws columns the old code reads (it would fail on sign-in); 0024 empties the old code's directory; the new code refuses to start until the database recognises its key; 0028 makes `app_is_system()` mean only the unrestricted `server` scope, so an application release that signs unscoped system assertions (anything before the Mission 4 candidate) sees no clinical data after it. The Mission 3 candidate (e90ff77) is therefore **not** compatible with 0028 either: deploy the Mission 4 candidate. |
 
@@ -41,15 +41,24 @@ DATABASE_URL="$OWNER_DATABASE_URL" npm run db:migrate && npm run audit:db   # fo
 npm run identity:key -- generate --kid=rehearsal                    # registers a key on the BRANCH and writes it to a mode-600 file
 # the pooled runtime URL of the branch (Neon console: branch > Connection details > Pooled connection, role avela_runtime) goes into APP_DATABASE_URL for this shell
 DATABASE_URL="$OWNER_DATABASE_URL" DB_ENFORCE_RLS=on npm run pooler:check   # (APP_DATABASE_URL = the pooled runtime url) PASS and 0 crossings; latency numbers are the cost to record
-npm run identity:enforce -- on && npm run audit:db
+npm run identity:enforce -- on && npm run identity:enforce -- server-scope off && npm run audit:db
 npm run migration:rehearse -- 0028_scoped_system_identity.sql       # (uses a local scratch database; repeat the chain test there with the provider's server version if a scratch Neon database is available)
 # rollback rehearsal, newest first, then compare:
-for f in 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f ops/rollback/$f.down.sql; done
+for f in 0029_narrow_server_scope 0028_scoped_system_identity 0027_connection_end_semantics 0026_private_account_columns 0025_verified_identity 0024_close_rls_gaps; do psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f ops/rollback/$f.down.sql; done
 npm run schema:fingerprint                                          # must be 5dc5a2698a1e again
 npx neonctl branches delete rehearse-$(date +%Y%m%d) --project-id <id>
 ```
 
 What this answers that the local rehearsal cannot: that the SQL runs on the provider's PostgreSQL major version; that the pooler does not cross identities with the real application pool; the migration's wall-clock time and locks; and the price of the two extra round trips per statement against a remote database.
+
+### 1.4 What the local rehearsal already shows (`ops/release-rehearsal.sh`, scratch database, synthetic data, real servers)
+
+Run it again on any machine with PostgreSQL: `bash ops/release-rehearsal.sh`. It starts the **new** code on production's **old** schema (it refuses to serve: sign-in 500, no token, the log says the database does not recognise
+the key), the **old** code (704b7df) on the **new** schema with enforcement on and off (sign-in does not succeed, no token or private value in any answer, the public directory is empty: it fails closed, it does not
+leak), the new code on the new schema with the key registered, enforcement on and the unrestricted scope refused (serves), the six migrations timed one by one, and the rollback chain newest first followed by the old code
+on the restored structure (signs in again). The unsafe-looking intermediate state is therefore *unavailable*, not dangerous: between the migration and the deploy the live site cannot sign anyone in, which is why §3 is a window.
+**Measured locally** (PostgreSQL 16, a nearly empty database, the file `docs/evidence/release-rehearsal-local.txt`): the six migrations took 0024 329 ms, 0025 339 ms, 0026 343 ms, 0027 348 ms, 0028 313 ms, 0029 316 ms (total 1988 ms; each figure includes starting the TypeScript runner, which dominates, so the SQL itself took less); the six rollbacks 0029 54 ms, 0028 71 ms, 0027 58 ms, 0026 60 ms, 0025 80 ms, 0024 43 ms (total 366 ms). These are the cost of the SQL on an empty database, not of a production-sized one or a remote one; locks were not observed locally (the migrations only touch catalog objects and brief table locks). `npm run pooler:check` locally: 2,080 requests, 0 under the wrong identity, `SELECT 1` p50 0.1 ms with or without an identity (a local socket: the two extra round trips per statement cost nothing there and will cost real milliseconds over the network). **Not measured**: anything on the provider (migration time and locks on a production-sized database, the pooler, the latency of the two extra round trips). That run is BLOCKED (`docs/OWNER_ACTIONS.md` step 2).
+This is PostgreSQL 16 on a laptop; the provider run in §1.3 repeats it on PostgreSQL 18 through the pooler.
 
 ## 2. Prepare (changes nothing the live release can notice) **[owner]**
 
@@ -70,7 +79,7 @@ Start a clock; the goal is under ten minutes. Everything between "migrate" and "
 
 | # | Step | Expect | Stop condition → go to |
 | --- | --- | --- | --- |
-| 3.1 | `DATABASE_URL=<owner url> npm run db:migrate` (from a network that reaches Neon over TCP, or through the WebSocket driver pattern, runbook §11) | `Applied: 0024…, 0025…, 0026…, 0027…, 0028…` | any error → §6A |
+| 3.1 | `DATABASE_URL=<owner url> npm run db:migrate` (from a network that reaches Neon over TCP, or through the WebSocket driver pattern, runbook §11) | `Applied: 0024…, 0025…, 0026…, 0027…, 0028…, 0029…` | any error → §6A |
 | 3.2 | `DATABASE_URL=<owner url> npm run identity:key -- register --from=$HOME/.avela-secrets/identity-release` | `Registered key …` | error → §6A |
 | 3.3 | `DATABASE_URL=<owner url> npm run audit:db` | `0 finding(s)` | any finding → §6B |
 | 3.4 | `npx vercel deploy --prod --yes --scope karims-projects-54b12a26 --build-env BUILD_COMMIT=$(git rev-parse HEAD)` | build ok (the build's `db:migrate` is a no-op), deployment ready | build or start failure → §6B |
@@ -79,6 +88,7 @@ Start a clock; the goal is under ten minutes. Everything between "migrate" and "
 | 3.7 | In a browser, as a synthetic patient created for the purpose **[owner approves creating it]**: sign up, request the first listed doctor if any, open settings; check the Vercel runtime log for errors (`npx vercel logs --query 'level:error'`) | works; no 5xx | errors → §6B |
 | 3.8 | `DATABASE_URL=<owner url> npm run identity:enforce -- on`, then repeat 3.5 and 3.6 | `Enforcement: ON`, all PASS | any FAIL → `npm run identity:enforce -- off` first (instant), then §6B |
 | 3.8b | `APP_DATABASE_URL=<the POOLED runtime url> DB_ENFORCE_RLS=on IDENTITY_KEY_ID=… IDENTITY_KEY=… npm run pooler:check` (from a trusted shell, key from the file, never typed) | `PASS`, `0 under the wrong identity`, latency printed | any wrong identity → `identity:enforce -- off` is NOT a fix; roll back (§6B) |
+| 3.8c | `DATABASE_URL=<owner url> npm run identity:enforce -- server-scope off`, then repeat 3.5 and 3.6 | `The unrestricted server scope is now refused by the database`, all PASS (`release:verify` now checks it) | any FAIL → `identity:enforce -- server-scope on` first (instant), then §6B |
 | 3.9 | `DATABASE_URL=<owner url> npm run schema:fingerprint` and record it as the new baseline; confirm the live app connects as `avela_runtime` (`SELECT usename FROM pg_stat_activity` shows it after a request) | recorded | mismatch with the rehearsal's post-state → investigate before opening the window's end |
 
 The window ends after 3.8. Record: SHA, CI run id, the pre-release branch id, the fingerprints, and the time taken for each step.
@@ -99,7 +109,7 @@ An error from a migration · `audit:db` finding · the new release refusing to s
 ## 6. Recovery (choose by what failed; never switch the application to the owner role)
 
 * **A. A migration failed.** Each file runs in its own transaction, so the failing file left nothing and earlier files stay. Read the error; fix forward with a new migration, or, to return to the starting structure,
-  run the rollback scripts for the files that did apply, **newest first**: `psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f ops/rollback/0028_scoped_system_identity.down.sql`, then 0027, 0026, 0025, 0024. Verify `schema:fingerprint` = `5dc5a2698a1e`. The live release (704b7df) works against that structure again.
+  run the rollback scripts for the files that did apply, **newest first**: `psql "$OWNER_DATABASE_URL" -v ON_ERROR_STOP=1 -f ops/rollback/0029_narrow_server_scope.down.sql`, then 0028, 0027, 0026, 0025, 0024. Verify `schema:fingerprint` = `5dc5a2698a1e`. The live release (704b7df) works against that structure again.
 * **B. The new release misbehaves (does not start, refuses requests, fails checks).** Fastest: `npm run identity:enforce -- off` if it is only the identity gate; otherwise fix forward (register the key, correct a variable, redeploy). If it cannot be fixed within the window: `npx vercel rollback` to 704b7df **and** run the rollback chain of option A (the old code needs the old structure). Order: roll the application back first, then the database, so the old code is never left on the new structure for long.
 * **C. Data concern or an unexplained failure.** Roll back application and database as in B; if the database is in doubt, restore from `pre-release-<date>` into a **new** branch, verify with `schema:fingerprint`/`audit:db`, and repoint the application (`DATABASE_URL`/`APP_DATABASE_URL`) deliberately. Never restore over production in place.
 * **Limits of the rollback.** The rollback scripts restore *structure* exactly (proven) and read or change no row. Rows written by the new release in the window (a synthetic patient) stay, and the old code can read them. `audit_logs` is append-only and keeps its entries. Identity keys are removed with 0025's rollback; the host's `IDENTITY_KEY*` variables become inert.

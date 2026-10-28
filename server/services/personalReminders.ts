@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { DateTime } from "luxon";
 import { z } from "zod";
 import { db } from "../db";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { fixtureAccountsAllowed } from "../config";
 import { storage } from "../storage";
 import { healthEntries, notifications, personalReminderDeliveries, personalReminders, users, PERSONAL_KINDS, type PersonalKind, type PersonalReminder } from "@shared/schema";
@@ -280,7 +280,7 @@ export async function dispatchPersonalReminders(now: Date, opts: { lookbackMinut
   const from = new Date(now.getTime() - lookback * 60_000);
   const result: PersonalDispatchResult = { considered: 0, due: 0, inApp: 0, emailSent: 0, emailFailed: 0, emailSuppressed: 0, emailRetried: 0, errors: 0, truncated: false };
 
-  return runAsSystem(async () => {
+  return withScope("scheduler", async () => {
     const rows = await db
       .select({ r: personalReminders, emailVerifiedAt: users.emailVerifiedAt, language: users.language })
       .from(personalReminders)
@@ -375,7 +375,7 @@ export async function dispatchPersonalReminders(now: Date, opts: { lookbackMinut
 export async function overdueCount(now = new Date()): Promise<number> {
   const since = new Date(now.getTime() - 24 * 3_600_000);
   const cutoff = new Date(now.getTime() - LOOKBACK_MINUTES * 60_000);
-  return runAsSystem(async () => {
+  return withScope("ops", async () => {
     const rows = await db.select().from(personalReminders).where(eq(personalReminders.status, "active"));
     const delivered = new Set((await db.select().from(personalReminderDeliveries).where(and(eq(personalReminderDeliveries.channel, "in_app"), sql`${personalReminderDeliveries.dueAt} > ${since}`))).map((d) => `${d.reminderId}|${d.dueAt.getTime()}`));
     let n = 0;

@@ -5,7 +5,7 @@ export interface ApprovalCredential { source: "document_review" | "registry_look
 
 export type PairingStatus = "requested" | "accepted" | "declined" | "cancelled" | "ended";
 import { db } from "./db";
-import { runAsSystem, enforcementEnabled } from "./dbContext";
+import { withScope, enforcementEnabled } from "./dbContext";
 import { fixtureAccountsAllowed } from "./config";
 import {
   users, usersFull, userDevices, passwordResetTokens, emailVerificationTokens, auditLogs,
@@ -48,6 +48,7 @@ export interface IStorage {
   /** The person's own account, without the password hash (themself, the server, or a clinician they authorised: the database decides; a clinician gets no e-mail or phone). */
   getUserPrivate(id: string): Promise<UserPrivate | undefined>;
   /** The whole row including the password hash, found by e-mail address: the server's sign-in and recovery steps only (the database refuses anyone else). */
+  findAccountIdByEmail(email: string): Promise<string | undefined>;
   getUserByEmail(email: string): Promise<UserWithCredentials | undefined>;
   getUserWithCredentials(id: string): Promise<UserWithCredentials | undefined>;
   /** Name, language and e-mail address of people the server must write to. Server only. */
@@ -66,6 +67,8 @@ export interface IStorage {
   createPasswordResetToken(email: string, tokenHash: string, expiresAt: Date): Promise<PasswordResetToken>;
   getPasswordResetTokenByHash(tokenHash: string): Promise<PasswordResetToken | undefined>;
   markPasswordResetTokenUsed(id: string): Promise<void>;
+  claimPasswordResetToken(id: string): Promise<boolean>;
+  claimEmailVerificationToken(id: string): Promise<boolean>;
 
   createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<EmailVerificationToken>;
   getEmailVerificationTokenByHash(tokenHash: string): Promise<EmailVerificationToken | undefined>;
@@ -322,6 +325,13 @@ export class DbStorage implements IStorage {
     return enforcementEnabled() ? this.userFn(sqlOp`SELECT * FROM app_user_credentials(${email})`) : this.userDirect(sqlOp`lower(${usersFull.email}) = ${email.trim().toLowerCase()}`);
   }
 
+  /** Whether an account with this address exists, and its id: no hash, no other column (organization invitations need nothing more). */
+  async findAccountIdByEmail(email: string): Promise<string | undefined> {
+    if (enforcementEnabled()) return ((await db.execute(sqlOp`SELECT app_account_id_by_email(${email}) AS id`)).rows[0] as { id: string | null } | undefined)?.id ?? undefined;
+    const [row] = await db.select({ id: usersFull.id }).from(usersFull).where(sqlOp`lower(${usersFull.email}) = ${email.trim().toLowerCase()}`);
+    return row?.id;
+  }
+
   async getUserWithCredentials(id: string): Promise<UserWithCredentials | undefined> {
     return enforcementEnabled() ? this.userFn(sqlOp`SELECT * FROM app_user_credentials_by_id(${id})`) : this.userDirect(eq(usersFull.id, id));
   }
@@ -411,6 +421,12 @@ export class DbStorage implements IStorage {
     await db.update(passwordResetTokens).set({ used: true }).where(eq(passwordResetTokens.id, id));
   }
 
+  /** Spends a reset link, atomically: of any number of simultaneous requests carrying the same link, exactly one gets true. */
+  async claimPasswordResetToken(id: string): Promise<boolean> {
+    const rows = await db.update(passwordResetTokens).set({ used: true }).where(and(eq(passwordResetTokens.id, id), eq(passwordResetTokens.used, false))).returning({ id: passwordResetTokens.id });
+    return rows.length === 1;
+  }
+
   async createEmailVerificationToken(userId: string, tokenHash: string, expiresAt: Date): Promise<EmailVerificationToken> {
     const [token] = await db.insert(emailVerificationTokens).values({ userId, tokenHash, expiresAt, used: false }).returning();
     return token;
@@ -423,6 +439,11 @@ export class DbStorage implements IStorage {
 
   async confirmUserEmail(userId: string): Promise<void> {
     await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, userId));
+  }
+
+  async claimEmailVerificationToken(id: string): Promise<boolean> {
+    const rows = await db.update(emailVerificationTokens).set({ used: true }).where(and(eq(emailVerificationTokens.id, id), eq(emailVerificationTokens.used, false))).returning({ id: emailVerificationTokens.id });
+    return rows.length === 1;
   }
 
   async markEmailVerificationTokenUsed(id: string): Promise<void> {
@@ -543,7 +564,7 @@ export class DbStorage implements IStorage {
 
   async approveDoctorApplication(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential) {
     // The administrator acts on someone else's account, and the credential tables are written only with system access.
-    return runAsSystem(() => this.approveDoctorApplicationUnscoped(applicationId, reviewerUserId, timezone, credential));
+    return withScope("review", () => this.approveDoctorApplicationUnscoped(applicationId, reviewerUserId, timezone, credential));
   }
 
   private async approveDoctorApplicationUnscoped(applicationId: string, reviewerUserId: string, timezone: string, credential: ApprovalCredential) {
@@ -607,7 +628,7 @@ export class DbStorage implements IStorage {
 
   // An administrator acting on someone else's account: it ends that doctor's sessions, which are theirs.
   async suspendDoctor(applicationId: string, reviewerUserId: string, reason?: string) {
-    return runAsSystem(() => this.suspendDoctorUnscoped(applicationId, reviewerUserId, reason));
+    return withScope("review", () => this.suspendDoctorUnscoped(applicationId, reviewerUserId, reason));
   }
 
   private async suspendDoctorUnscoped(applicationId: string, reviewerUserId: string, reason?: string) {
@@ -869,7 +890,7 @@ export class DbStorage implements IStorage {
 
   // Reviewing reports is an administrator's job and sees only what the reporter chose to attach.
   async listMessageReports(status: "open" | "resolved") {
-    return runAsSystem(async () => {
+    return withScope("review", async () => {
       const rows = await db
         .select({ report: messageReports, reporterName: users.name })
         .from(messageReports)
@@ -882,7 +903,7 @@ export class DbStorage implements IStorage {
   }
 
   async resolveMessageReport(id: string, adminUserId: string, note: string | null) {
-    return runAsSystem(async () => {
+    return withScope("review", async () => {
       const [row] = await db
         .update(messageReports)
         .set({ status: "resolved", resolvedByUserId: adminUserId, resolvedAt: new Date(), resolutionNote: note })
@@ -898,7 +919,7 @@ export class DbStorage implements IStorage {
 
   // Whether either person has blocked the other. Asked about someone else's block list, so it is a server check.
   async isBlockedEitherWay(a: string, b: string) {
-    return runAsSystem(async () => {
+    return withScope("blocks", async () => {
       const rows = await db
         .select({ x: userBlocks.blockerUserId })
         .from(userBlocks)
@@ -1278,7 +1299,7 @@ export class DbStorage implements IStorage {
 
   // --- Multi-factor sign-in (always system access) ---
   async getMfa(userId: string) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const [row] = await db.select().from(userMfa).where(eq(userMfa.userId, userId));
       return row
         ? { secretCiphertext: row.secretCiphertext, pending: row.pending, enabledAt: row.enabledAt, lastUsedStep: row.lastUsedStep, failedAttempts: row.failedAttempts, lockedUntil: row.lockedUntil }
@@ -1287,7 +1308,7 @@ export class DbStorage implements IStorage {
   }
 
   async beginMfaEnrollment(userId: string, secretCiphertext: string) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       // Only an enrolment that is not finished may be (re)started; a working second factor is never replaced this way.
       const res = await db.execute(sqlOp`
         INSERT INTO user_mfa (user_id, secret_ciphertext) VALUES (${userId}, ${secretCiphertext})
@@ -1299,7 +1320,7 @@ export class DbStorage implements IStorage {
   }
 
   async enableMfa(userId: string, step: number) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const rows = await db.update(userMfa)
         .set({ pending: false, enabledAt: new Date(), lastUsedStep: step, failedAttempts: 0, lockedUntil: null, updatedAt: new Date() })
         .where(and(eq(userMfa.userId, userId), eq(userMfa.pending, true)))
@@ -1309,7 +1330,7 @@ export class DbStorage implements IStorage {
   }
 
   async recordMfaSuccess(userId: string, step: number, allowReuse: boolean) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const res = await db.execute(allowReuse
         ? sqlOp`UPDATE user_mfa SET last_used_step = GREATEST(last_used_step, ${step}), failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE user_id = ${userId} RETURNING user_id`
         : sqlOp`UPDATE user_mfa SET last_used_step = ${step}, failed_attempts = 0, locked_until = NULL, updated_at = now() WHERE user_id = ${userId} AND last_used_step < ${step} RETURNING user_id`);
@@ -1318,7 +1339,7 @@ export class DbStorage implements IStorage {
   }
 
   async recordMfaFailure(userId: string, now: Date, maxAttempts: number, lockMinutes: number) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const res = await db.execute(sqlOp`
         UPDATE user_mfa SET
           failed_attempts = failed_attempts + 1,
@@ -1332,11 +1353,11 @@ export class DbStorage implements IStorage {
   }
 
   async clearMfaFailures(userId: string) {
-    await runAsSystem(() => db.update(userMfa).set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() }).where(eq(userMfa.userId, userId)));
+    await withScope("mfa", () => db.update(userMfa).set({ failedAttempts: 0, lockedUntil: null, updatedAt: new Date() }).where(eq(userMfa.userId, userId)));
   }
 
   async replaceRecoveryCodes(userId: string, hashes: string[]) {
-    await runAsSystem(() =>
+    await withScope("mfa", () =>
       db.transaction(async (tx) => {
         await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
         if (hashes.length) await tx.insert(mfaRecoveryCodes).values(hashes.map((codeHash) => ({ userId, codeHash })));
@@ -1345,7 +1366,7 @@ export class DbStorage implements IStorage {
   }
 
   async consumeRecoveryCode(userId: string, hash: string | string[]) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const hashes = Array.isArray(hash) ? hash : [hash];
       const rows = await db.update(mfaRecoveryCodes)
         .set({ usedAt: new Date() })
@@ -1356,14 +1377,14 @@ export class DbStorage implements IStorage {
   }
 
   async countRecoveryCodes(userId: string) {
-    return runAsSystem(async () => {
+    return withScope("mfa", async () => {
       const [row] = await db.select({ n: sqlOp<number>`count(*)::int` }).from(mfaRecoveryCodes).where(and(eq(mfaRecoveryCodes.userId, userId), isNull(mfaRecoveryCodes.usedAt)));
       return row?.n ?? 0;
     });
   }
 
   async resetMfa(userId: string) {
-    await runAsSystem(() =>
+    await withScope("mfa", () =>
       db.transaction(async (tx) => {
         await tx.delete(mfaRecoveryCodes).where(eq(mfaRecoveryCodes.userId, userId));
         await tx.delete(userMfa).where(eq(userMfa.userId, userId));
@@ -1403,7 +1424,7 @@ export class DbStorage implements IStorage {
   // Asked about another person's notices (to avoid sending a second "new message" nudge), so it is a
   // server check, not something the asking person may read for themselves.
   async hasUnreadNotification(userId: string, kind: string, link: string) {
-    return runAsSystem(() => this.hasUnreadNotificationUnscoped(userId, kind, link));
+    return withScope("notify", () => this.hasUnreadNotificationUnscoped(userId, kind, link));
   }
 
   private async hasUnreadNotificationUnscoped(userId: string, kind: string, link: string) {
@@ -1419,7 +1440,7 @@ export class DbStorage implements IStorage {
   // about a request, the patient about a prescription), so writing it is the server's job, not the
   // acting person's: it runs with system access and returns the row it wrote.
   async createNotification(data: InsertNotification) {
-    return runAsSystem(async () => {
+    return withScope("notify", async () => {
       const [row] = await db.insert(notifications).values(data).returning();
       return row;
     });
@@ -1742,7 +1763,8 @@ export class DbStorage implements IStorage {
     const [member] = await db
       .update(careCircleMembers)
       .set({ caregiverUserId, status: "active", respondedAt: new Date(), tokenHash: null })
-      .where(eq(careCircleMembers.id, id))
+      // Only a still-open invitation can be accepted, in the same statement: of two simultaneous accepts of one link, exactly one wins.
+      .where(and(eq(careCircleMembers.id, id), eq(careCircleMembers.status, "invited")))
       .returning();
     return member;
   }

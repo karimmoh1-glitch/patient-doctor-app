@@ -21,7 +21,7 @@ import crypto from "crypto";
  * sign-in tables, not a patient's medicines, messages or visits. "server" is the old, unrestricted system identity, kept for the code that
  * acts for an already-authenticated person with an explicit permission check (and for tests); nothing reachable without signing in uses it.
  */
-export const SYSTEM_SCOPES = ["server", "auth", "invite", "session", "scheduler", "webhook", "ratelimit"] as const;
+export const SYSTEM_SCOPES = ["server", "auth", "invite", "session", "scheduler", "webhook", "ratelimit", "staff", "review", "mfa", "notify", "contact", "audit", "blocks", "ops", "mail", "pairing", "verify"] as const;
 export type SystemScope = (typeof SYSTEM_SCOPES)[number];
 
 export interface SignedIdentity {

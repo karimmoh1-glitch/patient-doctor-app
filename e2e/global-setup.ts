@@ -33,4 +33,13 @@ export default async function globalSetup() {
     env: { ...process.env, DATABASE_URL: E2E_DB, NODE_ENV: "development", MFA_ENCRYPTION_KEY: E2E_MFA_KEY },
     stdio: "pipe",
   });
+  // `npm run test:e2e:noserver`: the database REFUSES the unrestricted "server" scope, so every browser flow below must work on the narrow scopes alone.
+  if (process.env.E2E_SERVER_SCOPE_OFF === "1") {
+    const owner = new pg.Pool({ connectionString: E2E_DB });
+    try {
+      await owner.query("UPDATE app_identity_config SET allow_server_scope = false, updated_at = now()");
+    } finally {
+      await owner.end();
+    }
+  }
 }

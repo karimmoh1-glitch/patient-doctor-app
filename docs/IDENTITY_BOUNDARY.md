@@ -106,15 +106,21 @@ grant in turn and re-ran the scenario files: see the list at the end of this sec
 
 **Leave-one-out result.** Every (table, scope) entry of the matrix was removed one at a time from a scratch database and the behavioural tests re-run. The first draft had 46 entries. Nine were dropped at once because the whole suite passed without them (`notifications`/`auth`; `email_deliveries`, `notifications`, `mfa_recovery_codes`, `pairing_requests`, `doctor_profiles`/`invite`; `audit_logs`, `doctor_profiles`, `pairing_requests`/`scheduler`). The other 37 were tested one at a time: **33 were needed** (removing any one made a scenario, a route test or the best-effort-write detector fail) and **4 were not and were removed**: `doctor_profiles`/`auth`, `health_entries`/`scheduler`, `prescription_events`/`scheduler`, `user_mfa`/`invite`. The matrix above is the 33 that remain. The detector matters: audit entries, the e-mail ledger and notices swallow their own failures, so a removed grant would otherwise pass silently (`AVELA_FAIL_ON_SWALLOWED=1` makes such a log line fail the test that caused it). **Limit:** a grant is "needed" only if some test exercises it; a code path no test reaches could still need one, and would fail closed (an error or a missing audit row), not open. That is why the scenario files are part of the suite.
 
+### Mission 5: the `server` scope is gone from the application
+
+Every code path that used the unrestricted scope after a signed-in person's own permission check now has a scope of its own (`staff`, `review`, `mfa`, `pairing`, `mail`, `notify`, `verify`, `ops`, `audit`, `blocks`, `contact`:
+migration 0029, table and operation lists in `docs/SERVER_SCOPE_INVENTORY.md`), the application calls `runAsSystem` in three places only (session lookup, rate limiter, the route middleware), and
+`npm run identity:enforce -- server-scope off` makes the database refuse `server` for good. The whole browser suite passes with it refused (`npm run test:e2e:noserver`).
+
 ### Remaining trust boundary
 
-1. **The `server` scope is still broad.** About 90 call sites (organization staff services 29, `storage.ts` 18, invitations/credentials/e-mail services) still run unscoped after an
-   authenticated person's own permission check. An injection *inside one of those code paths* would run as `server`. Nothing reachable without signing in runs as `server`
-   (checked by `tests/systemScopes.test.ts`). The next narrowing is scopes for `staff` (organizations), `admin` and `maintenance`, each a matrix like the above; it is mechanical now and
-   still open (decision D-03b, narrowed but **not closed**).
+1. **Three scopes are still authorised in code by the acting person, not in the database.** `staff` (organizations), `review` (administrators' decisions) and `mfa` (second-factor state) are limited to
+   named tables and operations, but the assertion names a scope, not the person acting, so the database cannot say "only the patients of *my* organization" or "only if the caller is an administrator".
+   The code does (`orgs.access`, `adminOnly`, the challenge token), and tests attack it from outside. Closing this means putting the acting person in the assertion (`system.staff:<userId>`) and letting
+   policies join `org_memberships` / `app_is_admin()`; recommended, not done (D-03c). D-03b ("replace the broad system capability") is therefore **narrowed and enforceable, not closed**.
 2. **The application process is trusted with the key.** Mitigated by custody and rotation (`tests/identityKeyRotation.test.ts`: both keys verify while both are registered, retiring the old one
-   locks nobody out, re-registering an id replaces its value, neither the key nor a signed identity appears in console output or responses), not removed.
+   locks nobody out, re-registering an id replaces its value, neither the key nor a signed identity appears in console output or responses), not removed. Code execution there can still sign any scope or person.
 3. **Per-request, not per-statement, intent.** A signed person identity lets that person's request read everything the policies allow that person; the policies, not the
    signature, decide what that is.
-4. **Measured only against a local PostgreSQL 16, with a small shared pool of the application's own (`tests/poolConcurrency.test.ts`, `identityBoundary.test.ts`), not a real PgBouncer.** The production pooler
-   (PgBouncer transaction mode in front of PostgreSQL 18) has not been exercised with these tests; no pooler is installed on the development machine and installing one was not authorised; that is the Neon safe-branch step in `docs/RELEASE_PROCEDURE.md` §1.3 (BLOCKED on the owner's `npx neonctl auth`).
+4. **Not yet measured through the real pooler** (PgBouncer transaction mode in front of PostgreSQL 18). Local tests use PostgreSQL 16 and the application's own small shared pool. The provider rehearsal
+   (`docs/RELEASE_PROCEDURE.md` §1.3, or `.github/workflows/neon-rehearsal.yml`) is BLOCKED on the owner: the Neon CLI is not signed in and plain TCP to Neon is blocked from the owner's laptop.

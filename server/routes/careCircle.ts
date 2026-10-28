@@ -192,19 +192,26 @@ router.post("/invitations/accept/:token", systemAccess("invite"), inviteRedeemLi
     }
   } else {
     const passwordHash = await bcrypt.hash(parsed.data.password, 10);
-    user = await storage.createUser({
-      name: member.name,
-      email: member.inviteEmail,
-      passwordHash,
-      role: "caregiver",
-      state: null,
-      phone: null,
-      deactivatedAt: null,
-      emailVerifiedAt: null,
-    });
+    try {
+      user = await storage.createUser({
+        name: member.name,
+        email: member.inviteEmail,
+        passwordHash,
+        role: "caregiver",
+        state: null,
+        phone: null,
+        deactivatedAt: null,
+        emailVerifiedAt: null,
+      });
+    } catch (err: any) {
+      // Someone redeemed the same link a moment ago and the account now exists.
+      if (err?.code === "23505" || err?.cause?.code === "23505") return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
+      throw err;
+    }
   }
 
-  await storage.acceptCareCircleInvite(member.id, user.id);
+  const accepted = await storage.acceptCareCircleInvite(member.id, user.id);
+  if (!accepted) return res.status(404).json({ message: "This invite link is invalid, has expired, or has already been used" });
   await logAudit({ actorUserId: user.id, action: "care_circle.accepted", targetType: "care_circle_member", targetId: member.id });
 
   await issueSession(req, res, user, { user: { id: user.id, name: user.name, email: user.email, role: user.role, state: user.state } });

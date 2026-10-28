@@ -3,7 +3,7 @@ import { makeLimiter, userKey } from "../middleware/rateLimit";
 import { z } from "zod";
 import { tellPatientAboutOrganizationStaff } from "../services/orgs";
 import { storage } from "../storage";
-import { runAsSystem } from "../dbContext";
+import { withScope } from "../dbContext";
 import { requireApprovedDoctor } from "../middleware/doctor";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logAudit, logAuditStrict } from "../services/auditService";
@@ -67,7 +67,7 @@ router.post("/", requireAuth, requireRole("patient"), requestLimiter, async (req
 
   if (doctor.userId) {
     // Writing to the clinician is the server's doing (their address is private to them and the server), not a read by the patient.
-    const contacts = await runAsSystem(() => storage.getUserContacts([doctor.userId!, patientUserId]));
+    const contacts = await withScope("contact", () => storage.getUserContacts([doctor.userId!, patientUserId]));
     const doctorUser = contacts.get(doctor.userId);
     const patientUser = contacts.get(patientUserId);
     if (doctorUser && patientUser) {
@@ -237,7 +237,7 @@ async function respondToPairing(req: any, res: any, status: "accepted" | "declin
   await logAudit({ actorUserId: userId, action: `pairing.${status}`, targetType: "pairing_request", targetId: pairing.id });
 
   if (status === "accepted") {
-    const patient = (await runAsSystem(() => storage.getUserContacts([pairing.patientUserId]))).get(pairing.patientUserId);
+    const patient = (await withScope("contact", () => storage.getUserContacts([pairing.patientUserId]))).get(pairing.patientUserId);
     if (patient) {
       sendPairingAcceptedEmail(patient.email, patient.name, doctorProfile.name, normalizeLang(patient.language)).catch(() => {});
     }
