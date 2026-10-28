@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import ConfirmAction from "@/components/confirm-action";
+import { EnvironmentNotice } from "@/components/environment-notice";
 import Logo from "@/components/logo";
 import AccountControls from "@/components/account-controls";
 import { useTextSize, type TextSize } from "@/hooks/use-text-size";
@@ -192,6 +193,7 @@ function TopBar({ user, onOpenSettings, large }: { user: AuthUser; onOpenSetting
   const clinical = user.role === "patient" || (user.role === "doctor" && user.doctorStatus === "approved");
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur-sm">
+      <EnvironmentNotice />
       <div className={cn("mx-auto flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 sm:px-5", large ? "max-w-xl" : "max-w-6xl")}>
         <Logo hideTextOnPhone className="me-auto" />
         {/* Emergency and Help are always one tap away. On a phone they get a full-width row of two big buttons. */}

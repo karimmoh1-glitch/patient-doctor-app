@@ -3,6 +3,7 @@ import { Phone } from "lucide-react";
 import { useEmergency } from "@/lib/emergency";
 import { useI18n } from "@/lib/i18n";
 import { useAppConfig } from "@/hooks/use-app-config";
+import { EnvironmentNotice } from "@/components/environment-notice";
 import Logo from "@/components/logo";
 import LanguageSwitcher from "@/components/language-switcher";
 import { Ltr } from "@/components/ltr";
@@ -44,6 +45,7 @@ export default function PublicLayout({ children, narrow = false, wide = false }:
         </p>
       </div>
       <header className="border-b border-border bg-card/95">
+        <EnvironmentNotice />
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2">
           <Logo />
           <nav aria-label={t("public.nav")} className="order-3 flex w-full items-center justify-center gap-1 sm:order-none sm:w-auto sm:flex-1 sm:justify-center">

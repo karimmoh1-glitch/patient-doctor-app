@@ -38,7 +38,8 @@
     "identity:enforce": "tsx script/identity-keys.ts enforce",
     "mfa:rekey": "tsx script/rekey-mfa.ts",
     "password:reset": "tsx script/reset-password.ts",
-    "erase:user": "tsx script/erase-user.ts"
+    "erase:user": "tsx script/erase-user.ts",
+    "seed:staging": "tsx script/seed-staging.ts"
   },
   "dependencies": {
     "@fontsource-variable/figtree": "^5.3.0",

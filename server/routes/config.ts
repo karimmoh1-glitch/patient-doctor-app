@@ -14,6 +14,8 @@ router.get("/", async (_req, res) => {
   res.json({
     // Numbers by country, with where they came from. In production they are served only after a person reviewed them.
     emergency: publicEmergency(),
+    // A line every screen shows when the host sets one (a test deployment: "synthetic data only"). Plain text, no markup.
+    environmentNotice: (process.env.ENVIRONMENT_NOTICE ?? "").trim().slice(0, 300) || null,
     features: {
       // Real, configured capabilities only. Add a flag here when — and only
       // when — an integration is wired up and tested.
