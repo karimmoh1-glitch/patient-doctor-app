@@ -51,6 +51,15 @@ npx neonctl branches delete rehearse-$(date +%Y%m%d) --project-id <id>
 
 What this answers that the local rehearsal cannot: that the SQL runs on the provider's PostgreSQL major version; that the pooler does not cross identities with the real application pool; the migration's wall-clock time and locks; and the price of the two extra round trips per statement against a remote database.
 
+### 1.3b What Mission 6 already measured on the real provider (test site; not a substitute for §1.3 on production data)
+
+On an isolated Neon database (PostgreSQL 18.6, pooled endpoint, restricted role, enforcement on, unrestricted scope refused), with synthetic data: the Vercel build applied 0000-0029 in 2.4 s; fingerprint `ae523c8fa120`;
+`pooler:check` (with its positive control, `POOLER_CONTROL_REQUIRED=1 POOLER_CHECK_SERVER_SCOPE=refused`) 2,644 requests, 0 under the wrong identity, the control read another client's value 113/120; the deployed application under
+1,503 interleaved requests from 12 users: 0 crossings, 0 server errors. `ops/staging-journeys.ts` 37/37. Practical notes learned there: (a) a **new** Vercel project can refuse a deploy with "the commit author doesn't have permission"
+when the CLI attaches git metadata from a worktree; deploying an exported tree (`git archive <sha> | tar -x -C <dir>`) avoids it; (b) Vercel validates `functions` before building, and `api/index.js` is a gitignored build output, so an exported tree needs
+a placeholder file at that path (the build overwrites it); (c) the auth rate limiter (about 10 attempts per network per window) throttles scripts: do not probe it in a loop; (d) after `server-scope off`, a request that asks for the
+unrestricted scope is *nobody*, which is the correct and expected answer.
+
 ### 1.4 What the local rehearsal already shows (`ops/release-rehearsal.sh`, scratch database, synthetic data, real servers)
 
 Run it again on any machine with PostgreSQL: `bash ops/release-rehearsal.sh`. It starts the **new** code on production's **old** schema (it refuses to serve: sign-in 500, no token, the log says the database does not recognise
